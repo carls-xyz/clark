@@ -296,12 +296,36 @@ window.addEventListener("hashchange", () => {
   showView();
 });
 
-// Petit écran : la barre de gauche s'ouvre par-dessus, se ferme en choisissant un fil.
+// Barre de gauche. Grand écran : entière, réduite (les icônes) ou fermée, gardé sur cet appareil.
+// Petit écran : un tiroir par-dessus la page, refermé dès qu'on choisit quelque chose dedans.
+const narrow = () => matchMedia("(max-width: 900px)").matches;
+function setNav(mode) {
+  if (narrow()) {
+    if (mode === "closed") $("#app").removeAttribute("data-drawer");
+    return;
+  }
+  $("#app").dataset.nav = mode;
+  try {
+    localStorage.setItem("clark.nav", mode);
+  } catch {}
+}
+try {
+  const saved = localStorage.getItem("clark.nav");
+  if (saved === "rail" || saved === "closed") $("#app").dataset.nav = saved;
+} catch {}
+
 document.addEventListener("click", (e) => {
-  if (e.target.closest("[data-drawer]")) {
+  const set = e.target.closest("[data-nav-set]");
+  if (set) return setNav(set.dataset.navSet);
+  // Le bouton menu seulement : #app porte aussi data-drawer quand le tiroir est ouvert.
+  if (e.target.closest("button[data-drawer]")) {
+    // Grand écran, barre fermée : le bouton menu la rouvre en entier.
+    if (!narrow()) return setNav("full");
     $("#app").setAttribute("data-drawer", "open");
     $("#threads a")?.focus();
   } else if (e.target.closest("[data-drawer-close]")) $("#app").removeAttribute("data-drawer");
+  // Un lien ou une ligne choisi dans le tiroir le referme, même si l'adresse ne change pas.
+  else if (narrow() && e.target.closest("#sidebar a, #sidebar .conv-row, #sidebar #palette-open")) $("#app").removeAttribute("data-drawer");
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && $("#app").hasAttribute("data-drawer")) $("#app").removeAttribute("data-drawer");

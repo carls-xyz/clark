@@ -23,6 +23,9 @@
             <span class="mark" aria-hidden="true"></span>
             <span class="status" id="status" data-state="connecting"><span class="visually-hidden">Connexion…</span></span>
           </a>
+          <button type="button" class="rail-btn nav-unfold" data-nav-set="full" title="Déplier la barre" aria-label="Déplier la barre">
+            <svg viewBox="0 0 16 16" width="17" height="17" aria-hidden="true"><path d="M6.5 4 10.5 8l-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none" /></svg>
+          </button>
           <a class="rail-btn" href="#conversation" data-view="chat" title="Conversations" aria-label="Conversations">
             <svg viewBox="0 0 16 16" width="17" height="17" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" fill="none" /></svg>
           </a>
@@ -51,6 +54,13 @@
             <button type="button" class="list-new" id="new-conversation" title="Nouvelle conversation" aria-label="Nouvelle conversation">
               <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none" /></svg>
             </button>
+            <!-- Réduire (les icônes seules) ou fermer la barre ; sur téléphone, Fermer referme le tiroir. -->
+            <button type="button" class="list-new nav-fold" data-nav-set="rail" title="Réduire la barre" aria-label="Réduire la barre">
+              <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M9.5 4 5.5 8l4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none" /></svg>
+            </button>
+            <button type="button" class="list-new" data-nav-set="closed" title="Fermer la barre" aria-label="Fermer la barre">
+              <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="m4.5 4.5 7 7m0-7-7 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none" /></svg>
+            </button>
           </div>
           <nav class="threads" id="threads" aria-label="Conversations et fils"></nav>
           <div class="sidebar-foot">
@@ -62,7 +72,7 @@
 
       <main class="view view-chat" id="view-chat" aria-labelledby="t-chat">
         <header class="view-head">
-          <button type="button" class="menu-btn" data-drawer aria-label="Ouvrir la liste des fils" aria-controls="sidebar">
+          <button type="button" class="menu-btn" data-drawer aria-label="Ouvrir la barre de gauche" aria-controls="sidebar">
             <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /></svg>
           </button>
           <h1 class="view-title chat-title" tabindex="-1" id="t-chat">Conversation</h1>
@@ -132,7 +142,7 @@
 
       <main class="view page" id="view-detail" aria-labelledby="t-detail" hidden>
         <header class="view-head">
-          <button type="button" class="menu-btn" data-drawer aria-label="Ouvrir la liste des fils" aria-controls="sidebar">
+          <button type="button" class="menu-btn" data-drawer aria-label="Ouvrir la barre de gauche" aria-controls="sidebar">
             <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /></svg>
           </button>
           <h1 class="view-title" tabindex="-1" id="t-detail"></h1>
@@ -144,7 +154,7 @@
 
       <main class="view page" id="view-inbox" aria-labelledby="t-inbox" hidden>
         <header class="view-head">
-          <button type="button" class="menu-btn" data-drawer aria-label="Ouvrir la liste des fils" aria-controls="sidebar">
+          <button type="button" class="menu-btn" data-drawer aria-label="Ouvrir la barre de gauche" aria-controls="sidebar">
             <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /></svg>
           </button>
           <h1 class="view-title" tabindex="-1" id="t-inbox">Activité</h1>
@@ -159,7 +169,7 @@
 
       <main class="view page" id="view-settings" aria-labelledby="t-settings" hidden>
         <header class="view-head">
-          <button type="button" class="menu-btn" data-drawer aria-label="Ouvrir la liste des fils" aria-controls="sidebar">
+          <button type="button" class="menu-btn" data-drawer aria-label="Ouvrir la barre de gauche" aria-controls="sidebar">
             <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /></svg>
           </button>
           <h1 class="view-title" tabindex="-1" id="t-settings">Réglages</h1>

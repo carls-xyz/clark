@@ -5581,3 +5581,60 @@ ui-menu-separator {
 .auto-row .voice-modes {
   margin: 0;
 }
+
+/* ── Barre de gauche : entière, réduite (icônes seules) ou fermée ─────── */
+
+.nav-unfold {
+  display: none;
+}
+
+@media (min-width: 901px) {
+  .app[data-nav="rail"] {
+    grid-template-columns: 53px minmax(0, 1fr);
+  }
+
+  .app[data-nav="rail"] .sidebar {
+    grid-template-columns: 52px;
+  }
+
+  .app[data-nav="rail"] .list-pane {
+    display: none;
+  }
+
+  .app[data-nav="rail"] .nav-unfold {
+    display: grid;
+  }
+
+  .app[data-nav="closed"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app[data-nav="closed"] .sidebar {
+    display: none;
+  }
+
+  /* Fermée : le bouton menu de l'en-tête la rouvre. */
+  .app[data-nav="closed"] .menu-btn {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    margin-left: -8px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .app[data-nav="closed"] .menu-btn:hover {
+    background: var(--surface-2);
+  }
+}
+
+/* Téléphone : pas de « réduire » (le tiroir se ferme tout entier). */
+@media (max-width: 900px) {
+  .nav-fold {
+    display: none;
+  }
+}
