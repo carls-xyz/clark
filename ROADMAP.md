@@ -1,0 +1,35 @@
+# Clark : objectifs
+
+Mis à jour le 20 novembre 2026. Ce qui est fait est décrit dans le README ; ici, ce qui reste.
+
+## 1. Branchements (Charles)
+
+- [ ] Google : créer le client OAuth (Google Cloud), puis `npm run google:login` dans ce dossier. Prévu le 20/11.
+- [ ] Codex : Réglages › Moteurs › Connecter Codex. Prévu le 20/11.
+- [ ] iMessage : Réglages Système › Confidentialité › Accès complet au disque pour `node`.
+- [ ] Fusionner la PR portfolio #1 (animations des dossiers) après test de l'aperçu sur Safari.
+
+## 2. Recette réelle
+
+- [ ] Clark confie une mission à un agent (delegate), attend la réponse, fait la synthèse.
+- [ ] Une décision prise seul en journée (tour de veille), puis le résumé de 21 h.
+- [ ] La relecture de mémoire propose une action (pas seulement des souvenirs).
+- [ ] Accepter une tâche de code lance les tests du projet ; un échec déclenche une correction.
+- [ ] Un conflit entre deux sous-tâches est résolu par un agent, puis la réunion passe.
+- [ ] Après Google : brief du matin avec mails et agenda, relance par mail validée par bouton.
+- [ ] Après Codex : moteur de secours en cas de quota, regard croisé (Codex rédige, Claude relit).
+
+## 3. Fiabilité
+
+- [x] Clark sous git (sans secrets ni données personnelles).
+- [ ] Dépôt GitHub privé pour la sauvegarde du code (à décider par Charles).
+- [ ] Ménage des sauvegardes de base dans `data/`.
+- [ ] Découper `src/web/app.js` (environ 5 500 lignes) en modules.
+- [ ] API locale : joignable par tout programme du Mac (accepté pour l'instant, à revoir avec le VPS).
+
+## 4. Chantiers suivants (chemin « à la Emilien »)
+
+- [ ] VPS + Tailscale : Clark allumé 24 h/24, même Mac éteint. Prérequis de WhatsApp (voie officielle).
+- [ ] Auto-amélioration : Clark propose ses propres corrections en PR, relues par Charles.
+- [ ] Réseaux sociaux, suite : Instagram, Reddit.
+- [ ] Idées d'OpenBot restantes : schémas dans la conversation, fichiers produits en cartes.
