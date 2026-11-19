@@ -1,0 +1,534 @@
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { chmodSync, existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { after, test } from "node:test";
+import type { Config } from "../src/config.ts";
+import type { executeTask, RunOptions } from "../src/core/agent.ts";
+import { Conversation } from "../src/core/conversation.ts";
+import { createHub, OWNER_CHAT } from "../src/core/hub.ts";
+import { acceptDevTask, addProject, devPatch, discardDevTask, retouchDevTask, retryDevTask, runDevTests, startDevTask } from "../src/dev/runner.ts";
+import { onStop } from "../src/core/stops.ts";
+import { Store } from "../src/memory/store.ts";
+import { TaskJournal } from "../src/tasks/journal.ts";
+
+const root = mkdtempSync(join(tmpdir(), "clark-dev-"));
+// Les copies des tests vont dans le dossier temporaire, pas dans le vrai dossier de travail.
+process.env.CLARK_DEV_DIR = join(root, "worktrees");
+after(() => rmSync(root, { recursive: true, force: true }));
+const sh = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+
+/** Un petit dépôt : main avec un fichier, et un crochet pre-commit piégé. */
+function repo(name: string) {
+  const dir = join(root, name);
+  execFileSync("mkdir", ["-p", dir]);
+  sh(dir, "init", "-q", "-b", "main");
+  sh(dir, "config", "user.email", "test@example.com");
+  sh(dir, "config", "user.name", "Test");
+  writeFileSync(join(dir, "app.txt"), "ligne 1\n");
+  sh(dir, "add", ".");
+  sh(dir, "commit", "-q", "-m", "départ");
+  writeFileSync(join(dir, ".git/hooks/pre-commit"), `#!/bin/sh\ntouch ${join(root, `hook-${name}`)}\n`);
+  chmodSync(join(dir, ".git/hooks/pre-commit"), 0o755);
+  return dir;
+}
+
+const config: Config = {
+  telegram: null,
+  hasApiKey: true,
+  engine: "claude",
+  codexModel: null,
+  engineAuto: false,
+  heartbeatMinutes: 0,
+  roleEngines: {},
+  webPort: 0,
+  model: "m",
+  maxUsdPerTask: 1,
+  maxUsdPerDay: 5,
+  briefHour: null,
+};
+
+const until = async (check: () => boolean, ms = 20_000) => {
+  const end = Date.now() + ms;
+  while (!check() && Date.now() < end) await new Promise((r) => setTimeout(r, 20));
+  assert.ok(check(), "condition jamais atteinte");
+};
+
+/** Un faux agent : modifie et crée des fichiers dans son dossier de travail (opts.cwd). */
+function setup(agent: (cwd: string, prompt: string) => { status?: "done" | "failed" } = () => ({})) {
+  const store = new Store(":memory:");
+  const journal = new TaskJournal(store.db);
+  const conversation = new Conversation(store.db);
+  const runs: { engine: string; cwd?: string; prompt: string; resume?: string; model?: string | null; effort?: string | null }[] = [];
+  const fake = (engine: string) =>
+    (async (deps: any, taskId: number, opts: RunOptions) => {
+      runs.push({ engine, cwd: opts.cwd, prompt: opts.prompt, resume: opts.resume, model: opts.model, effort: opts.effort });
+      const r = agent(opts.cwd!, opts.prompt);
+      deps.store.setSession(deps.journal.get(taskId).chat_id, `session-${taskId}`);
+      const status = r.status ?? "done";
+      deps.journal.finish(taskId, status, status === "done" ? "J'ai ajouté hello.txt et complété app.txt." : "Erreur de l'agent", 0);
+      return { text: "fini", costUsd: 0, status };
+    }) as unknown as typeof executeTask;
+  const hub = createHub({ config, store, journal, conversation }, { execute: fake("claude"), executors: { claude: fake("claude"), codex: fake("codex") } });
+  return { store, journal, conversation, hub, runs };
+}
+
+test("projet : un vrai dépôt git, à sa racine, avec une branche qui existe", async () => {
+  const dir = repo("valide");
+  const { hub } = setup();
+  assert.equal((await addProject(hub, { name: "Pas Bon", path: dir }) as any).field, "name");
+  assert.equal((await addProject(hub, { name: "x", path: "relatif/chemin" }) as any).field, "path");
+  assert.match((await addProject(hub, { name: "x", path: root }) as any).error, /pas un dépôt git/);
+  execFileSync("mkdir", ["-p", join(dir, "sous")]);
+  assert.match((await addProject(hub, { name: "x", path: join(dir, "sous") }) as any).error, /racine du dépôt/);
+  assert.match((await addProject(hub, { name: "x", path: dir, baseBranch: "nope" }) as any).error, /Branche introuvable/);
+  const ok = await addProject(hub, { name: "valide", path: dir });
+  assert.ok(ok.ok);
+  assert.equal(hub.deps.store.dev.project((ok as any).id)!.base_branch, "main", "branche par défaut détectée");
+  assert.match((await addProject(hub, { name: "autre", path: dir }) as any).error, /déjà un projet/);
+});
+
+test("tâche dev : l'agent travaille dans sa copie, Charles relit le diff, accepte → commit sur la branche, sans crochet", async () => {
+  const dir = repo("site");
+  const { hub, store, conversation, runs } = setup((cwd) => {
+    writeFileSync(join(cwd, "hello.txt"), "bonjour\n");
+    writeFileSync(join(cwd, "app.txt"), "ligne 1\nligne 2\n");
+    return {};
+  });
+  const p = (await addProject(hub, { name: "site", path: dir, testCommand: "grep -q 'ligne 2' app.txt" })) as any;
+  const r = startDevTask(hub, { projectId: p.id, instruction: "Ajoute un fichier hello et complète app.txt", engine: "codex" }) as any;
+  await until(() => store.dev.get(r.id)!.status === "review");
+  const t = store.dev.get(r.id)!;
+
+  assert.equal(runs[0].engine, "codex", "le moteur choisi pour la tâche");
+  assert.equal(runs[0].cwd, t.worktree, "l'agent travaille dans la copie");
+  assert.match(runs[0].prompt, /Ne modifie que les fichiers de cette copie/);
+  assert.equal(readFileSync(join(dir, "app.txt"), "utf8"), "ligne 1\n", "le dépôt d'origine n'est pas touché");
+  const stat = JSON.parse(t.diff_stat!);
+  assert.deepEqual(stat.files.map((f: any) => [f.path, f.status]).sort(), [["app.txt", "modifié"], ["hello.txt", "ajouté"]]);
+  assert.match((await devPatch(hub, r.id))!, /\+bonjour/);
+  assert.ok(conversation.recent(OWNER_CHAT).some((m) => /Tâche dev #\d+ prête à relire \(site\).*2 fichiers \(\+2 −0\)/.test(m.text)));
+
+  assert.equal(await runDevTests(hub, r.id), "done");
+  assert.equal(JSON.parse(store.dev.get(r.id)!.tests!).ok, true);
+
+  assert.equal(await acceptDevTask(hub, r.id), "done");
+  assert.equal(await acceptDevTask(hub, r.id), "already", "une seule fois");
+  const done = store.dev.get(r.id)!;
+  assert.equal(done.status, "accepted");
+  assert.ok(!existsSync(done.worktree), "copie retirée");
+  assert.equal(sh(dir, "show", `${t.branch}:hello.txt`), "bonjour", "commit sur la branche clark/…");
+  assert.equal(sh(dir, "rev-parse", "--abbrev-ref", "HEAD"), "main");
+  assert.equal(readFileSync(join(dir, "app.txt"), "utf8"), "ligne 1\n", "main reste intacte");
+  assert.ok(!existsSync(join(root, "hook-site")), "le crochet pre-commit du dépôt n'a pas tourné");
+});
+
+test("tâche dev : retouche dans la même copie et la même session, puis Jeter supprime copie et branche", async () => {
+  const dir = repo("api");
+  let round = 0;
+  const { hub, store, runs } = setup((cwd) => {
+    writeFileSync(join(cwd, "app.txt"), round++ === 0 ? "v1\n" : "v2\n");
+    return {};
+  });
+  const p = (await addProject(hub, { name: "api", path: dir })) as any;
+  const r = startDevTask(hub, { projectId: p.id, instruction: "Change le contenu de app.txt" }) as any;
+  await until(() => store.dev.get(r.id)!.status === "review");
+  assert.equal(retouchDevTask(hub, r.id, "Mets v2 à la place"), "done");
+  assert.equal(retouchDevTask(hub, r.id, "encore"), "already", "pas deux retouches en même temps");
+  await until(() => store.dev.get(r.id)!.status === "review" && store.dev.get(r.id)!.rounds === 2);
+  assert.match(runs[1].prompt, /^Retouche demandée par Charles/);
+  assert.equal(runs[1].cwd, runs[0].cwd);
+  assert.ok(runs[1].resume?.startsWith("session-"), "reprend la session de l'agent");
+  assert.match((await devPatch(hub, r.id))!, /\+v2/);
+
+  const t = store.dev.get(r.id)!;
+  assert.equal(await discardDevTask(hub, r.id), "done");
+  assert.ok(!existsSync(t.worktree));
+  assert.equal(sh(dir, "branch", "--list", t.branch), "", "branche supprimée");
+  assert.equal(store.dev.removeProject(p.id), "done", "plus de tâche ouverte : le projet se retire");
+});
+
+test("tâche dev : un agent qui échoue laisse la tâche en échec, retouchable ; tests en échec signalés", async () => {
+  const dir = repo("echec");
+  let fail = true;
+  const { hub, store } = setup(() => ({ status: fail ? "failed" : "done" }));
+  const p = (await addProject(hub, { name: "echec", path: dir, testCommand: "exit 3" })) as any;
+  const r = startDevTask(hub, { projectId: p.id, instruction: "Une tâche qui va échouer d'abord" }) as any;
+  await until(() => store.dev.get(r.id)!.status === "failed");
+  assert.match(store.dev.get(r.id)!.error!, /pas fini/);
+  assert.equal(store.dev.removeProject(p.id), "busy");
+  fail = false;
+  retouchDevTask(hub, r.id, "Réessaie");
+  await until(() => store.dev.get(r.id)!.status === "review");
+  await runDevTests(hub, r.id);
+  const tests = JSON.parse(store.dev.get(r.id)!.tests!);
+  assert.equal(tests.ok, false);
+  assert.equal(tests.code, 3);
+  assert.ok(startDevTask(hub, { projectId: 999, instruction: "projet qui n'existe pas" }).ok === false);
+});
+
+// ── Deuxième passe : groupes en parallèle, réunion, pull request ──
+
+const { parseDevPlan, startDevGroup, integrateGroup, openPullRequest, prDraft, resolveGate } = await import("../src/dev/groups.ts");
+
+test("plan dev : JSON lu dans la réponse, 1 à 5 sous-tâches, chevauchements signalés", () => {
+  const plan = parseDevPlan('Voici le plan :\n{"tasks":[{"title":"CSS","instruction":"Fonce le texte secondaire","files":["style.css"]},{"title":"HTML","instruction":"Ajoute un titre de section","files":["index.html","style.css"]}]}');
+  assert.deepEqual(plan!.tasks.map((t) => t.title), ["CSS", "HTML"]);
+  assert.deepEqual(plan!.overlap, ["style.css"]);
+  assert.equal(parseDevPlan("pas de JSON"), null);
+  assert.equal(parseDevPlan('{"tasks":[]}'), null);
+  assert.equal(parseDevPlan('{"tasks":[{"instruction":"court"}]}'), null);
+  assert.equal(parseDevPlan(`{"tasks":${JSON.stringify(Array(6).fill({ instruction: "une consigne assez longue" }))}}`), null);
+});
+
+/** Faux agents : celui du plan rend le plan donné ; chaque sous-tâche écrit son fichier. */
+function groupSetup(plan: object, write: (cwd: string, prompt: string) => void) {
+  const store = new Store(":memory:");
+  const journal = new TaskJournal(store.db);
+  const conversation = new Conversation(store.db);
+  let running = 0;
+  let peak = 0;
+  const execute = (async (deps: any, taskId: number, opts: RunOptions) => {
+    running++;
+    peak = Math.max(peak, running);
+    await new Promise((r) => setTimeout(r, 60));
+    let text = "Fait.";
+    if (opts.prompt.startsWith("[Plan dev")) {
+      assert.equal(opts.access, "read", "l'agent de plan ne fait que lire");
+      text = JSON.stringify(plan);
+    } else write(opts.cwd!, opts.prompt);
+    running--;
+    deps.journal.finish(taskId, "done", text, 0);
+    return { text, costUsd: 0, status: "done" };
+  }) as unknown as typeof executeTask;
+  const hub = createHub({ config, store, journal, conversation }, { execute });
+  return { store, hub, conversation, peak: () => peak };
+}
+
+test("groupe : plan, sous-tâches en parallèle (2 au plus), puis réunion sur une branche", async () => {
+  const dir = repo("groupe");
+  const plan = {
+    tasks: [
+      { title: "CSS", instruction: "Écris le fichier a.txt avec A", files: ["a.txt"] },
+      { title: "HTML", instruction: "Écris le fichier b.txt avec B", files: ["b.txt"] },
+      { title: "Doc", instruction: "Écris le fichier c.txt avec C", files: ["c.txt"] },
+    ],
+  };
+  const { store, hub, peak } = groupSetup(plan, (cwd, prompt) => {
+    const f = prompt.match(/fichier (\w\.txt) avec (\w)/)!;
+    writeFileSync(join(cwd, f[1]), `${f[2]}\n`);
+  });
+  const p = (await addProject(hub, { name: "groupe", path: dir })) as any;
+  const g = startDevGroup(hub, { projectId: p.id, instruction: "Ajoute trois fichiers au projet" }) as any;
+  await until(() => store.dev.groupTasks(g.id).length === 3 && store.dev.groupTasks(g.id).every((t) => t.status === "review"));
+  assert.equal(store.dev.group(g.id)!.status, "running");
+  assert.ok(peak() <= 2, `au plus 2 agents à la fois (vu : ${peak()})`);
+  assert.equal(store.dev.group(g.id)!.plan_worktree, null, "copie du plan retirée");
+  assert.equal(store.dev.list().length, 0, "les sous-tâches ne sont pas listées comme tâches seules");
+
+  assert.deepEqual(await integrateGroup(hub, g.id), { error: "Accepte ou jette d'abord chaque sous-tâche." });
+  const [a, b, c] = store.dev.groupTasks(g.id);
+  await acceptDevTask(hub, a.id);
+  await acceptDevTask(hub, b.id);
+  await discardDevTask(hub, c.id);
+  assert.equal(await integrateGroup(hub, g.id), "done");
+  const grp = store.dev.group(g.id)!;
+  assert.equal(grp.status, "integrated");
+  assert.equal(sh(dir, "show", `${grp.branch}:a.txt`), "A");
+  assert.equal(sh(dir, "show", `${grp.branch}:b.txt`), "B");
+  assert.throws(() => sh(dir, "show", `${grp.branch}:c.txt`), "la sous-tâche jetée n'y est pas");
+  assert.equal(sh(dir, "rev-parse", "--abbrev-ref", "HEAD"), "main");
+  assert.ok(!existsSync(join(root, "hook-groupe")), "aucun crochet n'a tourné pendant la réunion");
+  assert.equal(await integrateGroup(hub, g.id), "already");
+});
+
+test("groupe : deux sous-tâches qui changent le même fichier → un agent résout le conflit, puis la réunion passe", async () => {
+  const dir = repo("conflit");
+  const plan = { tasks: [{ title: "Un", instruction: "Mets UN dans app.txt" }, { title: "Deux", instruction: "Mets DEUX dans app.txt" }] };
+  const { store, hub } = groupSetup(plan, (cwd, prompt) => writeFileSync(join(cwd, "app.txt"), prompt.includes("UN dans") ? "UN\n" : "DEUX\n"));
+  const p = (await addProject(hub, { name: "conflit", path: dir })) as any;
+  const g = startDevGroup(hub, { projectId: p.id, instruction: "Change app.txt de deux façons" }) as any;
+  await until(() => store.dev.groupTasks(g.id).length === 2 && store.dev.groupTasks(g.id).every((t) => t.status === "review"));
+  for (const t of store.dev.groupTasks(g.id)) await acceptDevTask(hub, t.id);
+  assert.equal(await integrateGroup(hub, g.id), "done");
+  assert.match(store.dev.group(g.id)!.error ?? "", /Conflit sur app\.txt : un agent le résout/);
+  assert.equal(store.dev.group(g.id)!.status, "running");
+  // L'agent de résolution reçoit la fusion en conflit et retire les marqueurs.
+  await until(() => store.dev.groupTasks(g.id).some((t) => t.merge_branch && t.status === "review"));
+  const fix = store.dev.groupTasks(g.id).find((t) => t.merge_branch)!;
+  const resolved = readFileSync(join(fix.worktree, "app.txt"), "utf8");
+  assert.match(resolved, /^(UN|DEUX)\n$/, "plus de marqueur de conflit");
+  assert.equal(await acceptDevTask(hub, fix.id), "done");
+  assert.equal(await integrateGroup(hub, g.id), "done");
+  assert.equal(store.dev.group(g.id)!.status, "integrated");
+  assert.equal(sh(dir, "show", `${store.dev.group(g.id)!.branch}:app.txt`), resolved.trim(), "la résolution est gardée, sans refusionner les sous-tâches");
+});
+
+test("pull request : la branche part sur origin (sans crochet), gh reçoit le titre et le texte relus, une seule fois", async () => {
+  const dir = repo("pr");
+  const bare = join(root, "pr-remote.git");
+  execFileSync("git", ["init", "-q", "--bare", bare]);
+  sh(dir, "remote", "add", "origin", bare);
+  writeFileSync(join(dir, ".git/hooks/pre-push"), `#!/bin/sh\ntouch ${join(root, "hook-pr-push")}\nexit 1\n`);
+  chmodSync(join(dir, ".git/hooks/pre-push"), 0o755);
+  const ghLog = join(root, "gh-args.txt");
+  const fakeGh = join(root, "fake-gh");
+  writeFileSync(fakeGh, `#!/bin/sh\nif [ "$1" = "auth" ]; then exit 0; fi\nprintf '%s\\n' "$@" > ${ghLog}\necho https://github.com/exemple/pr/pull/7\n`);
+  chmodSync(fakeGh, 0o755);
+  process.env.CLARK_GH_BIN = fakeGh;
+
+  const { hub, store } = setup((cwd) => {
+    writeFileSync(join(cwd, "hello.txt"), "bonjour\n");
+    return {};
+  });
+  const p = (await addProject(hub, { name: "pr", path: dir })) as any;
+  const r = startDevTask(hub, { projectId: p.id, instruction: "Ajoute un fichier hello" }) as any;
+  await until(() => store.dev.get(r.id)!.status === "review");
+  assert.equal(prDraft(hub, "task", r.id), null, "pas de PR avant d'accepter");
+  await acceptDevTask(hub, r.id);
+  const draft = prDraft(hub, "task", r.id)!;
+  assert.match(draft.body, /Tâche dev #\d+, faite par Clark/);
+  assert.equal(await openPullRequest(hub, "task", r.id, { title: "Ajoute hello", body: "Texte relu par Charles" }), "done");
+  const t = store.dev.get(r.id)!;
+  assert.equal(t.pr_url, "https://github.com/exemple/pr/pull/7");
+  assert.ok(execFileSync("git", ["ls-remote", bare, t.branch], { encoding: "utf8" }).includes(t.branch), "branche envoyée sur origin");
+  assert.ok(!existsSync(join(root, "hook-pr-push")), "le crochet pre-push n'a pas tourné");
+  const args = readFileSync(ghLog, "utf8").split("\n");
+  assert.deepEqual(args.slice(0, 2), ["pr", "create"]);
+  assert.equal(args[args.indexOf("--title") + 1], "Ajoute hello");
+  assert.equal(args[args.indexOf("--body") + 1], "Texte relu par Charles");
+  assert.equal(args[args.indexOf("--base") + 1], "main");
+  assert.equal(await openPullRequest(hub, "task", r.id, { title: "Encore", body: "x" }), "already");
+  delete process.env.CLARK_GH_BIN;
+});
+
+
+test("plan dev : dépendances seulement vers des sous-tâches d'avant (pas de boucle), décisions lues, chevauchement ignoré si enchaîné", () => {
+  const plan = parseDevPlan(
+    JSON.stringify({
+      tasks: [
+        { title: "API", instruction: "Écris l'API de contact", files: ["api.ts"] },
+        { title: "Page", instruction: "Écris la page qui appelle l'API", files: ["page.ts", "api.ts"], after: [1, 1, 3, 0] },
+        { title: "Tests", instruction: "Écris les tests de la page", files: ["page.ts"], after: [2] },
+      ],
+      decisions: [
+        { question: "Toast ou fenêtre pour l'erreur ?", options: ["Toast", "Fenêtre", ""], tasks: [2, 9] },
+        { question: "x", options: ["a", "b"], tasks: [1] },
+        { question: "Une seule option possible ?", options: ["a"], tasks: [1] },
+      ],
+    }),
+  )!;
+  assert.deepEqual(
+    plan.tasks.map((t) => t.after),
+    [[], [0], [1]],
+    "« 3 » (plus loin) et « 0 » ignorés, doublons retirés",
+  );
+  assert.deepEqual(plan.overlap, [], "api.ts et page.ts sont touchés par des sous-tâches enchaînées : pas de conflit");
+  assert.deepEqual(plan.decisions, [{ question: "Toast ou fenêtre pour l'erreur ?", options: ["Toast", "Fenêtre"], tasks: [1] }]);
+});
+
+test("groupe : une sous-tâche attend celle dont elle dépend ET la décision de Charles, puis part de son travail", async () => {
+  const dir = repo("chaine");
+  const plan = {
+    tasks: [
+      { title: "API", instruction: "Écris le fichier api.txt avec API", files: ["api.txt"] },
+      { title: "Page", instruction: "Écris le fichier page.txt avec PAGE", files: ["page.txt"], after: [1] },
+      { title: "Doc", instruction: "Écris le fichier doc.txt avec DOC", files: ["doc.txt"] },
+    ],
+    decisions: [{ question: "Titre de la page ?", options: ["Contact", "Me contacter"], tasks: [2] }],
+  };
+  const prompts: string[] = [];
+  const { store, hub } = groupSetup(plan, (cwd, prompt) => {
+    prompts.push(prompt);
+    const f = prompt.match(/fichier (\w+\.txt) avec (\w+)/)!;
+    writeFileSync(join(cwd, f[1]), `${f[2]}\n`);
+  });
+  const p = (await addProject(hub, { name: "chaine", path: dir })) as any;
+  const g = startDevGroup(hub, { projectId: p.id, instruction: "Ajoute une API et sa page" }) as any;
+  await until(() => store.dev.groupTasks(g.id).filter((t) => t.status === "review").length === 2);
+  const [api, page, doc] = store.dev.groupTasks(g.id);
+  assert.equal(page.status, "waiting");
+  assert.deepEqual(JSON.parse(page.depends_on!), [api.id]);
+  const [gate] = store.dev.gates(g.id);
+  assert.deepEqual(gate.task_ids, [page.id]);
+
+  await acceptDevTask(hub, api.id);
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(store.dev.get(page.id)!.status, "waiting", "la décision manque encore");
+  assert.equal(resolveGate(hub, gate.id, "Me contacter"), "done");
+  assert.equal(resolveGate(hub, gate.id, "Contact"), "already", "une décision ne se prend qu'une fois");
+  await until(() => store.dev.get(page.id)!.status === "review");
+  const pageTask = store.dev.get(page.id)!;
+  assert.match(prompts.at(-1)!, /Décision de Charles — Titre de la page \? : Me contacter/);
+  assert.match(prompts.at(-1)!, new RegExp(`contient déjà le travail accepté de : #${api.id}`));
+  // Sa copie contient le travail de l'API, mais son diff ne montre que le sien.
+  assert.equal(sh(pageTask.worktree, "show", "HEAD:api.txt"), "API");
+  assert.deepEqual(JSON.parse(pageTask.diff_stat!).files.map((f: { path: string }) => f.path), ["page.txt"]);
+
+  await acceptDevTask(hub, page.id);
+  await acceptDevTask(hub, doc.id);
+  assert.equal(await integrateGroup(hub, g.id), "done");
+  const branch = store.dev.group(g.id)!.branch!;
+  assert.deepEqual(["api.txt", "page.txt", "doc.txt"].map((f) => sh(dir, "show", `${branch}:${f}`)), ["API", "PAGE", "DOC"]);
+});
+
+test("groupe : la sous-tâche dont elle dépend est jetée → elle s'arrête ; réessayée, elle repart sans", async () => {
+  const dir = repo("jetee");
+  const plan = {
+    tasks: [
+      { title: "API", instruction: "Écris le fichier api.txt avec API", files: ["api.txt"] },
+      { title: "Page", instruction: "Écris le fichier page.txt avec PAGE", files: ["page.txt"], after: [1] },
+    ],
+  };
+  const { store, hub } = groupSetup(plan, (cwd, prompt) => {
+    const f = prompt.match(/fichier (\w+\.txt) avec (\w+)/)!;
+    writeFileSync(join(cwd, f[1]), `${f[2]}\n`);
+  });
+  const p = (await addProject(hub, { name: "jetee", path: dir })) as any;
+  const g = startDevGroup(hub, { projectId: p.id, instruction: "Ajoute une API et sa page" }) as any;
+  await until(() => store.dev.groupTasks(g.id)[0]?.status === "review");
+  const [api, page] = store.dev.groupTasks(g.id);
+  await discardDevTask(hub, api.id);
+  assert.equal(store.dev.get(page.id)!.status, "failed");
+  assert.match(store.dev.get(page.id)!.error!, /dépendait de .*jetée/);
+  assert.equal(await retryDevTask(hub, page.id, {}), "done");
+  await until(() => store.dev.get(page.id)!.status === "review");
+  assert.equal(store.dev.get(page.id)!.depends_on, null);
+});
+
+test("réessayer : copie et branche neuves, conversation neuve, autre moteur, modèle et effort ; l'ancienne branche disparaît", async () => {
+  const dir = repo("reessai");
+  const { store, hub, runs } = setup((cwd) => {
+    writeFileSync(join(cwd, "hello.txt"), "salut\n");
+    return { status: "failed" };
+  });
+  const p = (await addProject(hub, { name: "reessai", path: dir })) as any;
+  const t = startDevTask(hub, { projectId: p.id, instruction: "Ajoute un fichier hello.txt" }) as any;
+  await until(() => store.dev.get(t.id)!.status === "failed");
+  const first = store.dev.get(t.id)!;
+  assert.ok(store.getSession(2000 + t.id), "la première tentative avait sa conversation");
+  assert.equal(await retryDevTask(hub, t.id, { engine: "codex", model: "gpt-x", effort: "high" }), "done");
+  await until(() => store.dev.get(t.id)!.status === "failed" && store.dev.get(t.id)!.attempts === 2);
+  const second = store.dev.get(t.id)!;
+  assert.notEqual(second.branch, first.branch);
+  assert.notEqual(second.worktree, first.worktree);
+  assert.equal(runs.at(-1)!.engine, "codex");
+  assert.equal(runs.at(-1)!.resume, undefined, "la tentative ratée n'est pas reprise");
+  assert.equal(runs.at(-1)!.model, "gpt-x", "le modèle choisi est passé au moteur pour ce tour");
+  assert.equal(runs.at(-1)!.effort, "high");
+  assert.ok(!sh(dir, "branch", "--list", first.branch), "l'ancienne branche est supprimée");
+  assert.equal(await retryDevTask(hub, 999, {}), "missing");
+});
+
+test("agent silencieux : signalé une fois, pas quand il attend Charles ; Arrêter interrompt son tour", async () => {
+  process.env.CLARK_STALL_MINUTES = "1";
+  const store = new Store(":memory:");
+  const journal = new TaskJournal(store.db);
+  const conversation = new Conversation(store.db);
+  const execute = (async (deps: any, taskId: number, opts: RunOptions) => {
+    deps.journal.setStatus(taskId, "running");
+    // D'abord il attend l'accord de Charles : ce n'est pas être bloqué.
+    await opts.approve({ tool: "Bash", summary: "Commande shell :\necho test" });
+    await new Promise<void>((r) => onStop(taskId, r));
+    deps.journal.finish(taskId, "failed", "Arrêté", 0);
+    return { text: "Arrêté", costUsd: 0, status: "failed" };
+  }) as unknown as typeof executeTask;
+  const hub = createHub({ config, store, journal, conversation }, { execute });
+  void hub.enqueue(OWNER_CHAT, "Une tâche qui ne bouge plus", "chat", "web");
+  await until(() => journal.unfinished().some((t) => t.status === "running"));
+  const task = journal.unfinished()[0];
+  await until(() => hub.approvals().length === 1);
+  const old = () => store.db.prepare("UPDATE tasks SET updated_at = datetime('now', '-2 minutes') WHERE id = ?").run(task.id);
+  old();
+  hub.checkStalls();
+  assert.equal(hub.stalled().length, 0, "il attend ton accord : pas bloqué");
+  hub.resolveApproval(hub.approvals()[0].id, true);
+  await new Promise((r) => setTimeout(r, 30));
+  // Accord donné, puis plus rien depuis deux minutes.
+  hub.checkStalls();
+  hub.checkStalls();
+  assert.deepEqual(hub.stalled().map((x) => [x.taskId, x.stoppable]), [[task.id, true]]);
+  assert.equal(conversation.recent(OWNER_CHAT).filter((m) => /ne donne plus signe de vie/.test(m.text)).length, 1, "signalé une seule fois");
+
+  assert.equal(hub.stopTask(task.id), "stopped");
+  await until(() => journal.get(task.id)!.status === "failed");
+  assert.equal(hub.stopTask(task.id), "not_running");
+  assert.equal(hub.stalled().length, 0);
+  delete process.env.CLARK_STALL_MINUTES;
+});
+
+test("accepter : les tests du projet tournent d'abord ; en échec, rien n'est gardé et un agent corrige", async () => {
+  const dir = repo("verif");
+  let round = 0;
+  const { hub, store, runs } = setup((cwd) => {
+    round++;
+    // Premier tour : oublie la ligne attendue ; la correction l'ajoute.
+    writeFileSync(join(cwd, "app.txt"), round === 1 ? "ligne 1\n" : "ligne 1\nok\n");
+    return {};
+  });
+  const p = (await addProject(hub, { name: "verif", path: dir, testCommand: "grep -q ok app.txt" })) as any;
+  const r = startDevTask(hub, { projectId: p.id, instruction: "Ajoute la ligne ok dans app.txt" }) as any;
+  await until(() => store.dev.get(r.id)!.status === "review");
+  const refused = (await acceptDevTask(hub, r.id)) as any;
+  assert.match(refused.error, /Tests en échec : rien n'est gardé\. Un agent corrige/);
+  await until(() => store.dev.get(r.id)!.status === "review" && runs.length === 2);
+  assert.match(runs[1].prompt, /Les tests du projet échouent \(grep -q ok app\.txt\)/);
+  assert.equal(await acceptDevTask(hub, r.id), "done", "les tests passent : gardé");
+  assert.equal(sh(dir, "show", `${store.dev.get(r.id)!.branch}:app.txt`), "ligne 1\nok");
+});
+
+test("copies légères : node_modules du dépôt partagé par un lien, l'installation seule est sautée", async () => {
+  const dir = repo("leger");
+  writeFileSync(join(dir, ".gitignore"), "node_modules\n");
+  sh(dir, "add", ".gitignore");
+  sh(dir, "commit", "-q", "-m", "ignore");
+  execFileSync("mkdir", ["-p", join(dir, "node_modules", "lib")]);
+  const { hub, store } = setup((cwd) => (writeFileSync(join(cwd, "app.txt"), "ligne 1\nfait\n"), {}));
+  const p = (await addProject(hub, { name: "leger", path: dir })) as any;
+  const { prepareCopy } = await import("../src/dev/project-setup.ts");
+  const wt = join(root, "wt-leger");
+  sh(dir, "worktree", "add", "-q", "--detach", wt);
+  const log = await prepareCopy({ ...store.dev.project(p.id)!, setup_command: "npm ci" }, wt);
+  assert.ok(lstatSync(join(wt, "node_modules")).isSymbolicLink(), "lien vers les dépendances du dépôt");
+  assert.equal(log?.command, null, "npm ci sauté");
+  assert.match(log?.output ?? "", /« npm ci » sauté : dépendances partagées/);
+  assert.equal(sh(wt, "status", "--porcelain"), "", "le lien n'apparaît pas dans le diff");
+});
+
+test("copie préparée d'avance : la tâche part de la copie déjà faite, puis rien ne traîne", async () => {
+  const dir = repo("chaud");
+  const { hub, store } = setup((cwd) => (writeFileSync(join(cwd, "app.txt"), "ligne 1\nchaud\n"), {}));
+  const p = (await addProject(hub, { name: "chaud", path: dir })) as any;
+  const { prewarmCopy } = await import("../src/dev/runner.ts");
+  assert.equal(await prewarmCopy(hub, p.id), "ready");
+  const warm = readdirSync(process.env.CLARK_DEV_DIR!).find((n) => n.startsWith(".prewarm-chaud-"));
+  assert.ok(warm, "copie préparée");
+  const r = startDevTask(hub, { projectId: p.id, instruction: "Ajoute la ligne chaud dans app.txt" }) as any;
+  await until(() => store.dev.get(r.id)!.status === "review");
+  assert.ok(!existsSync(join(process.env.CLARK_DEV_DIR!, warm!)), "la copie préparée a été prise");
+  assert.equal(readFileSync(join(store.dev.get(r.id)!.worktree, "app.txt"), "utf8"), "ligne 1\nchaud\n");
+  assert.equal(sh(store.dev.get(r.id)!.worktree, "rev-parse", "--abbrev-ref", "HEAD"), store.dev.get(r.id)!.branch);
+});
+
+test("nettoyage : une copie oubliée part, une copie avec un fichier irremplaçable reste", async () => {
+  const dir = repo("menage");
+  writeFileSync(join(dir, ".gitignore"), "*.local\n");
+  sh(dir, "add", ".gitignore");
+  sh(dir, "commit", "-q", "-m", "ignore");
+  const { hub } = setup();
+  await addProject(hub, { name: "menage", path: dir });
+  const base = process.env.CLARK_DEV_DIR!;
+  execFileSync("mkdir", ["-p", base]);
+  const lost = join(base, "menage-oubliee");
+  const keep = join(base, "menage-gardee");
+  sh(dir, "worktree", "add", "-q", "--detach", lost);
+  sh(dir, "worktree", "add", "-q", "--detach", keep);
+  writeFileSync(join(keep, "notes.local"), "à ne pas perdre");
+  const { sweepWorktrees } = await import("../src/dev/cleanup.ts");
+  const r = await sweepWorktrees(hub, Date.now() + 2 * 3600_000);
+  assert.ok(r.removed.includes(lost));
+  assert.ok(!existsSync(lost));
+  assert.deepEqual(r.kept.map((k) => [k.dir, k.files]), [[keep, ["notes.local"]]]);
+  assert.ok(existsSync(join(keep, "notes.local")));
+});

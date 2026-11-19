@@ -1,0 +1,14 @@
+node_modules/
+.env
+data/
+workspace/
+# Secrets et données personnelles : jamais dans git
+.env*
+!.env.example
+*.db
+*.db-shm
+*.db-wal
+.DS_Store
+# Fichiers de test temporaires
+.*-test.ts
+.repro.ts
