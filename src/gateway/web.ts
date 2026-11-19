@@ -2,7 +2,7 @@ import type { LoginEngine, Logins } from "../engines/login.ts";
 import { NEW_CONVERSATION_NOTE } from "../core/conversation.ts";
 import { CONTACTS, isConversationAgent } from "../core/contacts.ts";
 import { canActAlone, decisionsOf, isAutonomous, maxPerDay, parisDayStart, undoDecision } from "../core/autonomy.ts";
-import { createReadStream, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createReadStream, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { join, resolve } from "node:path";
@@ -138,10 +138,23 @@ export function originOf(t: Pick<Task, "label" | "chat_id"> & { source?: string 
 }
 
 const PUBLIC = resolve(import.meta.dirname, "../web");
+/**
+ * Le script de l'interface : les fichiers de src/web/app/ (00-base.js, 01-conversation.js…) mis
+ * bout à bout dans l'ordre de leur nom. Ils partagent la même portée, comme un seul fichier :
+ * pas d'étape de compilation, et le découpage ne change rien à ce que fait la page.
+ */
+export function appScript(): string {
+  const dir = resolve(PUBLIC, "app");
+  return readdirSync(dir)
+    .filter((f) => /^\d{2}-[\w-]+\.js$/.test(f))
+    .sort()
+    .map((f) => readFileSync(resolve(dir, f), "utf8"))
+    .join("");
+}
+
 const STATIC: Record<string, [file: string, type: string]> = {
   "/": ["index.html", "text/html; charset=utf-8"],
   "/app.css": ["app.css", "text/css; charset=utf-8"],
-  "/app.js": ["app.js", "text/javascript; charset=utf-8"],
   "/theme.js": ["theme.js", "text/javascript; charset=utf-8"],
   "/favicon.svg": ["favicon.svg", "image/svg+xml"],
 };
@@ -613,6 +626,12 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
     const path = url.pathname;
 
     if (req.method === "GET") {
+      // L'interface est rangée par zone dans src/web/app/ ; le navigateur reçoit leur assemblage, dans l'ordre.
+      if (path === "/app.js") {
+        res.writeHead(200, { ...SECURITY_HEADERS, "Content-Type": "text/javascript; charset=utf-8" });
+        res.end(appScript());
+        return;
+      }
       const file = STATIC[path];
       if (file) {
         res.writeHead(200, { ...SECURITY_HEADERS, "Content-Type": file[1] });

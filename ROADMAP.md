@@ -22,9 +22,9 @@ Mis à jour le 20 novembre 2026. Ce qui est fait est décrit dans le README ; ic
 ## 3. Fiabilité
 
 - [x] Clark sous git (sans secrets ni données personnelles).
-- [ ] Dépôt GitHub privé pour la sauvegarde du code (à décider par Charles).
+- [x] Dépôt GitHub privé : carls-xyz/clark.
 - [x] Ménage des sauvegardes de base dans `data/` (anciennes à la Corbeille) ; sauvegarde automatique chaque nuit à 3 h dans `data/backups` (7 gardées).
-- [ ] Découper `src/web/app.js` (environ 5 500 lignes) en modules.
+- [x] Interface rangée par zone dans `src/web/app/` (18 fichiers, assemblés par le serveur). Étape suivante possible : de vrais modules JavaScript, zone par zone.
 - [ ] API locale : joignable par tout programme du Mac (accepté pour l'instant, à revoir avec le VPS).
 
 ## 4. Chantiers suivants (chemin « à la Emilien »)
