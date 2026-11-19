@@ -12,6 +12,8 @@ import { canRestart, createLogins, RESTART_EXIT_CODE } from "./engines/login.ts"
 import { startAutonomy } from "./core/autonomy.ts";
 import { startReminders } from "./core/reminders.ts";
 import { startDelegations } from "./core/delegation-runner.ts";
+import { startBackups } from "./core/backup.ts";
+import { join } from "node:path";
 import { claudeJudge, claudeThink } from "./engines/judge.ts";
 import { startMemoryReview } from "./core/memory-review.ts";
 import { startWorktreeSweep } from "./dev/cleanup.ts";
@@ -234,6 +236,8 @@ const stopAutonomy = startAutonomy(hub);
 const stopReminders = startReminders(hub);
 // Clark chef d'orchestre : missions confiées aux agents, tâches de code lancées pour lui.
 const stopDelegations = startDelegations(hub);
+// Sauvegarde de la base chaque nuit à 3 h (data/backups, les 7 dernières).
+const stopBackups = startBackups(store.db, join(paths.root, "data", "backups"));
 // Relecture de mémoire en arrière-plan (un petit modèle Claude, si Claude est disponible).
 const stopReview = claude.mode !== "none" ? startMemoryReview(hub, (p) => claudeThink(p, "Tu relis une conversation pour en tirer des souvenirs durables. Tu réponds uniquement par un bloc JSON.")) : () => {};
 startGoals(hub);
@@ -249,6 +253,7 @@ stopScheduler = () => {
   stopAutonomy();
   stopReminders();
   stopDelegations();
+  stopBackups();
   stopReview();
   stopSweep();
 };

@@ -11,11 +11,11 @@ Mis à jour le 20 novembre 2026. Ce qui est fait est décrit dans le README ; ic
 
 ## 2. Recette réelle
 
-- [ ] Clark confie une mission à un agent (delegate), attend la réponse, fait la synthèse.
+- [x] Clark confie une mission à un agent (delegate), attend la réponse, fait la synthèse. (20/11, Mousse sur le portfolio)
 - [ ] Une décision prise seul en journée (tour de veille), puis le résumé de 21 h.
-- [ ] La relecture de mémoire propose une action (pas seulement des souvenirs).
-- [ ] Accepter une tâche de code lance les tests du projet ; un échec déclenche une correction.
-- [ ] Un conflit entre deux sous-tâches est résolu par un agent, puis la réunion passe.
+- [x] La relecture de mémoire propose une action (pas seulement des souvenirs). (20/11, relance alternance)
+- [x] Accepter une tâche de code lance les tests du projet ; un échec déclenche une correction. (20/11, dépôt clark-recette-code)
+- [x] Un conflit entre deux sous-tâches est résolu par un agent, puis la réunion passe. (20/11, dépôt clark-recette-conflit)
 - [ ] Après Google : brief du matin avec mails et agenda, relance par mail validée par bouton.
 - [ ] Après Codex : moteur de secours en cas de quota, regard croisé (Codex rédige, Claude relit).
 
@@ -23,7 +23,7 @@ Mis à jour le 20 novembre 2026. Ce qui est fait est décrit dans le README ; ic
 
 - [x] Clark sous git (sans secrets ni données personnelles).
 - [ ] Dépôt GitHub privé pour la sauvegarde du code (à décider par Charles).
-- [ ] Ménage des sauvegardes de base dans `data/`.
+- [x] Ménage des sauvegardes de base dans `data/` (anciennes à la Corbeille) ; sauvegarde automatique chaque nuit à 3 h dans `data/backups` (7 gardées).
 - [ ] Découper `src/web/app.js` (environ 5 500 lignes) en modules.
 - [ ] API locale : joignable par tout programme du Mac (accepté pour l'instant, à revoir avec le VPS).
 
