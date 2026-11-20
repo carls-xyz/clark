@@ -4,7 +4,7 @@ Mis à jour le 20 novembre 2026. Ce qui est fait est décrit dans le README ; ic
 
 ## 1. Branchements (Charles)
 
-- [ ] Google : créer le client OAuth (Google Cloud), puis `npm run google:login` dans ce dossier. Prévu le 20/11.
+- [x] Google : client OAuth créé (projet « clark », en mode test avec Charles comme testeur), connecté le 20/11. Reste : remplir Branding puis publier, sinon reconnexion tous les 7 jours.
 - [ ] Codex : Réglages › Moteurs › Connecter Codex. Prévu le 20/11.
 - [ ] iMessage : Réglages Système › Confidentialité › Accès complet au disque pour `node`.
 - [ ] Fusionner la PR portfolio #1 (animations des dossiers) après test de l'aperçu sur Safari.
