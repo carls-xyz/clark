@@ -5,6 +5,8 @@ import { executeTask, type Deps, type RunResult } from "./agent.ts";
 import { NEW_CONVERSATION_NOTE, type Conversation, type Message, type Role } from "./conversation.ts";
 import { createTeam, displayName, StaleAttempt, TEAM_LABEL, teamCheckText } from "./team.ts";
 import { resumeVerified } from "./recovery.ts";
+import { CHARLES_SOURCES } from "./reminders.ts";
+import { unseenNotes } from "./unseen.ts";
 import { announcesNextStep, continuePrompt, FINISH_CHECK_LIMIT, judgePrompt, NEXT_STEP_LIMIT, parseVerdict } from "./finish-check.ts";
 import type { Question } from "./questions.ts";
 import type { Post } from "../social/posts.ts";
@@ -423,6 +425,16 @@ export function createHub(
     /** display : ce que le fil montre à la place de la consigne (la commande tapée, « /relances … »). */
     opts: { onCreated?: (taskId: number) => void; access?: "read" | "write"; display?: string; engine?: EngineName; model?: string | null; effort?: string | null; images?: string[]; parentId?: number } = {},
   ) => {
+    // Ce que Charles a vu s'afficher sans que l'agent l'écrive (rappels, décisions seul, notes…) :
+    // donné avec son message, sinon l'agent ne sait pas à quoi il répond (« ton rappel »).
+    // (Conversation de Clark seulement : un agent en discussion directe garde sa consigne telle quelle.)
+    if ((label === "chat" || label === TEAM_LABEL) && chatId === OWNER_CHAT && CHARLES_SOURCES.has(source) && opts.parentId === undefined && !prompt.startsWith("[Discussion directe")) {
+      const shown = unseenNotes(conversation, conversation.current(chatId));
+      if (shown) {
+        opts = { ...opts, display: opts.display ?? prompt };
+        prompt = `${shown}\n\nMessage de Charles : ${prompt}`;
+      }
+    }
     const taskId = journal.create(chatId, label, prompt, opts.parentId);
     journal.setSource(taskId, source);
     // Le moteur est noté dès le départ : une reprise après redémarrage se fait sur le même.

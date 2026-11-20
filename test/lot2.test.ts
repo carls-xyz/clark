@@ -158,3 +158,22 @@ test("Telegram parle à Clark, même si l'interface avait « Toute l'équipe » 
   assert.deepEqual(prompts, ["Corrige le bug des dossiers"], "un seul tour, celui de Clark");
   assert.equal(conversation.current(OWNER_CHAT), clark);
 });
+
+test("rappel puis réponse de Charles : Clark reçoit ce qui s'est affiché depuis le dernier échange", async () => {
+  const store = new Store(":memory:");
+  const journal = new TaskJournal(store.db);
+  const conversation = new Conversation(store.db);
+  const runs: string[] = [];
+  const execute = (async (_d, taskId, opts) => (runs.push(opts.prompt), journal.finish(taskId, "done", "ok", 0), { text: "ok", costUsd: 0, status: "done" as const })) as typeof executeTask;
+  const hub = createHub({ config, store, journal, conversation }, { execute, executors: { claude: execute } });
+  const { submitRequest } = await import("../src/core/submit.ts");
+  submitRequest(hub, "Salut", { source: "telegram" });
+  for (let i = 0; i < 100 && runs.length < 1; i++) await new Promise((r) => setTimeout(r, 10));
+  await hub.post(OWNER_CHAT, "Rappel : Connecter Codex.", "clark", "reply");
+  submitRequest(hub, "Je le fais cet après-midi", { source: "telegram" });
+  for (let i = 0; i < 100 && runs.length < 2; i++) await new Promise((r) => setTimeout(r, 10));
+  assert.equal(runs[0], "Salut", "rien d'affiché avant : message tel quel");
+  assert.match(runs[1], /^\[Affiché à Charles depuis votre dernier échange[\s\S]*Clark : Rappel : Connecter Codex\.\n\nMessage de Charles : Je le fais cet après-midi$/);
+  const shown = conversation.recent(OWNER_CHAT).filter((m) => m.role === "user").map((m) => m.text);
+  assert.deepEqual(shown, ["Salut", "Je le fais cet après-midi"], "le fil montre ce que Charles a écrit");
+});
