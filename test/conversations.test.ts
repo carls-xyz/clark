@@ -129,3 +129,74 @@ test("agents comme contacts : écrire au Chercheur l'envoie à lui, en lecture s
   assert.deepEqual(hub.openAgent(null), { result: "ok", id: clarkConv });
   assert.equal(conversation.latestWith(OWNER_CHAT, "chercheur"), conv);
 });
+
+test("conversations : l'avis d'un membre du groupe arrivé après « Nouvelle conversation » reste dans le groupe", () => {
+  const { conversation, journal } = setup();
+  conversation.startNew(OWNER_CHAT, "groupe");
+  const group = conversation.current(OWNER_CHAT);
+  const parent = journal.create(OWNER_CHAT, "groupe", "question");
+  conversation.add({ chatId: OWNER_CHAT, role: "user", text: "question", taskId: parent });
+  const child = journal.create(OWNER_CHAT, "avis:relecteur", "consigne", parent);
+  conversation.startNew(OWNER_CHAT);
+  conversation.add({ chatId: OWNER_CHAT, role: "clark", text: "mon avis", taskId: child, agent: "relecteur" });
+  assert.deepEqual(conversation.messagesOf(group).map((m) => m.text), ["question", "mon avis"]);
+  assert.deepEqual(conversation.messagesOf(conversation.current(OWNER_CHAT)), []);
+});
+
+test("conversations : une alerte sur le fil de Charles n'attire pas la réponse du tour de veille", () => {
+  const { conversation, journal } = setup();
+  const ownerConv = conversation.current(OWNER_CHAT);
+  const beat = journal.create(0, "heartbeat", "tour");
+  conversation.add({ chatId: OWNER_CHAT, role: "system", text: "L'agent du tour de veille est bloqué", taskId: beat });
+  conversation.add({ chatId: 0, role: "clark", text: "Rien à signaler.", taskId: beat });
+  assert.deepEqual(conversation.messagesOf(ownerConv).map((m) => m.text), ["L'agent du tour de veille est bloqué"]);
+  assert.deepEqual(conversation.messagesOf(conversation.current(0)).map((m) => m.text), ["Rien à signaler."]);
+});
+
+test("conversations : un rappel posté pendant une discussion avec un agent va chez Clark", () => {
+  const { conversation } = setup();
+  conversation.add({ chatId: OWNER_CHAT, role: "user", text: "salut Clark" });
+  const clark = conversation.current(OWNER_CHAT);
+  conversation.startNew(OWNER_CHAT, "chercheur");
+  const mousse = conversation.current(OWNER_CHAT);
+  conversation.add({ chatId: OWNER_CHAT, role: "clark", text: "Rappel : brancher Google" });
+  conversation.add({ chatId: OWNER_CHAT, role: "user", text: "Mousse, cherche ça" });
+  assert.deepEqual(conversation.messagesOf(clark).map((m) => m.text), ["salut Clark", "Rappel : brancher Google"]);
+  assert.deepEqual(conversation.messagesOf(mousse).map((m) => m.text), ["Mousse, cherche ça"]);
+});
+
+test("conversations : triées sur la dernière activité, et listées même sans message de Charles", () => {
+  const db = new DatabaseSync(":memory:");
+  const conversation = new Conversation(db);
+  conversation.add({ chatId: OWNER_CHAT, role: "user", text: "ancienne" });
+  const old = conversation.current(OWNER_CHAT);
+  conversation.startNew(OWNER_CHAT);
+  conversation.add({ chatId: OWNER_CHAT, role: "user", text: "récente" });
+  db.exec("UPDATE conversations SET updated_at = '2026-11-01 10:00:00'");
+  conversation.switchTo(OWNER_CHAT, old);
+  conversation.add({ chatId: OWNER_CHAT, role: "clark", text: "réponse tardive" });
+  assert.deepEqual(conversation.list(OWNER_CHAT).map((c) => c.title), ["ancienne", "récente"], "la réponse remonte la conversation");
+  // Que des réponses (un avis arrivé seul) : listée, avec un titre daté, et rouvrable.
+  conversation.startNew(OWNER_CHAT);
+  const lone = conversation.current(OWNER_CHAT);
+  conversation.add({ chatId: OWNER_CHAT, role: "clark", text: "un avis", agent: "relecteur" });
+  assert.match(conversation.list(OWNER_CHAT)[0].title, /^Conversation du /);
+  assert.ok(conversation.hasContent(lone));
+  assert.equal(conversation.latestWith(OWNER_CHAT, null), lone, "Clark : la plus récente qui a du contenu");
+});
+
+test("conversations : la réparation remet les messages mal rangés à leur place", () => {
+  const { conversation, journal, store } = setup();
+  conversation.startNew(OWNER_CHAT, "groupe");
+  const group = conversation.current(OWNER_CHAT);
+  const parent = journal.create(OWNER_CHAT, "groupe", "question");
+  conversation.add({ chatId: OWNER_CHAT, role: "user", text: "question", taskId: parent });
+  const child = journal.create(OWNER_CHAT, "avis:contenu", "consigne", parent);
+  conversation.startNew(OWNER_CHAT);
+  const other = conversation.current(OWNER_CHAT);
+  // Comme avant le correctif : l'avis rangé dans la conversation ouverte.
+  store.db.prepare("INSERT INTO messages (chat_id, role, text, task_id, conversation_id, agent) VALUES (?, 'clark', 'avis égaré', ?, ?, 'contenu')").run(OWNER_CHAT, child, other);
+  assert.equal(conversation.repairTaskMessages(), 1);
+  assert.deepEqual(conversation.messagesOf(group).map((m) => m.text), ["question", "avis égaré"]);
+  assert.equal(conversation.repairTaskMessages(), 0, "une deuxième fois : rien à faire");
+});

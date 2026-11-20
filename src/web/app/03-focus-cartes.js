@@ -54,11 +54,14 @@ function renderChatHead(agent, title) {
   if ($("#mode").value === "chat") input.placeholder = `Écrire à ${who.name}`;
 }
 
-// Conversation ouverte et visible : ses réponses sont lues (une seule demande par nouveau message).
+// Conversation affichée et visible (l'ouverte, ou une passée qu'on relit) : ses réponses sont lues
+// (une seule demande par nouveau message).
 let seenSent = "";
 function markSeen() {
-  if (pastId || view !== "chat" || document.visibilityState !== "visible" || !state) return;
-  const c = (state.conversations ?? []).find((x) => x.id === state.conversationId);
+  if (view !== "chat" || document.visibilityState !== "visible" || !state) return;
+  if (pastId && pastConv?.id !== pastId) return; // pas encore affichée
+  const shown = pastId ?? state.conversationId;
+  const c = (state.conversations ?? []).find((x) => x.id === shown);
   if (!c?.unread) return;
   const key = `${c.id}:${c.unread}:${c.at}`;
   if (key === seenSent) return;
@@ -108,6 +111,7 @@ function renderPastThread() {
   const when = parseDate(pastConv.at).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
   thread.innerHTML = `<div class="past-banner" role="note"><strong>${esc(pastConv.title)}</strong><span>Conversation du ${esc(when)}. Écris ci-dessous pour la reprendre : Clark retrouve ce fil.</span></div>${messagesHtml(pastConv.messages)}`;
   for (const m of pastConv.messages) seen.add(m.id);
+  markSeen();
   if (pastScrolled !== pastId) {
     thread.scrollTop = thread.scrollHeight;
     pastScrolled = pastId;

@@ -642,12 +642,13 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
       const past = path.match(/^\/api\/conversations\/(\d+)$/);
       if (past) {
         const c = hub.deps.conversation.conversation(Number(past[1]));
-        if (!c || c.chat_id !== OWNER_CHAT || !c.title) return json(res, 404, { error: "Conversation introuvable" });
+        if (!c || c.chat_id !== OWNER_CHAT || !hub.deps.conversation.hasContent(c.id)) return json(res, 404, { error: "Conversation introuvable" });
         const messages = hub.deps.conversation
           .messagesOf(c.id, 200)
           .filter((m) => !(m.role === "system" && m.text === NEW_CONVERSATION_NOTE))
           .map((m) => ({ id: m.id, role: m.role, text: m.text, taskId: m.task_id, source: m.source, kind: m.kind, agent: m.agent ?? null, at: m.created_at }));
-        return json(res, 200, { id: c.id, title: c.title, agent: c.agent, at: c.updated_at, messages });
+        const title = c.title ?? hub.deps.conversation.list(OWNER_CHAT, 500).find((x) => x.id === c.id)?.title ?? "Conversation";
+        return json(res, 200, { id: c.id, title, agent: c.agent, at: c.updated_at, messages });
       }
       if (path.startsWith("/ui/")) {
         const ui = uiFile(path);

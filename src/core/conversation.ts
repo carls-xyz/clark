@@ -26,6 +26,15 @@ export type Message = {
 /** Note posée quand Charles ouvre une nouvelle conversation (aussi envoyée sur Telegram). */
 export const NEW_CONVERSATION_NOTE = "Nouvelle conversation. Ma mémoire longue reste intacte.";
 
+/** Un message de Charles ou d'un agent dans la conversation c (les notes du système ne comptent pas). */
+const HAS_CONTENT = "EXISTS (SELECT 1 FROM messages hc WHERE hc.conversation_id = c.id AND hc.role != 'system')";
+
+/** Titre d'une conversation sans message de Charles : sa date. */
+function untitled(createdAt: string): string {
+  const d = new Date(`${createdAt.replace(" ", "T")}Z`);
+  return `Conversation du ${d.toLocaleDateString("fr-FR", { day: "numeric", month: "long", timeZone: "Europe/Paris" })}`;
+}
+
 export type ConversationRow = { id: number; chat_id: number; title: string | null; session_id: string | null; agent: string | null; seen_id: number; created_at: string; updated_at: string };
 export type ConversationSummary = { id: number; title: string; agent: string | null; at: string; created_at: string; preview: string | null; preview_role: string | null; unread: number };
 
@@ -121,13 +130,16 @@ export class Conversation {
       .run(chatId, conversationId);
   }
 
-  /** Un message de Charles date la conversation et lui donne son titre (son premier message). */
+  /**
+   * Un message de Charles ou d'un agent date la conversation (la liste se trie sur la dernière
+   * activité) ; le premier message de Charles lui donne son titre. Les notes du système ne comptent pas.
+   */
   private touchConversation(id: number, role: Role, text: string, at?: string) {
-    if (role !== "user") return;
-    const title = text.replace(/\s+/g, " ").trim().slice(0, 80);
+    if (role === "system") return;
+    const title = role === "user" ? text.replace(/\s+/g, " ").trim().slice(0, 80) || null : null;
     this.db
       .prepare("UPDATE conversations SET updated_at = COALESCE(?, datetime('now')), title = COALESCE(title, ?) WHERE id = ?")
-      .run(at ?? null, title || null, id);
+      .run(at ?? null, title, id);
   }
 
   /** La conversation ouverte sur ce canal (créée au besoin). */
@@ -153,12 +165,50 @@ export class Conversation {
     return id;
   }
 
-  /** La conversation la plus récente avec cet agent (null : Clark), utilisée ou non. */
+  /** La conversation la plus récente avec cet agent (null : Clark) : d'abord une où il s'est passé quelque chose. */
   latestWith(chatId: number, agent: string | null): number | null {
     const row = this.db
-      .prepare("SELECT id FROM conversations WHERE chat_id = ? AND agent IS ? ORDER BY (title IS NULL), updated_at DESC, id DESC LIMIT 1")
+      .prepare(`SELECT c.id FROM conversations c WHERE c.chat_id = ? AND c.agent IS ?
+        ORDER BY (c.title IS NULL AND NOT ${HAS_CONTENT}), c.updated_at DESC, c.id DESC LIMIT 1`)
       .get(chatId, agent) as { id: number } | undefined;
     return row?.id ?? null;
+  }
+
+  /** Une conversation qui a du contenu (un message de Charles ou d'un agent) : on peut la lister, la rouvrir. */
+  hasContent(id: number): boolean {
+    return Boolean(this.db.prepare(`SELECT 1 FROM conversations c WHERE c.id = ? AND (c.title IS NOT NULL OR ${HAS_CONTENT})`).get(id));
+  }
+
+  /**
+   * La conversation d'une tâche : celle de son premier message sur ce canal, sinon celle de la
+   * tâche qui l'a lancée (avis d'un membre du groupe, mission confiée par Clark…). Une note posée
+   * ailleurs (alerte sur le fil de Charles pour une tâche du tour de veille) ne l'attire pas.
+   */
+  conversationForTask(taskId: number, chatId: number): number | null {
+    const own = this.db
+      .prepare("SELECT conversation_id FROM messages WHERE task_id = ? AND chat_id = ? AND conversation_id IS NOT NULL ORDER BY id LIMIT 1")
+      .get(taskId, chatId) as { conversation_id: number } | undefined;
+    if (own) return own.conversation_id;
+    if (!this.hasTasks()) return null;
+    const seen = new Set<number>([taskId]);
+    let id: number | null = taskId;
+    while (id !== null) {
+      const row = this.db.prepare("SELECT parent_id FROM tasks WHERE id = ?").get(id) as { parent_id: number | null } | undefined;
+      id = row?.parent_id ?? null;
+      if (id === null || seen.has(id)) return null;
+      seen.add(id);
+      const up = this.db
+        .prepare("SELECT conversation_id FROM messages WHERE task_id = ? AND chat_id = ? AND conversation_id IS NOT NULL ORDER BY id LIMIT 1")
+        .get(id, chatId) as { conversation_id: number } | undefined;
+      if (up) return up.conversation_id;
+    }
+    return null;
+  }
+
+  private tasksTable: boolean | null = null;
+  private hasTasks(): boolean {
+    if (!this.tasksTable) this.tasksTable = Boolean(this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tasks'").get());
+    return this.tasksTable;
   }
 
   /** La conversation où une tâche a été demandée (null : pas encore de message). */
@@ -185,19 +235,21 @@ export class Conversation {
     this.db.prepare("UPDATE conversations SET session_id = ? WHERE id = ?").run(sessionId, id);
   }
 
-  /** Les conversations où Charles a écrit, la plus récente d'abord. */
+  /** Les conversations où il s'est passé quelque chose, la plus récemment active d'abord. */
   list(chatId: number, limit = 50): ConversationSummary[] {
-    return this.db
+    const rows = this.db
       .prepare(
         `SELECT c.id, c.title, c.agent, c.updated_at AS at, c.created_at,
            (SELECT m.text FROM messages m WHERE m.conversation_id = c.id AND m.role != 'system' ORDER BY m.id DESC LIMIT 1) AS preview,
            (SELECT m.role FROM messages m WHERE m.conversation_id = c.id AND m.role != 'system' ORDER BY m.id DESC LIMIT 1) AS preview_role,
            (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id AND m.role = 'clark' AND m.id > c.seen_id) AS unread
          FROM conversations c
-         WHERE c.chat_id = ? AND c.title IS NOT NULL
+         WHERE c.chat_id = ? AND (c.title IS NOT NULL OR ${HAS_CONTENT})
          ORDER BY c.updated_at DESC, c.id DESC LIMIT ?`,
       )
       .all(chatId, limit) as ConversationSummary[];
+    // Sans message de Charles (que des réponses, des rappels) : un titre quand même.
+    return rows.map((r) => ({ ...r, title: r.title ?? untitled(r.created_at) }));
   }
 
   /** Les messages d'une conversation, du plus ancien au plus récent. */
@@ -205,6 +257,61 @@ export class Conversation {
     return (
       this.db.prepare("SELECT * FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT ?").all(id, limit) as Message[]
     ).reverse();
+  }
+
+  /**
+   * Où va un message qui ne suit aucune tâche. Ce que Clark poste de lui-même (rappel, décision
+   * prise seul, souvenir retenu) va dans sa conversation à lui, pas dans celle d'un agent que
+   * Charles a ouverte. Le reste (ce que Charles écrit, la note « Nouvelle conversation ») : l'ouverte.
+   */
+  private homeOf(m: { chatId: number; role: Role; text: string; agent?: string | null }): number {
+    const cur = this.current(m.chatId);
+    if (m.role === "user" || m.agent || m.text === NEW_CONVERSATION_NOTE) return cur;
+    if ((this.conversation(cur)?.agent ?? null) === null) return cur;
+    return this.latestWith(m.chatId, null) ?? this.create(m.chatId);
+  }
+
+  /**
+   * Réparation des messages rangés avant ces règles : la suite d'une tâche rejoint la conversation
+   * de la tâche (avis du groupe arrivés après « Nouvelle conversation », réponse du tour de veille
+   * attirée par une alerte sur le fil de Charles). Sans effet sur ce qui est déjà bien rangé.
+   */
+  repairTaskMessages(): number {
+    const rows = this.db.prepare("SELECT id, chat_id, task_id, conversation_id FROM messages WHERE task_id IS NOT NULL ORDER BY id").all() as {
+      id: number;
+      chat_id: number;
+      task_id: number;
+      conversation_id: number | null;
+    }[];
+    const move = this.db.prepare("UPDATE messages SET conversation_id = ? WHERE id = ?");
+    const first = new Map<string, number>();
+    let moved = 0;
+    for (const r of rows) {
+      const key = `${r.task_id}:${r.chat_id}`;
+      let want = first.get(key);
+      if (want === undefined) {
+        // La tâche-mère d'abord : le premier message d'un avis a pu partir au mauvais endroit.
+        want = this.parentConversation(r.task_id, r.chat_id) ?? r.conversation_id ?? undefined;
+        if (want === undefined) continue;
+        // Rangé dans une conversation d'un autre canal : il revient dans celle du sien.
+        if (this.conversation(want)?.chat_id !== r.chat_id) want = this.current(r.chat_id);
+        first.set(key, want);
+      }
+      if (r.conversation_id !== want) {
+        move.run(want, r.id);
+        moved++;
+      }
+    }
+    // La date d'une conversation : sa dernière activité (message de Charles ou d'un agent).
+    this.db.exec(`UPDATE conversations SET updated_at = COALESCE(
+      (SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = conversations.id AND m.role != 'system'), created_at)`);
+    return moved;
+  }
+
+  private parentConversation(taskId: number, chatId: number): number | null {
+    if (!this.hasTasks()) return null;
+    const row = this.db.prepare("SELECT parent_id FROM tasks WHERE id = ?").get(taskId) as { parent_id: number | null } | undefined;
+    return row?.parent_id ? this.conversationForTask(row.parent_id, chatId) : null;
   }
 
   onAdd(listener: (m: Message) => void): () => void {
@@ -215,13 +322,7 @@ export class Conversation {
   add(m: { chatId: number; role: Role; text: string; taskId?: number; source?: string; kind?: string; agent?: string | null }): Message {
     // La suite d'une tâche (réponse, étape) reste dans la conversation où elle a été demandée,
     // même si Charles en a ouvert une autre entre-temps.
-    const ofTask =
-      m.taskId === undefined
-        ? undefined
-        : (this.db.prepare("SELECT conversation_id FROM messages WHERE task_id = ? AND conversation_id IS NOT NULL ORDER BY id LIMIT 1").get(m.taskId) as
-            | { conversation_id: number }
-            | undefined);
-    const conv = ofTask?.conversation_id ?? this.current(m.chatId);
+    const conv = (m.taskId === undefined ? null : this.conversationForTask(m.taskId, m.chatId)) ?? this.homeOf(m);
     const r = this.db
       .prepare("INSERT INTO messages (chat_id, role, text, task_id, source, kind, conversation_id, agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
       .run(m.chatId, m.role, m.text, m.taskId ?? null, m.source ?? null, m.kind ?? (m.role === "clark" ? "reply" : m.role === "system" ? "system" : null), conv, m.agent ?? null);

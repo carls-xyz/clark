@@ -92,6 +92,7 @@ const agentRole = (agent) => agent ?? "clark";
 const EXTRA_CONTACTS = { code: { role: "code", name: "Boulon", badge: "Code" }, groupe: { role: "groupe", name: "Toute l'équipe", badge: "Avis croisés" } };
 const contactOf = (agent) => (state.contacts ?? []).find((c) => c.role === (agent ?? null)) ?? EXTRA_CONTACTS[agent] ?? { role: null, name: "Clark", badge: "Chef d'orchestre" };
 let listQuery = "";
+let keptUnread = new Set();
 
 /** L'agent ouvert travaille : son bonhomme marche dans la liste. */
 const agentBusy = (agent) => (state.conversationAgent ?? null) === (agent ?? null) && state.running.some((t) => t.status === "running");
@@ -115,7 +116,9 @@ const matchesList = (...texts) => !listQuery.trim() || texts.some((t) => t && ma
 function renderConversationList() {
   const list = state.conversations ?? [];
   const byId = new Map(list.map((c) => [c.id, c]));
-  const isCurrent = (c) => view === "chat" && (c.id === state.conversationId ? !pastId : pastId === c.id);
+  // Affichée en ce moment (l'ouverte, ou une passée qu'on relit) : sa ligne est mise en avant, sans non-lus.
+  const isCurrent = (c) => view === "chat" && (pastId ? pastId === c.id : c.id === state.conversationId);
+  const viewing = (id) => view === "chat" && (pastId ? pastId === id : id === state.conversationId);
   const row = (c) =>
     listRow({
       href: c.id === state.conversationId ? "#conversation" : `#conversation/${c.id}`,
@@ -125,15 +128,17 @@ function renderConversationList() {
       preview: c.preview,
       previewRole: c.preview_role,
       at: c.at,
-      unread: c.id === state.conversationId && !pastId && view === "chat" ? 0 : c.unread,
+      unread: isCurrent(c) ? 0 : c.unread,
       current: isCurrent(c),
     });
-  const unread = list.filter((c) => c.unread && !(c.id === state.conversationId && view === "chat" && !pastId) && matchesList(c.title, c.preview));
+  // Une conversation qu'on lit garde sa place dans « Non lues » jusqu'à ce qu'on la quitte : la liste ne saute pas sous le doigt.
+  const unread = list.filter((c) => (c.unread || (isCurrent(c) && keptUnread.has(c.id))) && matchesList(c.title, c.preview));
+  keptUnread = new Set(unread.map((c) => c.id));
   const team = (state.contacts ?? [])
     .filter((ct) => matchesList(ct.name, ct.badge))
     .map((ct) => {
       const latest = ct.latest ? byId.get(ct.latest) : null;
-      const open = ct.latest === state.conversationId;
+      const open = ct.latest !== null && viewing(ct.latest);
       return listRow({
         href: `#agent/${ct.role ?? "clark"}`,
         agent: ct.role,
@@ -142,16 +147,19 @@ function renderConversationList() {
         preview: latest?.preview ?? null,
         previewRole: latest?.preview_role ?? null,
         at: latest?.at ?? null,
-        unread: open && view === "chat" && !pastId ? 0 : (latest?.unread ?? 0),
-        current: false,
+        unread: open ? 0 : (latest?.unread ?? 0),
+        // L'agent dont la conversation est affichée : sa ligne est mise en avant.
+        current: open,
       });
     })
     .join("");
   const unreadIds = new Set(unread.map((c) => c.id));
-  const rest = list.filter((c) => !unreadIds.has(c.id) && matchesList(c.title, c.preview, contactOf(c.agent).name));
+  // La conversation la plus récente de chaque agent est déjà sa ligne dans « Équipe » : pas deux fois.
+  const shownByTeam = new Set((state.contacts ?? []).map((ct) => ct.latest).filter(Boolean));
+  const rest = list.filter((c) => !unreadIds.has(c.id) && (listQuery.trim() || !shownByTeam.has(c.id)) && matchesList(c.title, c.preview, contactOf(c.agent).name));
   return `${unread.length ? `<p class="threads-title">Non lues <span class="threads-count">${unread.length}</span></p>${unread.map(row).join("")}` : ""}
     ${team ? `<p class="threads-title">Équipe</p>${team}` : ""}
-    ${rest.length ? `<p class="threads-title">Conversations</p>${rest.map(row).join("")}` : listQuery.trim() ? `<p class="threads-empty">Rien ne correspond.</p>` : ""}`;
+    ${rest.length ? `<p class="threads-title">Plus anciennes</p>${rest.map(row).join("")}` : listQuery.trim() ? `<p class="threads-empty">Rien ne correspond.</p>` : ""}`;
 }
 
 function renderThreads() {

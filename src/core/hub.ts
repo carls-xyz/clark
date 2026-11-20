@@ -972,7 +972,7 @@ export function createHub(
       const before = conversation.current(chatId);
       if (id === before) return "ok";
       const target = conversation.conversation(id);
-      if (!target || target.chat_id !== chatId || !target.title) return "unknown";
+      if (!target || target.chat_id !== chatId || !conversation.hasContent(id)) return "unknown";
       if (journal.unfinished().some((t) => t.chat_id === chatId && t.parent_id === null && t.label !== HEARTBEAT_LABEL)) return "busy";
       conversation.saveSession(before, store.getSession(chatId));
       conversation.switchTo(chatId, id);

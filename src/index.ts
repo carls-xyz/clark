@@ -51,6 +51,9 @@ setClaudeAuth(claude);
 
 const journal = new TaskJournal(store.db);
 const conversation = new Conversation(store.db);
+// Messages rangés avant les règles actuelles (avis du groupe, tour de veille) : remis à leur place.
+const repaired = conversation.repairTaskMessages();
+if (repaired) console.log(`[clark] conversations : ${repaired} message(s) remis dans la conversation de leur tâche`);
 // Le quota arrive par le moteur (lecture, puis mises à jour de Codex) ; le hub le garde pour l'interface.
 let onQuota: (q: Quota | null) => void = () => {};
 // Codex sert s'il est (peut-être) le moteur principal ou si un rôle le demande (CLARK_ROLE_ENGINES).
