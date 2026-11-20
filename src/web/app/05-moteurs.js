@@ -1,7 +1,7 @@
 // ── Moteurs : quota, modèle et niveau d’effort, pour Claude et Codex ──
 
 const ENGINE_NAMES = { claude: "Claude", codex: "Codex" };
-const EFFORT_LABELS = { none: "aucune", minimal: "minimale", low: "faible", medium: "moyenne", high: "élevée", xhigh: "très élevée", max: "maximale" };
+const EFFORT_LABELS = { none: "aucune", minimal: "minimale", low: "faible", medium: "moyenne", high: "élevée", xhigh: "très élevée", max: "maximale", ultra: "ultra" };
 const claudePlans = { pro: "Claude Pro", max: "Claude Max", team: "Claude Team", enterprise: "Claude Enterprise" };
 
 function quotaRows(q, name, compact = false) {
@@ -20,41 +20,51 @@ function quotaRows(q, name, compact = false) {
 }
 
 /**
- * Effort : un curseur à crans (idée reprise du « Sleek Effort Slider »). Premier cran :
- * « Auto », le niveau par défaut du modèle ; puis ceux que le modèle propose. « Recommandé »
- * seulement si le moteur donne lui-même un niveau par défaut. Un vrai <input type="range"> :
- * clavier, lecteur d'écran et tactile marchent tels quels.
+ * Effort : curseur à crans, d'après le « Sleek Effort Slider » de HorizonX. Les crans sont
+ * les niveaux que le modèle propose ; la couleur d'accent monte à chaque cran. « Auto » est un
+ * bouton à part : il rend le choix au moteur (son niveau par défaut). Un vrai
+ * <input type="range"> : clavier, lecteur d'écran et tactile marchent tels quels.
+ * Le même rendu sert à la barre latérale (compact) et à Plugins › Moteurs (complet).
  */
 const effortLabel = (stop) => (stop ? (EFFORT_LABELS[stop] ?? stop) : "auto");
-function effortSlider(e, current, idp) {
+function effortSlider(e, current, idp, compact = false) {
   const efforts = current?.efforts ?? [];
   const id = `${idp}effort-${e.name}`;
   if (!current || !efforts.length) {
     return `<div class="effort is-off">
-      <div class="effort-head"><span class="effort-title" id="${id}-t">Effort</span><span class="effort-value">auto</span></div>
+      <div class="effort-head"><span class="effort-title">Effort</span><span class="effort-value">auto</span></div>
       <p class="quiet effort-note">${!current ? "Choisis un modèle pour régler l'effort." : "Ce modèle n'a pas de niveaux d'effort."}</p>
     </div>`;
   }
-  const stops = ["", ...efforts];
-  const index = Math.max(0, stops.indexOf(e.choice.effort ?? ""));
-  const rec = current.defaultEffort ? stops.indexOf(current.defaultEffort) : -1;
-  const last = stops.length - 1;
+  const chosen = e.choice.effort && efforts.includes(e.choice.effort) ? e.choice.effort : null;
+  // En Auto, la poignée se pose sur le niveau par défaut du moteur s'il le donne, sinon au milieu.
+  const autoAt = current.defaultEffort && efforts.includes(current.defaultEffort) ? efforts.indexOf(current.defaultEffort) : Math.floor((efforts.length - 1) / 2);
+  const index = chosen ? efforts.indexOf(chosen) : autoAt;
+  const rec = current.defaultEffort ? efforts.indexOf(current.defaultEffort) : -1;
+  const last = efforts.length - 1;
   const pos = (i) => (last ? i / last : 0);
-  return `<div class="effort" data-effort-box data-pos="${pos(index)}">
+  const shown = chosen ? effortLabel(chosen) : "auto";
+  return `<div class="effort${chosen ? "" : " is-auto"}${compact ? " is-compact" : ""}" data-effort-box data-pos="${pos(index)}">
     <div class="effort-head">
       <label class="effort-title" for="${id}">Effort</label>
-      <span class="effort-value" data-effort-value>${esc(effortLabel(stops[index]))}</span>
-      <span class="effort-help" title="Plus d'effort : réponses plus réfléchies, plus lentes, et plus de quota consommé. « Auto » laisse le modèle choisir." aria-hidden="true">?</span>
+      <span class="effort-value" data-effort-value aria-live="polite">${esc(shown)}</span>
+      <button type="button" class="effort-auto" data-effort-auto aria-pressed="${chosen ? "false" : "true"}" title="Revenir au réglage par défaut du moteur">Auto</button>
     </div>
-    <div class="effort-captions" aria-hidden="true"><span>Rapide</span><span>Réfléchi</span></div>
+    ${compact ? "" : `<div class="effort-captions" aria-hidden="true"><span>Rapide</span><span>Réfléchi</span></div>`}
     <div class="effort-track">
       <span class="effort-rail" aria-hidden="true"></span>
       <span class="effort-fill" aria-hidden="true"></span>
-      ${stops.map((_, i) => `<span class="effort-tick${i <= index ? " is-on" : ""}" data-pos="${pos(i)}" aria-hidden="true"></span>`).join("")}
+      ${efforts.map((_, i) => `<span class="effort-tick${i <= index ? " is-on" : ""}" data-pos="${pos(i)}" aria-hidden="true"></span>`).join("")}
       <input type="range" id="${id}" data-engine-effort min="0" max="${last}" step="1" value="${index}"
-        data-stops='${esc(JSON.stringify(stops))}' aria-valuetext="${esc(effortLabel(stops[index]))}" />
+        data-stops='${esc(JSON.stringify(efforts))}' aria-valuetext="${esc(shown)}" />
     </div>
-    ${rec >= 0 ? `<span class="effort-rec" data-pos="${pos(rec)}">Recommandé</span>` : ""}
+    ${
+      compact
+        ? ""
+        : `<div class="effort-levels" aria-hidden="true">${efforts
+            .map((x, i) => `<span class="effort-level${i === rec ? " is-rec" : ""}" data-pos="${pos(i)}">${esc(effortLabel(x))}</span>`)
+            .join("")}</div>${rec >= 0 ? `<p class="quiet effort-note">Souligné : le niveau par défaut de ${esc(current.name)}, celui qu'Auto utilise.</p>` : ""}`
+    }
   </div>`;
 }
 
@@ -63,19 +73,48 @@ function placeEffort(root) {
   root.querySelectorAll(".effort [data-pos], .effort[data-pos]").forEach((el) => el.style.setProperty("--p", el.dataset.pos));
 }
 
-/** Pendant le glissement : la valeur, le remplissage et les crans suivent, sans attendre l'envoi. */
+/** Pendant le glissement : la valeur, la couleur et les crans suivent, sans attendre l'envoi. */
+function showEffort(box, i, auto = false) {
+  const range = box.querySelector("[data-engine-effort]");
+  const stops = JSON.parse(range.dataset.stops);
+  const p = stops.length > 1 ? i / (stops.length - 1) : 0;
+  const label = auto ? "auto" : effortLabel(stops[i]);
+  box.dataset.pos = String(p);
+  box.style.setProperty("--p", String(p));
+  box.classList.toggle("is-auto", auto);
+  box.querySelector("[data-effort-auto]")?.setAttribute("aria-pressed", String(auto));
+  const value = box.querySelector("[data-effort-value]");
+  if (value.textContent !== label) {
+    value.textContent = label;
+    // Petit fondu du nom du niveau (rejoué à chaque changement).
+    value.classList.remove("is-new");
+    void value.offsetWidth;
+    value.classList.add("is-new");
+  }
+  range.setAttribute("aria-valuetext", label);
+  box.querySelectorAll(".effort-tick").forEach((t, k) => t.classList.toggle("is-on", k <= i));
+}
+
 side.addEventListener("input", (e) => {
   const range = e.target.closest?.('input[type="range"][data-engine-effort]');
   if (!range) return;
-  const box = range.closest("[data-effort-box]");
+  showEffort(range.closest("[data-effort-box]"), Number(range.value));
+});
+
+/** Auto : on rend l'effort au moteur et la poignée revient sur son niveau par défaut. */
+side.addEventListener("click", (e) => {
+  const btn = e.target.closest?.("[data-effort-auto]");
+  if (!btn || btn.getAttribute("aria-pressed") === "true") return;
+  const box = btn.closest("[data-engine]");
+  const range = box.querySelector("[data-engine-effort]");
+  const name = box.dataset.engine;
+  const engine = (state.engines ?? []).find((x) => x.name === name);
+  const m = engine?.models.find((x) => x.id === engine.choice.model);
   const stops = JSON.parse(range.dataset.stops);
-  const i = Number(range.value);
-  const p = stops.length > 1 ? i / (stops.length - 1) : 0;
-  box.dataset.pos = String(p);
-  box.style.setProperty("--p", String(p));
-  box.querySelector("[data-effort-value]").textContent = effortLabel(stops[i]);
-  range.setAttribute("aria-valuetext", effortLabel(stops[i]));
-  box.querySelectorAll(".effort-tick").forEach((t, k) => t.classList.toggle("is-on", k <= i));
+  const at = m?.defaultEffort && stops.includes(m.defaultEffort) ? stops.indexOf(m.defaultEffort) : Math.floor((stops.length - 1) / 2);
+  range.value = String(at);
+  showEffort(range.closest("[data-effort-box]"), at, true);
+  void saveEngineChoice(box, btn);
 });
 
 const LOGIN_SITES = { claude: "d'Anthropic", codex: "d'OpenAI" };
@@ -155,8 +194,12 @@ side.addEventListener("submit", async (ev) => {
   }
 });
 
-/** Un moteur : complet dans Plugins, compact en bas du menu (idp distingue les identifiants). */
-function renderEngine(e, { compact = false, idp = "" } = {}) {
+/**
+ * Un moteur : complet dans Plugins, compact dans la fenêtre du moteur, « nu » en bas de la
+ * barre latérale (modèle puis effort, sans quota). idp distingue les identifiants.
+ */
+function renderEngine(e, { compact = false, idp = "", bare = false } = {}) {
+  if (bare) compact = true;
   const title = ENGINE_NAMES[e.name];
   const plan = e.quota?.plan ? (planNames[e.quota.plan] ?? claudePlans[e.quota.plan] ?? e.quota.plan) : e.account;
   const head = compact
@@ -180,15 +223,16 @@ function renderEngine(e, { compact = false, idp = "" } = {}) {
     ? `<label class="field-label" for="${idp}model-${e.name}">Modèle</label>
        <select id="${idp}model-${e.name}" data-engine-model>
          <option value="">${fallback}</option>
-         ${models.map((m) => `<option value="${esc(m.id)}"${m.id === e.choice.model ? " selected" : ""}>${esc(m.name)}${m.description && !compact ? ` — ${esc(m.description.slice(0, 60))}` : ""}</option>`).join("")}
+         ${models.map((m) => `<option value="${esc(m.id)}"${m.id === e.choice.model ? " selected" : ""}>${esc(m.name)}</option>`).join("")}
        </select>`
     : compact
       ? ""
       : `<p class="quiet">${e.modelsError ? `Liste des modèles indisponible : ${esc(e.modelsError)}` : "Liste des modèles pas encore lue."}</p>`;
-  const efforts = current?.efforts ?? [];
-  const effortSelect = models.length ? effortSlider(e, current, idp) : "";
+  const about = !compact && current?.description ? `<p class="quiet engine-about">${esc(current.description)}</p>` : "";
+  const effortSelect = models.length ? `${about}${effortSlider(e, current, idp, compact)}` : "";
 
   // Compact : réglages d'abord (ce qu'on change), quota ensuite (ce qu'on surveille).
+  if (bare) return models.length ? `<div class="engine compact bare" data-engine="${e.name}"><div class="engine-fields">${modelSelect}${effortSelect}</div></div>` : "";
   return compact
     ? `<div class="engine compact" data-engine="${e.name}">${head}${problem}<div class="engine-fields">${modelSelect}${effortSelect}</div>${quota}</div>`
     : `<div class="engine" data-engine="${e.name}">${head}${problem}${quota}<div class="engine-fields">${modelSelect}${effortSelect}</div></div>`;
@@ -224,6 +268,10 @@ async function saveEngineChoice(box, select) {
   const model = box.querySelector("[data-engine-model]").value || null;
   const effortEl = box.querySelector("[data-engine-effort]");
   let effort = effortEl ? (effortEl.type === "range" ? JSON.parse(effortEl.dataset.stops)[Number(effortEl.value)] || null : effortEl.value || null) : null;
+  // Auto : l'effort revient au moteur.
+  if (select.matches("[data-effort-auto]")) effort = null;
+  // Nouveau modèle : on ne lit pas le curseur (il montre encore l'ancien) mais le choix enregistré.
+  if (select.matches("[data-engine-model]")) effort = engine?.choice.effort ?? null;
   // Nouveau modèle : on garde l’effort seulement s'il la propose.
   const m = engine?.models.find((x) => x.id === model);
   if (select.matches("[data-engine-model]") && effort && !m?.efforts.includes(effort)) effort = null;
@@ -243,8 +291,10 @@ async function saveEngineChoice(box, select) {
       box.querySelector("[data-engine-model]").value = engine.choice.model ?? "";
       const eff = box.querySelector("[data-engine-effort]");
       if (eff?.type === "range") {
-        eff.value = String(Math.max(0, JSON.parse(eff.dataset.stops).indexOf(engine.choice.effort ?? "")));
-        eff.dispatchEvent(new Event("input", { bubbles: true })); // crans et valeur reviennent aussi
+        const stops = JSON.parse(eff.dataset.stops);
+        const at = stops.indexOf(engine.choice.effort ?? "");
+        if (at >= 0) eff.value = String(at);
+        showEffort(eff.closest("[data-effort-box]"), Number(eff.value), at < 0); // crans et valeur reviennent aussi
       }
       else if (eff) eff.value = engine.choice.effort ?? "";
     }

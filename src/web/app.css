@@ -3203,13 +3203,15 @@ ui-alert-dialog-close[value="confirm"] > button[data-slot="alert-dialog-close"]:
   font-size: var(--fs-small);
 }
 
-/* ── Effort : curseur à crans ─────────────────────────────────────────── */
-/* Les crans et le remplissage suivent le centre du bouton, qui va de --r à 100% - --r. */
+/* ── Effort : curseur à crans (d'après le « Sleek Effort Slider » de HorizonX) ── */
+/* Les crans et le remplissage suivent le centre de la capsule, qui va de --r à 100% - --r.
+   La couleur d'accent monte avec le cran (--p de 0 à 1) ; en Auto, le remplissage reste neutre. */
 
 .effort {
-  --r: 9px;
+  --r: 14px; /* demi-largeur de la capsule */
   --p: 0;
   --at: calc(var(--r) + (100% - 2 * var(--r)) * var(--p));
+  --heat: color-mix(in srgb, var(--accent) calc(30% + 70% * var(--p)), var(--surface-3));
   margin-top: 4px;
   padding: 12px 14px 10px;
   border: 1px solid var(--line);
@@ -3217,13 +3219,17 @@ ui-alert-dialog-close[value="confirm"] > button[data-slot="alert-dialog-close"]:
   background: var(--surface);
 }
 
-.engine.compact .effort {
-  padding: 10px 12px 8px;
+.effort.is-auto {
+  --heat: var(--text-3);
+}
+
+.effort.is-compact {
+  padding: 8px 10px 6px;
 }
 
 .effort-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
 }
 
@@ -3242,17 +3248,31 @@ ui-alert-dialog-close[value="confirm"] > button[data-slot="alert-dialog-close"]:
   text-transform: uppercase;
 }
 
-.effort-help {
-  display: inline-grid;
-  place-items: center;
-  width: 18px;
-  height: 18px;
+.effort-auto {
   margin-left: auto;
-  border-radius: 50%;
-  background: var(--surface-2);
-  font: 500 var(--fs-meta) / 1 var(--font);
-  color: var(--text-3);
-  cursor: help;
+  padding: 2px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-2);
+  font: 500 var(--fs-meta) / 1.4 var(--font);
+  cursor: pointer;
+}
+
+.effort-auto:hover {
+  color: var(--text);
+}
+
+.effort-auto[aria-pressed="true"] {
+  border-color: transparent;
+  background: var(--accent-tint);
+  color: var(--accent-text);
+  cursor: default;
+}
+
+.effort-auto:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 .effort-captions {
@@ -3266,6 +3286,10 @@ ui-alert-dialog-close[value="confirm"] > button[data-slot="alert-dialog-close"]:
 .effort-track {
   position: relative;
   height: 24px;
+}
+
+.effort.is-compact .effort-track {
+  margin-top: 4px;
 }
 
 .effort-rail,
@@ -3285,7 +3309,7 @@ ui-alert-dialog-close[value="confirm"] > button[data-slot="alert-dialog-close"]:
 
 .effort-fill {
   width: var(--at);
-  background: var(--text);
+  background: var(--heat);
 }
 
 .effort-tick {
@@ -3326,12 +3350,13 @@ ui-alert-dialog-close[value="confirm"] > button[data-slot="alert-dialog-close"]:
   background: transparent;
 }
 
+/* La capsule : plus large que haute, liseré de la couleur du cran. */
 .effort input[type="range"]::-webkit-slider-thumb {
   width: calc(var(--r) * 2);
-  height: calc(var(--r) * 2);
-  margin-top: calc(12px - var(--r));
-  border: 1px solid var(--line-strong);
-  border-radius: 50%;
+  height: 18px;
+  margin-top: 3px;
+  border: 1.5px solid var(--heat);
+  border-radius: 999px;
   background: var(--thumb, var(--surface));
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.16);
   -webkit-appearance: none;
@@ -3340,9 +3365,9 @@ ui-alert-dialog-close[value="confirm"] > button[data-slot="alert-dialog-close"]:
 
 .effort input[type="range"]::-moz-range-thumb {
   width: calc(var(--r) * 2);
-  height: calc(var(--r) * 2);
-  border: 1px solid var(--line-strong);
-  border-radius: 50%;
+  height: 18px;
+  border: 1.5px solid var(--heat);
+  border-radius: 999px;
   background: var(--thumb, var(--surface));
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.16);
 }
@@ -3369,28 +3394,67 @@ ui-alert-dialog-close[value="confirm"] > button[data-slot="alert-dialog-close"]:
   cursor: progress;
 }
 
-.effort-rec {
+/* Version complète : le nom de chaque niveau sous son cran ; souligné, celui par défaut. */
+.effort-levels {
   position: relative;
-  display: inline-block;
-  left: var(--at);
-  transform: translateX(-50%);
+  height: 16px;
   margin-top: 2px;
+}
+
+.effort-level {
+  position: absolute;
+  left: calc(var(--r) + (100% - 2 * var(--r)) * var(--p));
+  transform: translateX(-50%);
   font-size: var(--fs-meta);
   color: var(--text-3);
   white-space: nowrap;
 }
 
-.effort.is-off .effort-note {
+.effort-level:first-child {
+  transform: translateX(calc(-1 * var(--r)));
+}
+
+.effort-level:last-child {
+  transform: translateX(calc(-100% + var(--r)));
+}
+
+.effort-level.is-rec {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.effort-note {
   margin-top: 6px;
   font-size: var(--fs-meta);
 }
 
-.effort[data-effort-box] .effort-rec {
-  /* « Recommandé » suit son cran à lui, pas la valeur choisie. */
-  left: calc(var(--r) + (100% - 2 * var(--r)) * var(--p));
+.engine-about {
+  margin: 0 0 6px;
+  font-size: var(--fs-small);
 }
 
-/* Sombre : le bouton du curseur en clair, pour se détacher de la carte. */
+/* Animation discrète : la couleur suit le cran, le nom du niveau apparaît en fondu. */
+@media (prefers-reduced-motion: no-preference) {
+  .effort-fill {
+    transition: width var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
+  }
+
+  .effort-tick {
+    transition: background-color var(--t-fast) var(--ease);
+  }
+
+  .effort-value.is-new {
+    animation: effort-in var(--t-fast) var(--ease);
+  }
+}
+
+@keyframes effort-in {
+  from {
+    opacity: 0.35;
+  }
+}
+
+/* Sombre : la capsule en clair, pour se détacher de la carte. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .effort {
     --thumb: var(--text);
@@ -3399,6 +3463,20 @@ ui-alert-dialog-close[value="confirm"] > button[data-slot="alert-dialog-close"]:
 
 :root[data-theme="dark"] .effort {
   --thumb: var(--text);
+}
+
+/* Bas de la barre latérale : modèle puis effort, sans cadre autour. */
+.engine-side:empty {
+  display: none;
+}
+
+.engine-side {
+  padding: 0 10px 6px;
+}
+
+.engine-side .effort {
+  margin-top: 0;
+  background: var(--bg);
 }
 
 /* ── Réglages : rubriques à gauche, contenu à droite ─────────────────── */
