@@ -7,7 +7,7 @@ import type { Config } from "../src/config.ts";
 import type { executeTask } from "../src/core/agent.ts";
 import { Conversation } from "../src/core/conversation.ts";
 import { createHub, OWNER_CHAT } from "../src/core/hub.ts";
-import { cleanJournal, dayBounds, journalOf, JOURNAL_DIR, recentJournalForPrompt, writeJournal } from "../src/core/daily-journal.ts";
+import { catchUpWeek, cleanJournal, dayBounds, isoWeek, journalOf, JOURNAL_DIR, lastWeekForPrompt, recentJournalForPrompt, writeJournal, writeWeekSummary } from "../src/core/daily-journal.ts";
 import { buildSystemPrompt } from "../src/core/prompt.ts";
 import { Store } from "../src/memory/store.ts";
 import { TaskJournal } from "../src/tasks/journal.ts";
@@ -65,4 +65,83 @@ test("journal : rien d'écrit pour une journée presque vide", async () => {
   const r = await writeJournal(hub, "2026-11-01", async () => ((called = true), "## En bref\nx"), null);
   assert.equal(r, null);
   assert.equal(called, false, "pas d'appel au modèle pour rien");
+});
+
+// Résumé de la semaine : tiré des seuls journaux du jour.
+const WEEK_TEXT = "## En bref\nUne semaine sur le portfolio, voir [[Journal 2026-11-17]] et [[Inventé]].\n## Ce qui a avancé\n- PR prête\n## Décisions et changements\nRien.\n## En suspens\n- Merger la PR";
+function fakeModel(text = WEEK_TEXT) {
+  const calls: string[] = [];
+  return { calls, think: async (prompt: string) => (calls.push(prompt), text) };
+}
+function twoJournals(db: Parameters<typeof journalOf>[0]) {
+  journalOf(db).save("2026-11-17", "Mardi : PR du portfolio ouverte.", "## En bref\nMardi : PR du portfolio ouverte.");
+  journalOf(db).save("2026-11-19", "Jeudi : preview Vercel au vert.", "## En bref\nJeudi : preview Vercel au vert.");
+}
+
+test("semaine : bornes ISO, y compris au changement d'année", () => {
+  assert.deepEqual(isoWeek("2026-11-21"), { week: "2026-S47", start: "2026-11-16", end: "2026-11-22" });
+  assert.deepEqual(isoWeek("2026-11-16"), { week: "2026-S47", start: "2026-11-16", end: "2026-11-22" });
+  assert.deepEqual(isoWeek("2026-11-22"), { week: "2026-S47", start: "2026-11-16", end: "2026-11-22" });
+  assert.deepEqual(isoWeek("2027-01-01"), { week: "2026-S53", start: "2026-12-28", end: "2027-01-03" });
+  assert.deepEqual(isoWeek("2024-12-31"), { week: "2025-S01", start: "2024-12-30", end: "2025-01-05" });
+});
+
+test("semaine : rien sous deux journaux, sans appeler le modèle", async () => {
+  const { store, hub } = setup();
+  journalOf(store.db).save("2026-11-17", "Mardi seul.", "## En bref\nMardi seul.");
+  journalOf(store.db).save("2026-11-10", "Semaine d'avant.", "## En bref\nSemaine d'avant.");
+  const m = fakeModel();
+  assert.equal(await writeWeekSummary(hub, "2026-11-21", m.think, null), null);
+  assert.equal(m.calls.length, 0);
+});
+
+test("semaine : le prompt part des journaux, pas des conversations ; liens filtrés ; note dans le coffre", async () => {
+  const { store, conversation, hub } = setup();
+  const vault = mkdtempSync(join(tmpdir(), "clark-semaine-"));
+  twoJournals(store.db);
+  conversation.add({ chatId: OWNER_CHAT, role: "user", text: "Message de conversation secret-xyz" });
+  const m = fakeModel();
+  assert.equal(await writeWeekSummary(hub, "2026-11-21", m.think, vault), "2026-S47");
+  assert.equal(m.calls.length, 1);
+  assert.match(m.calls[0], /PR du portfolio ouverte/);
+  assert.match(m.calls[0], /preview Vercel au vert/);
+  assert.match(m.calls[0], /rien d'inventé/);
+  assert.match(m.calls[0], /\[\[Journal 2026-11-17\]\]/);
+  assert.doesNotMatch(m.calls[0], /secret-xyz/, "jamais les conversations");
+  const w = journalOf(store.db).getWeek("2026-S47")!;
+  assert.equal(w.start, "2026-11-16");
+  assert.equal(w.end, "2026-11-22");
+  assert.match(w.body, /\[\[Journal 2026-11-17\]\]/, "lien vers un journal de la semaine gardé");
+  assert.doesNotMatch(w.body, /\[\[Inventé\]\]/);
+  assert.match(w.body, /et Inventé\./, "texte du lien retiré conservé");
+  const file = join(vault, JOURNAL_DIR, "Semaine 2026-S47.md");
+  assert.ok(existsSync(file));
+  const note = readFileSync(file, "utf8");
+  assert.match(note, /^---\ntype: semaine\nweek: 2026-S47\nstart: 2026-11-16\nend: 2026-11-22\ntags: \[clark\/semaine\]\n---\n# Semaine 2026-S47 \(du 2026-11-16 au 2026-11-22\)/);
+  assert.match(note, /- \[\[Journal 2026-11-17\]\]/);
+  assert.match(note, /- \[\[Journal 2026-11-19\]\]/);
+  assert.match(note, /Retour à \[\[Clark\]\]/);
+});
+
+test("semaine : rattrapage de la semaine passée au démarrage, une seule fois", async () => {
+  const { store, hub } = setup();
+  twoJournals(store.db);
+  const m = fakeModel();
+  const monday = new Date("2026-11-23T10:00:00Z");
+  assert.equal(await catchUpWeek(hub, m.think, null, monday), "2026-S47");
+  assert.ok(journalOf(store.db).getWeek("2026-S47"));
+  assert.equal(await catchUpWeek(hub, m.think, null, monday), null);
+  assert.equal(m.calls.length, 1, "pas réécrite au second appel");
+});
+
+test("semaine : relue au début d'une conversation", async () => {
+  const { store, hub } = setup();
+  assert.equal(lastWeekForPrompt(store.db), "");
+  twoJournals(store.db);
+  await writeWeekSummary(hub, "2026-S47", fakeModel().think, null);
+  const brief = journalOf(store.db).getWeek("2026-S47")!.brief;
+  assert.equal(lastWeekForPrompt(store.db), `La semaine dernière : ${brief}`);
+  const sys = buildSystemPrompt(store, join(tmpdir(), "rien"));
+  assert.match(sys, /## Ces derniers jours \(ton journal\)/);
+  assert.ok(sys.includes(`La semaine dernière : ${brief}`));
 });
