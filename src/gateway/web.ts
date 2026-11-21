@@ -1,6 +1,7 @@
 import type { LoginEngine, Logins } from "../engines/login.ts";
 import type { Terminal } from "../terminal/terminal.ts";
 import { attachmentContext, pickPath } from "../core/attachments.ts";
+import { reviewNotes } from "../dev/binome.ts";
 
 /** Le coffre Obsidian branché à la mémoire : son état pour Réglages › Connexions, et « Synchroniser ». */
 export type ObsidianLink = { status: () => { vault: string | null; lastSync: string | null; error: string | null; notes: number }; syncNow: () => void };
@@ -34,7 +35,7 @@ import { fixPr, markPrSeen, refreshPr, type PrStatus } from "../dev/pr.ts";
 import { issueInstruction, listIssues, readIssue } from "../dev/issues.ts";
 import { validateCopyPaths } from "../dev/project-setup.ts";
 import { applyImport, exportConfig, planImport } from "../core/config-export.ts";
-import { devOfLabel, devPlanOfLabel } from "../dev/store.ts";
+import { DEV_REVIEW_PREFIX, devOfLabel, devPlanOfLabel } from "../dev/store.ts";
 import type { Store } from "../memory/store.ts";
 import type { DevTask } from "../dev/store.ts";
 import { probeMcp } from "../mcp/probe.ts";
@@ -264,6 +265,12 @@ export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voi
       followUps: t.pr_url && !t.pr_of ? store.dev.followUps(`task:${t.id}`).map((f) => ({ id: f.id, title: f.title, status: f.status })) : [],
       attempts: t.attempts ?? 1,
       compareWith: t.compare_with,
+      // Binôme : qui relit, combien de tours, où ça en est (et si le relecteur lit en ce moment).
+      reviewer: t.reviewer,
+      reviewRounds: t.review_rounds,
+      reviewState: t.review_state,
+      reviewing: Boolean(t.reviewer) && t.status === "working" && journal.unfinished().some((x) => x.label === `${DEV_REVIEW_PREFIX}${t.id}`),
+      reviewNotes: reviewNotes(t),
       model: t.model,
       effort: t.effort,
       // Silencieux depuis (ms), si l'agent ne donne plus signe de vie ; et s'il peut être arrêté.
@@ -428,6 +435,8 @@ export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voi
       // Mode design : l'aperçu ouvert (une tâche à la fois).
       preview: opts.preview?.state() ?? null,
       groups: store.dev.groups().map((g) => ({
+        mode: g.mode,
+        planNote: g.plan_note,
         id: g.id,
         project: store.dev.project(g.project_id)?.name ?? "?",
         title: g.title,
@@ -1320,7 +1329,8 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
         const r = startDevCompare(hub, { ...input, sides: sides as [CompareSide, CompareSide] });
         return r.ok ? json(res, 201, r) : json(res, 400, { ...r, field: "instruction" });
       }
-      const r = body.split === true ? startDevGroup(hub, input) : startDevTask(hub, input);
+      // « Binôme » : Claude et Codex, l'un écrit, l'autre relit (toujours découpé en sous-tâches).
+      const r = body.binome === true ? startDevGroup(hub, { ...input, binome: true }) : body.split === true ? startDevGroup(hub, input) : startDevTask(hub, input);
       return r.ok ? json(res, 201, r) : json(res, 400, { ...r, field: "instruction" });
     }
     const devGroup = path.match(/^\/api\/dev\/groups\/(\d+)$/);

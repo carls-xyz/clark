@@ -6284,3 +6284,37 @@ ui-menu-separator {
 .attach-x:focus-visible {
   outline: 2px solid var(--focus);
 }
+
+/* ── Binôme Claude + Codex : qui écrit, qui relit ─────────────────────── */
+
+.dev-binome {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-left: 2px solid var(--accent-text);
+  background: var(--surface-2);
+  border-radius: 0 8px 8px 0;
+}
+
+.dev-binome.is-disagree {
+  border-left-color: var(--warn-text);
+}
+
+.dev-binome p {
+  margin: 0 0 2px;
+}
+
+.dev-review-notes {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: var(--fs-small);
+}
+
+.dev-review-notes ul {
+  margin: 4px 0 8px;
+  padding-left: 14px;
+  list-style: disc;
+}
+
+.dev-review-notes .tag {
+  margin-right: 4px;
+}

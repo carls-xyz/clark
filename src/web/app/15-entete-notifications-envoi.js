@@ -200,13 +200,13 @@ $("#composer").addEventListener("submit", async (e) => {
   send.disabled = true;
   try {
     const mode = $("#mode").value;
-    if (mode === "dev" || mode === "dev-split" || mode === "dev-compare") {
+    if (mode === "dev" || mode === "dev-split" || mode === "dev-compare" || mode === "dev-binome") {
       const projectId = Number($("#dev-project").value);
       if (!projectId) throw new Error("Ajoute d'abord un projet dans Réglages › Projets dev.");
       const compare = mode === "dev-compare" ? comparePairs().find((x) => x.value === $("#compare-pair").value)?.sides : undefined;
       if (mode === "dev-compare" && !compare) throw new Error("Choisis les deux agents à comparer.");
-      const r = await post("/api/dev/tasks", { projectId, instruction: text, engine: "", split: mode === "dev-split", ...(compare ? { compare } : {}) });
-      location.hash = mode === "dev-split" ? `#groupe/${r.id}` : `#dev/${r.id}`;
+      const r = await post("/api/dev/tasks", { projectId, instruction: text, engine: "", split: mode === "dev-split", binome: mode === "dev-binome", ...(compare ? { compare } : {}) });
+      location.hash = mode === "dev-split" || mode === "dev-binome" ? `#groupe/${r.id}` : `#dev/${r.id}`;
     } else {
       // Écrire dans une conversation passée la reprend : elle redevient l'ouverte, avec son fil.
       if (pastId) {
@@ -265,7 +265,7 @@ $("#new-conversation").addEventListener("click", async () => {
 });
 
 // Le choix du projet n'apparaît que pour une tâche dev.
-const MODE_NAMES = { team: "Équipe", goal: "Objectif", dev: "Tâche de code", "dev-split": "Code en parallèle", "dev-compare": "Comparer deux agents" };
+const MODE_NAMES = { team: "Équipe", goal: "Objectif", dev: "Tâche de code", "dev-split": "Code en parallèle", "dev-compare": "Comparer deux agents", "dev-binome": "Binôme Claude + Codex" };
 // Tâche de code en cours de saisie : Clark prépare la copie du projet pendant que tu tapes.
 const prewarmAt = new Map();
 function prewarm() {
@@ -286,7 +286,7 @@ function setMode(mode) {
   $("#compare-pair").hidden = mode !== "dev-compare";
   $("#mode-chip").hidden = mode === "chat";
   $("#mode-chip-label").textContent = MODE_NAMES[mode] ?? "";
-  input.placeholder = mode.startsWith("dev") ? "Consigne pour l'agent de code, ou #12 pour une issue GitHub" : mode === "goal" ? "L'objectif à atteindre" : `Écrire à ${state ? contactOf(threadAgent).name : "Clark"}`;
+  input.placeholder = mode === "dev-binome" ? "Une longue tâche : Claude planifie, Codex relit le plan ; chacun écrit et relit l'autre" : mode.startsWith("dev") ? "Consigne pour l'agent de code, ou #12 pour une issue GitHub" : mode === "goal" ? "L'objectif à atteindre" : `Écrire à ${state ? contactOf(threadAgent).name : "Clark"}`;
 }
 $("#mode-menu").addEventListener("action", (e) => {
   const value = String(e.detail.value);

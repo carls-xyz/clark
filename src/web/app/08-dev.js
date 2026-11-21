@@ -212,10 +212,11 @@ function renderDevGroup(g) {
   const status = { planning: "plan en cours", running: decided ? "à réunir" : "en cours", integrated: "réuni", failed: "arrêté", discarded: "jeté" }[g.status] ?? g.status;
   return `<div class="card dev-group" data-dev-group="${g.id}" data-status="${g.status}">
     <div class="goal-head">
-      <span class="kind-line">Groupe #${g.id} · ${esc(g.project)}${g.engine ? ` · ${esc(ENGINE_NAMES[g.engine] ?? g.engine)}` : ""}${g.tasks.length ? ` · ${g.tasks.length} sous-tâche${g.tasks.length > 1 ? "s" : ""}` : ""}</span>
+      <span class="kind-line">${g.mode === "binome" ? `Binôme #${g.id} · ${esc(g.project)} · Claude + Codex` : `Groupe #${g.id} · ${esc(g.project)}${g.engine ? ` · ${esc(ENGINE_NAMES[g.engine] ?? g.engine)}` : ""}`}${g.tasks.length ? ` · ${g.tasks.length} sous-tâche${g.tasks.length > 1 ? "s" : ""}` : ""}</span>
       <span class="tag dev-${g.status === "running" && decided ? "review" : g.status === "planning" ? "working" : g.status}">${g.status === "planning" ? `${sprite("clark", { walking: true, size: 14 })}` : ""}${status}</span>
     </div>
-    ${g.status === "planning" ? `<p class="quiet">Un agent lit le projet et découpe la consigne en sous-tâches indépendantes.</p>` : ""}
+    ${g.status === "planning" ? `<p class="quiet">${g.mode === "binome" ? "Claude lit le projet et découpe la tâche ; Codex critique le plan, puis Claude le corrige." : "Un agent lit le projet et découpe la consigne en sous-tâches indépendantes."}</p>` : ""}
+    ${g.planNote ? `<details class="goal-log"><summary>Critique du plan par Codex</summary><div class="prose">${md(g.planNote)}</div></details>` : ""}
     ${g.error ? `<p class="goal-reason">${esc(g.error)}</p>` : ""}
     ${(g.gates ?? []).map((x) => renderGate(x, "")).join("")}
     ${g.tasks.length ? `<div class="dev-subtasks">${g.tasks.map((t) => renderDevTask(t, true)).join("")}</div>` : ""}
@@ -460,6 +461,37 @@ function renderCompare(t) {
   </section>`;
 }
 
+/** Binôme : qui écrit, qui relit, où en est la relecture, et ce qui s'est dit à chaque tour. */
+const SEVERITY = { bloquant: "bloquant", important: "important", mineur: "mineur" };
+function renderCrossReview(t) {
+  const author = ENGINE_NAMES[t.engine] ?? t.engine ?? "?";
+  const reviewer = ENGINE_NAMES[t.reviewer] ?? t.reviewer;
+  const state =
+    t.reviewing
+      ? `${reviewer} relit cette version (tour ${t.reviewRounds + 1} sur 3).`
+      : t.reviewState === "approved"
+        ? `Approuvée par ${reviewer}${t.reviewRounds > 1 ? ` après ${t.reviewRounds} tours` : ""}.`
+        : t.reviewState === "disagree"
+          ? `${author} et ${reviewer} ne sont pas d'accord après ${t.reviewRounds} tours : lis leurs arguments et tranche (accepter, retoucher ou jeter).`
+          : t.reviewState === "skipped"
+            ? `La relecture de ${reviewer} n'a pas abouti : relis-la toi-même.`
+            : t.status === "working" && t.reviewRounds
+              ? `${author} corrige après la relecture de ${reviewer} (tour ${t.reviewRounds} sur 3).`
+              : `${reviewer} relira chaque version avant toi.`;
+  const notes = (t.reviewNotes ?? [])
+    .map(
+      (n) => `<li><strong>Tour ${n.round}</strong> · ${n.approve ? "approuvé" : `${n.issues.length} point${n.issues.length > 1 ? "s" : ""}`} — ${esc(n.summary)}${
+        n.issues.length ? `<ul>${n.issues.map((i) => `<li><span class="tag${i.severity === "bloquant" ? " warn" : ""}">${SEVERITY[i.severity] ?? i.severity}</span> ${i.file ? `<code>${esc(i.file)}</code> : ` : ""}${esc(i.problem)}${i.fix ? ` <span class="quiet">→ ${esc(i.fix)}</span>` : ""}</li>`).join("")}</ul>` : ""
+      }</li>`,
+    )
+    .join("");
+  return `<div class="dev-binome${t.reviewState === "disagree" ? " is-disagree" : ""}">
+    <p class="quiet">Écrite par <strong>${esc(author)}</strong> · relue par <strong>${esc(reviewer)}</strong></p>
+    <p class="${t.reviewState === "disagree" ? "dev-stalled" : "quiet"}" role="status">${esc(state)}</p>
+    ${notes ? `<details class="goal-log"${t.reviewState === "disagree" ? " open" : ""}><summary>Relectures (${t.reviewNotes.length})</summary><ol class="dev-review-notes">${notes}</ol></details>` : ""}
+  </div>`;
+}
+
 function renderDevTask(t, nested = false) {
   const files = t.diff?.files ?? [];
   const open = t.status === "review" || t.status === "failed";
@@ -488,6 +520,7 @@ function renderDevTask(t, nested = false) {
     ${t.issue ? `<p class="quiet">Depuis l'issue <a href="${esc(t.issue.url)}" target="_blank" rel="noreferrer noopener">#${t.issue.number}</a> : la PR la fermera.</p>` : ""}
     ${t.prOf ? `<p class="quiet">Suivi de la PR${t.pr ? ` <a href="${esc(t.pr)}" target="_blank" rel="noreferrer noopener">${esc(t.pr.replace(/^.*\/pull\//, "#"))}</a>` : ""}, sur sa branche : accepter met la PR à jour (sans forcer).</p>` : ""}
     ${t.status === "waiting" ? waitingFor(t) : t.dependsOn?.length ? `<p class="quiet">Part du travail de ${t.dependsOn.map((d) => `#${d}`).join(", ")}.</p>` : ""}
+    ${t.reviewer ? renderCrossReview(t) : ""}
     ${t.stalledSince ? `<p class="dev-stalled" role="status">Silencieux depuis ${minutesSince(t.stalledSince)} min : l'agent est peut-être bloqué.</p>` : ""}
     ${t.status === "working" && t.stoppable ? `<div class="card-actions"><button type="button" class="btn ghost" data-dev-action="stop"${t.waiting ? " data-waiting" : ""}>${t.waiting ? "Annuler" : "Arrêter l'agent"}</button></div>` : ""}
     ${t.status === "working" ? (t.waiting ? `<p class="quiet">En attente d'un agent libre (${state.dev?.parallel ?? 2} en même temps au plus).</p>` : `${t.checkpoint ? `<p class="checkpoint solo">${esc(t.checkpoint)}</p>` : ""}${t.steps.length ? renderSteps(t.steps) : `<p class="quiet">L'agent lit le projet.</p>`}`) : ""}

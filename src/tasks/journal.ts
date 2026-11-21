@@ -136,8 +136,9 @@ export class TaskJournal {
   }
 
   /** La dernière tâche d'une étiquette (le dernier tour d'un objectif). */
-  lastByLabel(label: string): Task | undefined {
-    return this.db.prepare("SELECT * FROM tasks WHERE label = ? ORDER BY id DESC LIMIT 1").get(label) as Task | undefined;
+  /** La dernière tâche de ce label ; skip = 1 : l'avant-dernière, etc. */
+  lastByLabel(label: string, skip = 0): Task | undefined {
+    return this.db.prepare("SELECT * FROM tasks WHERE label = ? ORDER BY id DESC LIMIT 1 OFFSET ?").get(label, skip) as Task | undefined;
   }
 
   setSource(id: number, source: string) {
