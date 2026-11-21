@@ -54,6 +54,7 @@ export function claudeSandbox(extraRead: string[] = []): SandboxSettings | undef
       allowRead: [...open, ...extraRead],
       allowWrite: [...open, real(tmpdir())],
     },
-    network: { allowedDomains: [] },
+    // Pas de réseau ; mais ouvrir un port local est permis (les tests lancent souvent un serveur de test sur 127.0.0.1).
+    network: { allowedDomains: [], allowLocalBinding: true },
   };
 }

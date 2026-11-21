@@ -75,17 +75,26 @@ export type SetupLog = {
  * copie. Deux installations en parallèle, c'est beaucoup de disque et de mémoire sur 8 Go.
  */
 export const SHARED_DIRS = ["node_modules", ".venv", "venv", "vendor/bundle"];
+/** Le chemin est-il ignoré par git (comme fichier ou comme dossier) ? */
+export async function isIgnored(worktree: string, path: string): Promise<boolean> {
+  for (const p of [path, `${path}/`]) {
+    try {
+      await git(worktree, ["check-ignore", "-q", p]);
+      return true;
+    } catch {}
+  }
+  return false;
+}
+
 export async function linkSharedDirs(project: Project, worktree: string): Promise<string[]> {
   const linked: string[] = [];
   for (const dir of SHARED_DIRS) {
     const from = join(project.path, dir);
     const to = join(worktree, dir);
     if (!existsSync(from) || existsSync(to)) continue;
-    try {
-      await git(worktree, ["check-ignore", "-q", dir]);
-    } catch {
-      continue; // pas ignoré : le lien apparaîtrait dans le diff
-    }
+    // « node_modules/ » dans le .gitignore ne vaut que pour un dossier : tant que le lien n'existe pas,
+    // git ne le reconnaît que si on écrit aussi la barre finale. Sans elle, le lien n'était jamais créé.
+    if (!(await isIgnored(worktree, dir))) continue; // pas ignoré : le lien apparaîtrait dans le diff
     mkdirSync(dirname(to), { recursive: true });
     symlinkSync(from, to);
     linked.push(dir);

@@ -42,3 +42,28 @@ test("tâche de code : seules les dépendances reliées deviennent lisibles, pas
   assert.ok(!sb?.filesystem?.allowRead?.includes(realpathSync(repo)), "le dépôt (et son .env) reste fermé");
   assert.ok(!sb?.filesystem?.allowWrite?.includes(realpathSync(join(repo, "node_modules"))), "jamais en écriture");
 });
+
+test("copie de travail : node_modules partagé même quand le .gitignore écrit « node_modules/ » (avec la barre)", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const { linkSharedDirs } = await import("../src/dev/project-setup.ts");
+  const root = mkdtempSync(join(tmpdir(), "clark-lien-"));
+  const repo = join(root, "repo");
+  mkdirSync(join(repo, "node_modules", "lib"), { recursive: true });
+  writeFileSync(join(repo, ".gitignore"), "node_modules/\n");
+  writeFileSync(join(repo, "a.txt"), "a\n");
+  const git = (...a: string[]) => execFileSync("git", a, { cwd: repo, encoding: "utf8" });
+  git("init", "-q", "-b", "main");
+  git("-c", "user.email=t@e", "-c", "user.name=T", "add", ".");
+  git("-c", "user.email=t@e", "-c", "user.name=T", "commit", "-qm", "départ");
+  const copy = join(root, "copie");
+  git("worktree", "add", "-q", "--detach", copy, "main");
+  const linked = await linkSharedDirs({ path: repo } as any, copy);
+  assert.deepEqual(linked, ["node_modules"]);
+  assert.deepEqual(sharedReadPaths(copy), [realpathSync(join(repo, "node_modules"))]);
+});
+
+test("bac à sable : pas de réseau, mais un serveur de test peut écouter en local", () => {
+  const sb = claudeSandbox();
+  assert.deepEqual(sb?.network?.allowedDomains, []);
+  assert.equal(sb?.network?.allowLocalBinding, true);
+});
