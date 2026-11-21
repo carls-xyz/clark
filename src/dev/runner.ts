@@ -52,7 +52,11 @@ export async function addProject(hub: Hub, input: { name: string; path: string; 
   if (!root) return { ok: false, field: "path", error: "Ce dossier n'est pas un dépôt git (ou n'existe pas)." };
   if (real(root) !== real(raw)) return { ok: false, field: "path", error: `Indique la racine du dépôt : ${root}` };
   const clarkRoot = real(paths.root);
-  if (real(root) === clarkRoot || real(root).startsWith(clarkRoot + sep)) return { ok: false, field: "path", error: "Pas le dossier de Clark lui-même." };
+  // Clark peut travailler sur lui-même : ses tâches tournent dans des copies (worktrees), un
+  // accord fait un commit sur la branche de la tâche, jamais dans le dossier qui tourne, et ce
+  // qui change arrive par une PR que Charles relit et fusionne. Ses sous-dossiers, eux, non
+  // (workspace/, où vivent justement les copies).
+  if (real(root).startsWith(clarkRoot + sep)) return { ok: false, field: "path", error: "Pas un sous-dossier de Clark : donne la racine de son dépôt." };
   if (store.dev.projects().some((p) => real(p.path) === real(root))) return { ok: false, field: "path", error: "Ce dépôt est déjà un projet." };
   const base = input.baseBranch?.trim() || (await defaultBranch(root));
   if (!(await branchExists(root, base))) return { ok: false, field: "baseBranch", error: `Branche introuvable dans ce dépôt : ${base}` };

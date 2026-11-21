@@ -537,3 +537,7 @@ npm test
 ```bash
 npm run typecheck
 ```
+
+## Clark travaille sur lui-même
+
+Le dépôt de Clark est un projet dev comme les autres (`clark`, tests : `npm test`). Une tâche de code tourne dans une copie (`workspace/dev/…`), jamais dans le dossier qui tourne ; l'accepter fait un commit sur la branche de la tâche, puis **Ouvrir la PR** l'envoie sur `carls-xyz/clark`. Tu relis et fusionnes sur GitHub, puis, pour que Clark l'utilise : `git pull` dans `~/Developer/clark` et redémarrage (Réglages › Moteurs › Redémarrer, ou `scripts/service.sh restart`). Un sous-dossier de Clark ne peut pas devenir un projet.
