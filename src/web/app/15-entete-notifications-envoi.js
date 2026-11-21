@@ -205,7 +205,8 @@ $("#composer").addEventListener("submit", async (e) => {
       if (!projectId) throw new Error("Ajoute d'abord un projet dans Réglages › Projets dev.");
       const compare = mode === "dev-compare" ? comparePairs().find((x) => x.value === $("#compare-pair").value)?.sides : undefined;
       if (mode === "dev-compare" && !compare) throw new Error("Choisis les deux agents à comparer.");
-      const r = await post("/api/dev/tasks", { projectId, instruction: text, engine: "", split: mode === "dev-split", binome: mode === "dev-binome", ...(compare ? { compare } : {}) });
+      const autopilot = mode !== "dev-compare" && $("#dev-autopilot").checked;
+      const r = await post("/api/dev/tasks", { projectId, instruction: text, engine: "", split: mode === "dev-split", binome: mode === "dev-binome", autopilot, ...(compare ? { compare } : {}) });
       location.hash = mode === "dev-split" || mode === "dev-binome" ? `#groupe/${r.id}` : `#dev/${r.id}`;
     } else {
       // Écrire dans une conversation passée la reprend : elle redevient l'ouverte, avec son fil.
@@ -284,6 +285,8 @@ function setMode(mode) {
   $("#mode").value = mode;
   $("#dev-project").hidden = !mode.startsWith("dev");
   $("#compare-pair").hidden = mode !== "dev-compare";
+  // Pilote automatique : pour une tâche de code, du code en parallèle ou un binôme (pas une comparaison, où tu choisis).
+  $("#autopilot-chip").hidden = !mode.startsWith("dev") || mode === "dev-compare";
   $("#mode-chip").hidden = mode === "chat";
   $("#mode-chip-label").textContent = MODE_NAMES[mode] ?? "";
   input.placeholder = mode === "dev-binome" ? "Une longue tâche : Claude planifie, Codex relit le plan ; chacun écrit et relit l'autre" : mode.startsWith("dev") ? "Consigne pour l'agent de code, ou #12 pour une issue GitHub" : mode === "goal" ? "L'objectif à atteindre" : `Écrire à ${state ? contactOf(threadAgent).name : "Clark"}`;

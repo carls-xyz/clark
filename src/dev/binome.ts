@@ -134,7 +134,13 @@ export const reviewNotes = notesOf;
 export async function crossReview(
   hub: Hub,
   id: number,
-  deps: { runTurn: (hub: Hub, id: number, prompt: string) => Promise<void>; patchOf: (hub: Hub, id: number) => Promise<string | null>; announce: (text: string) => Promise<void> },
+  deps: {
+    runTurn: (hub: Hub, id: number, prompt: string) => Promise<void>;
+    patchOf: (hub: Hub, id: number) => Promise<string | null>;
+    announce: (text: string) => Promise<void>;
+    /** Pilote automatique : il prend la main sur la version relue (true) ; sinon, l'annonce habituelle. */
+    ready?: (id: number) => Promise<boolean>;
+  },
 ): Promise<void> {
   const { store, journal } = hub.deps;
   const t = store.dev.get(id);
@@ -160,6 +166,7 @@ export async function crossReview(
 
   if (!verdict) {
     store.dev.update(id, { status: "review", review_state: "skipped" });
+    if (await deps.ready?.(id)) return;
     await deps.announce(`Tâche dev ${name} prête à relire. La relecture de ${ENGINE_NAME[reviewer]} n'a pas abouti : relis-la toi-même.`);
     return;
   }
@@ -168,11 +175,13 @@ export async function crossReview(
 
   if (verdict.approve) {
     store.dev.update(id, { status: "review", review_state: "approved" });
+    if (await deps.ready?.(id)) return;
     await deps.announce(`Tâche dev ${name} prête à relire : écrite par ${ENGINE_NAME[author]}, relue et approuvée par ${ENGINE_NAME[reviewer]}${round > 1 ? ` après ${round} tours` : ""}.`);
     return;
   }
   if (round >= BINOME_ROUNDS) {
     store.dev.update(id, { status: "review", review_state: "disagree" });
+    if (await deps.ready?.(id)) return;
     const open = verdict.issues.slice(0, 3).map((i) => `- ${i.file ? `${i.file} : ` : ""}${short(i.problem, 160)}`).join("\n");
     await deps.announce(`Tâche dev ${name} : ${ENGINE_NAME[author]} et ${ENGINE_NAME[reviewer]} ne sont pas d'accord après ${round} tours. À toi de trancher dans Dev :\n${open}`);
     return;

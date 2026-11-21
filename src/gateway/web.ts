@@ -271,6 +271,7 @@ export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voi
       reviewState: t.review_state,
       reviewing: Boolean(t.reviewer) && t.status === "working" && journal.unfinished().some((x) => x.label === `${DEV_REVIEW_PREFIX}${t.id}`),
       reviewNotes: reviewNotes(t),
+      autopilot: Boolean(t.autopilot) || Boolean(t.group_id && store.dev.group(t.group_id)?.autopilot),
       model: t.model,
       effort: t.effort,
       // Silencieux depuis (ms), si l'agent ne donne plus signe de vie ; et s'il peut être arrêté.
@@ -437,6 +438,7 @@ export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voi
       groups: store.dev.groups().map((g) => ({
         mode: g.mode,
         planNote: g.plan_note,
+        autopilot: Boolean(g.autopilot),
         id: g.id,
         project: store.dev.project(g.project_id)?.name ?? "?",
         title: g.title,
@@ -1330,7 +1332,10 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
         return r.ok ? json(res, 201, r) : json(res, 400, { ...r, field: "instruction" });
       }
       // « Binôme » : Claude et Codex, l'un écrit, l'autre relit (toujours découpé en sous-tâches).
+      const grouped = body.binome === true || body.split === true;
       const r = body.binome === true ? startDevGroup(hub, { ...input, binome: true }) : body.split === true ? startDevGroup(hub, input) : startDevTask(hub, input);
+      // Pilote automatique, choisi par Charles au lancement : noté tout de suite, avant la première version.
+      if (r.ok && body.autopilot === true) grouped ? store.dev.updateGroup(r.id, { autopilot: 1 }) : store.dev.update(r.id, { autopilot: 1 });
       return r.ok ? json(res, 201, r) : json(res, 400, { ...r, field: "instruction" });
     }
     const devGroup = path.match(/^\/api\/dev\/groups\/(\d+)$/);

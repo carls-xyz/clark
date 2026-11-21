@@ -638,3 +638,46 @@ test("tâche longue : limite d'étapes atteinte → l'agent reprend seul (3 fois
   assert.match(runs[1].prompt, /limite d'étapes de ce tour \(relance 1 sur 3\)/);
   assert.equal(store.dev.get(r.id)!.auto_continues, 3);
 });
+
+test("pilote automatique : version verte acceptée seule ; rouge, il s'arrête et dit pourquoi ; groupe réuni seul", async () => {
+  // Tâche seule, tests verts : acceptée sans Charles (la PR ne peut pas s'ouvrir ici : pas d'origin, il le dit).
+  const dir = repo("pilote");
+  const { hub, store, conversation } = setup((cwd) => {
+    writeFileSync(join(cwd, "app.txt"), "ligne 1\nok\n");
+    return {};
+  });
+  const p = (await addProject(hub, { name: "pilote", path: dir, testCommand: "grep -q ok app.txt" })) as any;
+  const a = startDevTask(hub, { projectId: p.id, instruction: "Ajoute la ligne ok dans app.txt" }) as any;
+  store.dev.update(a.id, { autopilot: 1 });
+  await until(() => store.dev.get(a.id)!.status === "accepted" && Boolean(store.dev.get(a.id)!.commit));
+  await until(() => conversation.recent(OWNER_CHAT).some((m) => /Pilote automatique : Tâche dev #\d+ accepté, mais la PR n'a pas pu s'ouvrir/.test(m.text)));
+
+  // Tests rouges même après les corrections : rien n'est gardé, la main revient à Charles.
+  const dir2 = repo("pilote-rouge");
+  const red = setup((cwd) => {
+    writeFileSync(join(cwd, "app.txt"), "ligne 1\n");
+    return {};
+  });
+  const p2 = (await addProject(red.hub, { name: "pilote-rouge", path: dir2, testCommand: "grep -q ok app.txt" })) as any;
+  const b = startDevTask(red.hub, { projectId: p2.id, instruction: "Ajoute la ligne ok dans app.txt" }) as any;
+  red.store.dev.update(b.id, { autopilot: 1 });
+  await until(() => red.conversation.recent(OWNER_CHAT).some((m) => /Pilote automatique arrêté sur #\d+ .*les tests sont rouges/.test(m.text)));
+  assert.equal(red.store.dev.get(b.id)!.status, "review", "pas acceptée : Charles décide");
+});
+
+test("pilote automatique : groupe — sous-tâches vertes acceptées, puis réunies sur une branche, sans Charles", async () => {
+  const dir = repo("pilote-groupe");
+  const plan = { tasks: [{ title: "A", instruction: "Écris le fichier a.txt avec A", files: ["a.txt"] }, { title: "B", instruction: "Écris le fichier b.txt avec B", files: ["b.txt"] }] };
+  const { store, hub } = groupSetup(plan, (cwd, prompt) => {
+    const f = prompt.match(/fichier (\w\.txt) avec (\w)/);
+    if (f) writeFileSync(join(cwd, f[1]), `${f[2]}\n`);
+  });
+  const p = (await addProject(hub, { name: "pilote-groupe", path: dir, testCommand: "true" })) as any;
+  const g = startDevGroup(hub, { projectId: p.id, instruction: "Ajoute deux fichiers au projet" }) as any;
+  store.dev.updateGroup(g.id, { autopilot: 1 });
+  await until(() => store.dev.group(g.id)!.status === "integrated", 30_000);
+  const grp = store.dev.group(g.id)!;
+  assert.ok(store.dev.groupTasks(g.id).every((t) => t.status === "accepted"));
+  assert.equal(sh(dir, "show", `${grp.branch}:a.txt`), "A");
+  assert.equal(sh(dir, "show", `${grp.branch}:b.txt`), "B");
+});

@@ -52,6 +52,8 @@ export type DevGroup = {
   mode: string | null;
   /** La critique du plan par le second moteur (binôme). */
   plan_note: string | null;
+  /** Pilote automatique : sous-tâches acceptées seules, réunion et PR ouvertes par Clark (1). */
+  autopilot: number;
   created_at: string;
   updated_at: string;
 };
@@ -154,6 +156,8 @@ export type DevTask = {
   auto_continues: number;
   /** Corrections automatiques après des tests rouges, avant la relecture de Charles (2 au plus). */
   test_fixes: number;
+  /** Pilote automatique : Clark accepte seul une version prête, aux tests verts (1), ou attend Charles (0). */
+  autopilot: number;
   /** Tâche de suivi d'une PR : « task:5 » ou « group:2 ». Accepter pousse sur la PR. */
   pr_of: string | null;
   /** Issue GitHub d'origine (« Closes #n » dans la PR). */
@@ -266,7 +270,7 @@ export class DevStore {
       if (!cols.some((c) => c.name === col)) db.exec(`ALTER TABLE projects ADD COLUMN ${col} TEXT`);
     }
     // mode : « binome » (Claude et Codex : l'un écrit, l'autre relit) ; plan_note : la critique du plan.
-    for (const [col, def] of [["issue_number", "INTEGER"], ["issue_url", "TEXT"], ["pr_status", "TEXT"], ["mode", "TEXT"], ["plan_note", "TEXT"]]) {
+    for (const [col, def] of [["issue_number", "INTEGER"], ["issue_url", "TEXT"], ["pr_status", "TEXT"], ["mode", "TEXT"], ["plan_note", "TEXT"], ["autopilot", "INTEGER NOT NULL DEFAULT 0"]]) {
       const cols = db.prepare("PRAGMA table_info(dev_groups)").all() as { name: string }[];
       if (!cols.some((c) => c.name === col)) db.exec(`ALTER TABLE dev_groups ADD COLUMN ${col} ${def}`);
     }
@@ -296,6 +300,8 @@ export class DevStore {
       // Tâches longues : relances automatiques après la limite d'étapes, corrections après des tests rouges.
       ["auto_continues", "INTEGER NOT NULL DEFAULT 0"],
       ["test_fixes", "INTEGER NOT NULL DEFAULT 0"],
+      // Pilote automatique : accepter seul une version prête et verte (src/dev/autopilot.ts).
+      ["autopilot", "INTEGER NOT NULL DEFAULT 0"],
     ]) {
       const cols = db.prepare("PRAGMA table_info(dev_tasks)").all() as { name: string }[];
       if (!cols.some((c) => c.name === col)) db.exec(`ALTER TABLE dev_tasks ADD COLUMN ${col} ${def}`);
@@ -345,7 +351,7 @@ export class DevStore {
     return this.db.prepare("SELECT * FROM dev_tasks WHERE group_id = ? ORDER BY id").all(groupId) as DevTask[];
   }
 
-  updateGroup(id: number, fields: Partial<Pick<DevGroup, "status" | "plan_worktree" | "branch" | "commit_sha" | "pr_url" | "error" | "issue_number" | "issue_url" | "pr_status" | "mode" | "plan_note">>) {
+  updateGroup(id: number, fields: Partial<Pick<DevGroup, "status" | "plan_worktree" | "branch" | "commit_sha" | "pr_url" | "error" | "issue_number" | "issue_url" | "pr_status" | "mode" | "plan_note" | "autopilot">>) {
     const keys = Object.keys(fields) as (keyof typeof fields)[];
     if (!keys.length) return;
     this.db.prepare(`UPDATE dev_groups SET ${keys.map((k) => `${k} = ?`).join(", ")}, updated_at = datetime('now') WHERE id = ?`).run(...keys.map((k) => (fields[k] ?? null) as any), id);
@@ -560,7 +566,7 @@ export class DevStore {
         DevTask,
         | "status" | "error" | "summary" | "diff_stat" | "commit" | "tests" | "base_commit" | "rounds" | "pr_url" | "instruction" | "branch" | "worktree"
         | "engine" | "model" | "effort" | "attempts" | "depends_on" | "existing_branch" | "pr_of" | "issue_number" | "issue_url" | "pr_status" | "setup_log" | "at_round" | "agent_note" | "compare_with" | "pending_turn" | "merge_branch"
-        | "reviewer" | "review_rounds" | "review_state" | "review_notes" | "auto_continues" | "test_fixes"
+        | "reviewer" | "review_rounds" | "review_state" | "review_notes" | "auto_continues" | "test_fixes" | "autopilot"
       >
     >,
   ) {
