@@ -358,7 +358,7 @@ export function memoryTools(store: Store, ctx: { taskId: () => number | undefine
         "Chef d'orchestre : confie une mission à l'agent de l'équipe qui convient, et attends sa réponse pour t'en servir. chercheur = Mousse (rassembler des faits sourcés, lire des fichiers, chercher) ; redacteur = Braise (écrire un texte, un mail, un livrable) ; relecteur = Guimauve (vérifier, repérer les contradictions, prioriser) ; contenu = Lilas (juger un texte : clarté, ton, fautes). Une mission précise et autonome : l'agent ne voit pas ta conversation. Plusieurs missions d'affilée si besoin. Réponds toi-même aux questions simples.",
       shape: {
         agent: z.enum(["chercheur", "redacteur", "relecteur", "contenu"]),
-        mission: z.string().min(10).max(3000).describe("La mission complète : contexte utile, ce qu'il doit rendre"),
+        mission: z.string().min(10).max(20_000).describe("La mission complète : contexte utile, ce qu'il doit rendre"),
       },
       async run({ agent, mission }: { agent: "chercheur" | "redacteur" | "relecteur" | "contenu"; mission: string }) {
         const refusal = notOrchestrator();
@@ -374,7 +374,7 @@ export function memoryTools(store: Store, ctx: { taskId: () => number | undefine
       description:
         "Chef d'orchestre : confie à Boulon (Code) une tâche de code sur un projet de Charles (corriger un bug, ajouter une fonction…). Boulon travaille dans une copie du dépôt, sur sa propre branche ; Charles relit le diff avant de garder quoi que ce soit. Ne modifie jamais toi-même le code d'un projet : passe par cet outil. Elle tourne en arrière-plan : dis à Charles qu'elle est lancée.",
       shape: {
-        instruction: z.string().min(10).max(3000).describe("La consigne complète : le problème, ce qu'il faut obtenir, ce qu'il ne faut pas toucher"),
+        instruction: z.string().min(10).max(20_000).describe("La consigne complète : le problème, ce qu'il faut obtenir, ce qu'il ne faut pas toucher. Pour une consigne très longue, écris-la dans un fichier de ton dossier et donne son chemin."),
         project: z.string().max(80).optional().describe("Nom du projet (tel que dans Dev › Projets) ; inutile s'il n'y en a qu'un"),
       },
       async run({ instruction, project }: { instruction: string; project?: string }) {
@@ -430,7 +430,15 @@ export function memoryTools(store: Store, ctx: { taskId: () => number | undefine
           }[]
         ).reverse();
         if (!rows.length) return `Conversation #${conversation} introuvable ou vide.`;
-        return rows.map((r) => `${r.created_at} UTC — ${r.role === "user" ? "Charles" : "Clark"} : ${clipText(r.text, 1200)}`).join("\n\n");
+        // Les messages entiers (une consigne de Charles peut être longue), dans une limite totale raisonnable.
+        let budget = 60_000;
+        return rows
+          .map((r) => {
+            const text = clipText(r.text, Math.max(500, Math.min(12_000, budget)));
+            budget -= text.length;
+            return `${r.created_at} UTC — ${r.role === "user" ? "Charles" : "Clark"} : ${text}`;
+          })
+          .join("\n\n");
       },
     },
     remind_me: {

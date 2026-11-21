@@ -148,6 +148,7 @@ Mission : ${step.mission}
 Livrable attendu : ${step.deliverable}
 ${rights}
 Cite tes sources (fichiers lus). Si une information manque ou se contredit, dis-le au lieu de choisir. Si une décision revient à Charles, pose-lui la question (ask_charles).
+Une mission d'équipe précédente sur le même sujet ? Ses rendus sont dans equipe/<numéro>/rendu-*.md (dans ton dossier), et les échanges avec Charles se relisent avec history_search puis history_read : cherche-les avant de lui redemander quelque chose.
 À chaque étape importante, note ton avancement en une ligne (report_progress) : ce que tu viens de faire, puis la suite.
 Ta réponse finale est ton livrable, sans commentaire autour.
 
