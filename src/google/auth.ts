@@ -65,7 +65,7 @@ export function disconnectGoogle() {
 
 /** Message à afficher quand Google n'est pas branché, avec la marche à suivre. */
 export function notConnectedText(): string {
-  if (!client()) return "Google n'est pas configuré : il manque GOOGLE_CLIENT_ID et GOOGLE_CLIENT_SECRET dans .env (voir le README, « Mail et agenda »).";
+  if (!client()) return "Google n'est pas configuré : il manque GOOGLE_CLIENT_ID et GOOGLE_CLIENT_SECRET dans .env (voir docs/GUIDE.md, « Mail et agenda »).";
   return `Google n'est pas connecté. Lance une fois dans un terminal, dans le dossier de Clark : ${GOOGLE_LOGIN_COMMAND}`;
 }
 

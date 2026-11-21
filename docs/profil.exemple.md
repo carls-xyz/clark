@@ -1,13 +1,13 @@
-# Profil de Charles
+# Profil
 
-Ce fichier est la mémoire « cœur » de Clark : il est lu au début de chaque conversation.
-C'est Charles qui l'écrit et le tient à jour. Garde-le court (une page maximum) :
+Modèle de la mémoire « cœur » de Clark. Copie-le dans `memory/profil.md` (hors de git) et
+remplis-le : Clark le lit au début de chaque conversation. Garde-le court (une page au plus) :
 le reste va dans la mémoire longue, que Clark remplit lui-même.
 
-- Prénom : Charles
-- Langue : français, ton détendu, tutoiement
+- Prénom :
+- Langue et ton : français, tutoiement, ton détendu
 - Fuseau : Europe/Paris
-- Situation : étudiant dev à l'IIM
+- Situation :
 
 ## Ce que j'attends de Clark
 
