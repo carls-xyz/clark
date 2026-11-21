@@ -571,4 +571,6 @@ Outils : `vault_search` (par mots et par le sens), `vault_read` (une note, ses l
 
 La veille du soir écrit aussi sa note, `Clark/Veille/Veille AAAA-MM-JJ.md`, que le journal du jour relie.
 
+**Notes par sujet.** Clark regroupe ses souvenirs par ce dont ils parlent (« Portfolio », « Boîte mail », « Travail avec Clark »…) : une note par sujet dans `Clark/Sujets`, avec une phrase de description, ses souvenirs et les jours du journal qui en parlent ; chaque note de souvenir porte « Sujet : [[…]] ». Le regroupement est refait quand la mémoire change (6 h au plus entre deux), en gardant les noms existants ; un sujet a au moins deux souvenirs. Une note que tu écris dans ce dossier n'est jamais supprimée (seules celles marquées `clark_sujet` le sont, quand leur sujet disparaît).
+
 **Par le sens.** Souvenirs et notes ont un vecteur (modèle local `paraphrase-multilingual-MiniLM-L12-v2`, ~120 Mo dans `data/models`, téléchargé une fois). `recall` et `vault_search` mêlent mots et sens. Le modèle tourne dans un processus à part, lancé à la demande, arrêté après 2 minutes sans usage (~650 Mo le temps du calcul). `CLARK_EMBEDDINGS=off` coupe tout. Limite connue : un petit modèle ne sait pas tout (« ma banque » ne trouve pas une note qui ne cite que le nom de la banque) ; la recherche par mots reste à côté.

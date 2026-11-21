@@ -22,6 +22,7 @@ import { semanticOf, stopEmbedder } from "./memory/semantic.ts";
 import { claudeJudge, claudeThink } from "./engines/judge.ts";
 import { startMemoryReview } from "./core/memory-review.ts";
 import { startDailyJournal } from "./core/daily-journal.ts";
+import { startTopics, topicsOf } from "./obsidian/topics.ts";
 import { startWorktreeSweep } from "./dev/cleanup.ts";
 import type { Quota } from "./engines/quota.ts";
 import { createTelegram } from "./gateway/telegram.ts";
@@ -225,7 +226,11 @@ if (!vault) {
   setTimeout(() => void refreshSemantic(), 30_000).unref();
 }
 if (vault) {
-  vaultSync = new VaultSync(store, vault, { related: (m) => relatedNotes(m), log: (msg) => console.log(`[clark] obsidian : ${msg}`) });
+  vaultSync = new VaultSync(store, vault, {
+    related: (m) => relatedNotes(m),
+    topics: (m) => topicsOf(store.db).of(m.id),
+    log: (msg) => console.log(`[clark] obsidian : ${msg}`),
+  });
   syncVault();
   // Un souvenir change chez Clark : la note suit (regroupé) ; tes changements dans Obsidian : relus toutes les 2 min.
   store.onMemory(() => {
@@ -271,6 +276,7 @@ const shutdown = async (code = 0) => {
   codex?.close();
   clearInterval(terminalWatch);
   stopJournal();
+  stopTopics();
   stopEmbedder();
   terminal.stopAll();
   await browser.close();
@@ -333,6 +339,11 @@ const stopBackups = startBackups(store.db, join(paths.root, "data", "backups"));
 const stopJournal =
   claude.mode !== "none"
     ? startDailyJournal(hub, (p) => claudeThink(p, "Tu écris le journal du jour d'un assistant personnel, en Markdown, uniquement à partir des faits donnés."), () => vault)
+    : () => {};
+// Notes par sujet : les souvenirs regroupés (« Portfolio », « Boîte mail »…), dans « Clark/Sujets ».
+const stopTopics =
+  claude.mode !== "none"
+    ? startTopics(store, (p) => claudeThink(p, "Tu ranges des souvenirs par sujets. Tu réponds uniquement par un bloc JSON."), () => vault, () => vaultSync?.sync())
     : () => {};
 const stopReview = claude.mode !== "none" ? startMemoryReview(hub, (p) => claudeThink(p, "Tu relis une conversation pour en tirer des souvenirs durables. Tu réponds uniquement par un bloc JSON.")) : () => {};
 startGoals(hub);

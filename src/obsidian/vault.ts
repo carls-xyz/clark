@@ -85,7 +85,7 @@ export function noteName(m: Pick<Memory, "id" | "content">): string {
   return `${name} (${m.id})`;
 }
 
-export function renderMemoryNote(m: Memory, related: string[] = []): string {
+export function renderMemoryNote(m: Memory, related: string[] = [], topics: string[] = []): string {
   const k = KIND_LABELS[m.kind as MemoryKind] ?? KIND_LABELS.fact;
   const tags = ["clark/memoire", `clark/${k.one.normalize("NFD").replace(/\p{Diacritic}/gu, "")}`, ...m.tags.split(",").map((t) => t.trim()).filter(Boolean)];
   const props = [
@@ -97,7 +97,11 @@ export function renderMemoryNote(m: Memory, related: string[] = []): string {
     `importance: ${m.importance}`,
     `tags: [${tags.map((t) => yamlValue(t.replace(/\s+/g, "-"))).join(", ")}]`,
   ].filter(Boolean);
-  const links = [`- Type : [[${k.hub}]]`, ...(related.length ? [`- Proche de : ${related.map((r) => `[[${r}]]`).join(", ")}`] : [])];
+  const links = [
+    `- Type : [[${k.hub}]]`,
+    ...(topics.length ? [`- Sujet : ${topics.map((t) => `[[${t}]]`).join(", ")}`] : []),
+    ...(related.length ? [`- Proche de : ${related.map((r) => `[[${r}]]`).join(", ")}`] : []),
+  ];
   return `---\n${props.join("\n")}\n---\n${m.content.trim()}\n\n## Liens\n${links.join("\n")}\n`;
 }
 
@@ -109,8 +113,8 @@ export class VaultSync {
   private readonly db: DatabaseSync;
   private readonly store: Store;
   readonly root: string;
-  private readonly opts: { related?: (m: Memory) => string[]; log?: (msg: string) => void };
-  constructor(store: Store, root: string, opts: { related?: (m: Memory) => string[]; log?: (msg: string) => void } = {}) {
+  private readonly opts: { related?: (m: Memory) => string[]; topics?: (m: Memory) => string[]; log?: (msg: string) => void };
+  constructor(store: Store, root: string, opts: { related?: (m: Memory) => string[]; topics?: (m: Memory) => string[]; log?: (msg: string) => void } = {}) {
     this.store = store;
     this.root = root;
     this.opts = opts;
@@ -227,7 +231,7 @@ export class VaultSync {
     for (const [id, m] of active) {
       const map = fresh.get(id);
       const rel = map?.file ?? join(MEMORY_DIR, `${noteName(m)}.md`);
-      if (map && map.content_hash === hash(m.content + (this.opts.related?.(m) ?? []).join("|")) && existsSync(join(this.root, rel))) continue;
+      if (map && map.content_hash === this.linksHash(m) && existsSync(join(this.root, rel))) continue;
       this.writeMemory(m, rel);
       out.written++;
     }
@@ -249,9 +253,15 @@ export class VaultSync {
 
   private writeMemory(m: Memory, rel: string) {
     const related = this.opts.related?.(m) ?? [];
-    const text = renderMemoryNote(m, related);
+    const topics = this.opts.topics?.(m) ?? [];
+    const text = renderMemoryNote(m, related, topics);
     this.write(rel, text);
-    this.save({ memory_id: m.id, file: rel, body_hash: hash(m.content.trim()), content_hash: hash(m.content + related.join("|")) });
+    this.save({ memory_id: m.id, file: rel, body_hash: hash(m.content.trim()), content_hash: this.linksHash(m) });
+  }
+
+  /** Ce qui, s'il change, demande de réécrire la note : le texte, les proches, les sujets. */
+  private linksHash(m: Memory): string {
+    return hash(`${m.content}${(this.opts.related?.(m) ?? []).join("|")}#${(this.opts.topics?.(m) ?? []).join("|")}`);
   }
 
   /** Une note par type (Faits, Leçons…) qui liste ses souvenirs, et l'accueil « Clark ». */
@@ -262,7 +272,7 @@ export class VaultSync {
       const lines = list.map((m) => `- [[${basename(maps.get(m.id)?.file ?? noteName(m), ".md")}]]`);
       this.write(join(MEMORY_DIR, `${label.hub}.md`), `---\ntags: [clark/type]\n---\n${list.length ? `Ce que Clark sait (${label.hub.toLowerCase()}) :\n\n${lines.join("\n")}` : "Rien pour l'instant."}\n\nRetour à [[Clark]]\n`);
     }
-    const home = `---\ntags: [clark]\n---\n# Clark\n\nLa mémoire de Clark, tenue à jour par lui. Corrige une note : il reprend ton texte. Supprime-la : il oublie. Écris une note dans « ${MEMORY_DIR} » : il l'apprend.\n\nSon journal, un par jour, est dans « Clark/Journal » ; sa veille du soir dans « Clark/Veille ».\n\n${Object.values(KIND_LABELS)
+    const home = `---\ntags: [clark]\n---\n# Clark\n\nLa mémoire de Clark, tenue à jour par lui. Corrige une note : il reprend ton texte. Supprime-la : il oublie. Écris une note dans « ${MEMORY_DIR} » : il l'apprend.\n\nSes sujets (souvenirs regroupés) sont dans « Clark/Sujets », son journal, un par jour, dans « Clark/Journal », sa veille du soir dans « Clark/Veille ».\n\n${Object.values(KIND_LABELS)
       .map((l) => `- [[${l.hub}]]`)
       .join("\n")}\n`;
     this.write(join(CLARK_DIR, "Clark.md"), home);
