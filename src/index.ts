@@ -21,6 +21,7 @@ import { relatedNotes, setRelatedFinder } from "./obsidian/related.ts";
 import { semanticOf, stopEmbedder } from "./memory/semantic.ts";
 import { claudeJudge, claudeThink } from "./engines/judge.ts";
 import { startMemoryReview } from "./core/memory-review.ts";
+import { startDailyJournal } from "./core/daily-journal.ts";
 import { startWorktreeSweep } from "./dev/cleanup.ts";
 import type { Quota } from "./engines/quota.ts";
 import { createTelegram } from "./gateway/telegram.ts";
@@ -269,6 +270,7 @@ const shutdown = async (code = 0) => {
   logins.close();
   codex?.close();
   clearInterval(terminalWatch);
+  stopJournal();
   stopEmbedder();
   terminal.stopAll();
   await browser.close();
@@ -327,6 +329,11 @@ const stopDelegations = startDelegations(hub);
 // Sauvegarde de la base chaque nuit à 3 h (data/backups, les 7 dernières).
 const stopBackups = startBackups(store.db, join(paths.root, "data", "backups"));
 // Relecture de mémoire en arrière-plan (un petit modèle Claude, si Claude est disponible).
+// Mémoire de moyen terme : le journal du jour, écrit chaque soir (dans Obsidian s'il y a un coffre).
+const stopJournal =
+  claude.mode !== "none"
+    ? startDailyJournal(hub, (p) => claudeThink(p, "Tu écris le journal du jour d'un assistant personnel, en Markdown, uniquement à partir des faits donnés."), () => vault)
+    : () => {};
 const stopReview = claude.mode !== "none" ? startMemoryReview(hub, (p) => claudeThink(p, "Tu relis une conversation pour en tirer des souvenirs durables. Tu réponds uniquement par un bloc JSON.")) : () => {};
 startGoals(hub);
 startDevGroups(hub);

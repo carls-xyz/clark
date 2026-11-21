@@ -564,4 +564,11 @@ Le dépôt de Clark est un projet dev comme les autres (`clark`, tests : `npm te
 
 Outils : `vault_search` (par mots et par le sens), `vault_read` (une note, ses liens, ce qui la cite), `vault_write` (seulement dans `Clark/`, hors `Clark/Mémoire`). État et « Synchroniser maintenant » dans Réglages › Connexions.
 
+**Mémoire en trois couches.**
+- **Courte** : les conversations du jour, telles quelles.
+- **Moyenne** : le **journal du jour**. Chaque soir à 23 h (ou au démarrage pour la veille, si le Mac était éteint), Clark l'écrit à partir des seuls faits du jour : conversations, demandes, décisions prises seul, tâches de code, souvenirs confirmés. Sections « En bref », « Ce qu'on a fait », « Ce que j'ai décidé seul », « En suspens », avec des liens vers les notes de souvenirs (les liens vers des notes qui n'existent pas sont retirés). Il est rangé dans la base et dans `Clark/Journal/Journal AAAA-MM-JJ.md`. Les trois derniers « En bref » sont relus au début de chaque conversation ; les jours plus anciens se retrouvent par le sens (`vault_search`).
+- **Longue** : les souvenirs confirmés (relecture de mémoire, toutes les 20 demandes ou après 15 min de calme).
+
+La veille du soir écrit aussi sa note, `Clark/Veille/Veille AAAA-MM-JJ.md`, que le journal du jour relie.
+
 **Par le sens.** Souvenirs et notes ont un vecteur (modèle local `paraphrase-multilingual-MiniLM-L12-v2`, ~120 Mo dans `data/models`, téléchargé une fois). `recall` et `vault_search` mêlent mots et sens. Le modèle tourne dans un processus à part, lancé à la demande, arrêté après 2 minutes sans usage (~650 Mo le temps du calcul). `CLARK_EMBEDDINGS=off` coupe tout. Limite connue : un petit modèle ne sait pas tout (« ma banque » ne trouve pas une note qui ne cite que le nom de la banque) ; la recherche par mots reste à côté.
