@@ -454,7 +454,8 @@ export function createHub(
     const run = engine === mainEngine && !opts.engine ? execute : (executors[engine] ?? execute);
     opts.onCreated?.(taskId);
     // Lancée par une automatisation ou une proposition acceptée : ce n'est pas Charles qui l'a écrite, on le dit.
-    if (source.startsWith("automation:")) conversation.add({ chatId, role: "system", text: `Automatisation « ${source.slice(11)} » : ${short(prompt, 300)}`, taskId });
+    // Une ligne courte : la consigne complète reste dans Réglages › Automatisations.
+    if (source.startsWith("automation:")) conversation.add({ chatId, role: "system", text: `Automatisation « ${source.slice(11)} » : c'est parti.`, taskId });
     else if (source.startsWith("initiative:")) conversation.add({ chatId, role: "system", text: `Proposition acceptée « ${source.slice(11)} » : ${short(prompt, 300)}`, taskId });
     else if (isGoalChat(chatId) || isDevChat(chatId)) {
       // Tour d'un objectif : la consigne reste dans le fil de l'objectif, pas dans le tien.
