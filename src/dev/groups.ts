@@ -7,7 +7,8 @@ import type { Hub } from "../core/hub.ts";
 import { OWNER_CHAT } from "../core/hub.ts";
 import { addWorktree, freshBase, git, removeWorktree } from "./git.ts";
 import { devSlug, launchReady, startDevTask, worktreesDir, type DevOutcome } from "./runner.ts";
-import { DEV_PLAN_PREFIX, devGroupChat } from "./store.ts";
+import { DEV_CRITIQUE_PREFIX, DEV_PLAN_PREFIX, devCritiqueChat, devGroupChat } from "./store.ts";
+import { authorOf, otherEngine, planCritiquePrompt, planRevisePrompt } from "./binome.ts";
 import { once } from "./in-flight.ts";
 
 const run = promisify(execFile);
@@ -85,18 +86,23 @@ export function parseDevPlan(text: string | null | undefined): { tasks: PlannedT
 
 export function startDevGroup(
   hub: Hub,
-  input: { projectId: number; instruction: string; engine?: EngineName | null; title?: string; issue?: { number: number; url: string } },
+  input: { projectId: number; instruction: string; engine?: EngineName | null; title?: string; issue?: { number: number; url: string }; binome?: boolean },
 ): { ok: true; id: number } | { ok: false; error: string } {
   const { store, journal } = hub.deps;
   const p = store.dev.project(input.projectId);
   if (!p) return { ok: false, error: "Projet introuvable" };
   const instruction = input.instruction.trim();
   if (instruction.length < 10) return { ok: false, error: "Décris la tâche en une phrase au moins" };
+  // Binôme : les deux moteurs doivent être là (l'un écrit, l'autre relit).
+  if (input.binome && !hub.canRun("claude")) return { ok: false, error: "Binôme : Claude n'est pas connecté." };
+  if (input.binome && !hub.canRun("codex")) return { ok: false, error: "Binôme : connecte d'abord Codex (Réglages › Moteurs)." };
   const stamp = Date.now().toString(36);
   const planDir = join(worktreesDir(), `plan-${p.name}-${stamp}`);
-  const engine = (input.engine ?? p.default_engine ?? null) as EngineName | null;
+  // Binôme : Claude fait le plan, Codex le critique.
+  const engine = (input.binome ? "claude" : (input.engine ?? p.default_engine ?? null)) as EngineName | null;
   const id = store.dev.createGroup({ projectId: p.id, title: short(input.title?.trim() || instruction.split("\n")[0], 80), instruction, engine, planWorktree: planDir });
   if (input.issue) store.dev.updateGroup(id, { issue_number: input.issue.number, issue_url: input.issue.url });
+  if (input.binome) store.dev.updateGroup(id, { mode: "binome" });
   void (async () => {
     try {
       mkdirSync(worktreesDir(), { recursive: true });
@@ -110,7 +116,25 @@ export function startDevGroup(
       access: "read",
       ...(engine ? { engine } : {}),
     });
-    const result = journal.lastByLabel(label);
+    let result = journal.lastByLabel(label);
+    // Binôme : Codex critique le plan dans la même copie, puis Claude le corrige (même fil, il garde son contexte).
+    if (input.binome && result?.status === "done" && parseDevPlan(result.result)) {
+      const critic = otherEngine("claude");
+      const critLabel = `${DEV_CRITIQUE_PREFIX}${id}`;
+      await hub.enqueue(devCritiqueChat(id), planCritiquePrompt(p.name, planDir, instruction, result.result!.slice(result.result!.indexOf("{"), result.result!.lastIndexOf("}") + 1), "claude"), critLabel, critLabel, {
+        access: "read",
+        engine: critic,
+      });
+      const critique = journal.lastByLabel(critLabel);
+      if (critique?.status === "done" && critique.result?.trim()) {
+        store.dev.updateGroup(id, { plan_note: critique.result.trim().slice(0, 4000) });
+        await hub.enqueue(devGroupChat(id), planRevisePrompt(critic, critique.result), label, label, { access: "read", engine: "claude" });
+        const revised = journal.lastByLabel(label);
+        // Plan corrigé illisible : on garde le premier, qui était bon.
+        if (revised?.status === "done" && parseDevPlan(revised.result)) result = revised;
+        else result = journal.lastByLabel(label, 1) ?? result;
+      }
+    }
     await git(p.path, ["worktree", "remove", "--force", planDir]).catch(() => {});
     store.dev.updateGroup(id, { plan_worktree: null });
     const plan = result?.status === "done" ? parseDevPlan(result.result) : null;
@@ -124,23 +148,28 @@ export function startDevGroup(
     const gated = new Set(decisions.flatMap((d) => d.tasks));
     const ids: number[] = [];
     tasks.forEach((t, i) => {
+      // Binôme : les auteurs alternent (Claude, Codex, Claude…), le relecteur est l'autre.
+      const author = input.binome ? authorOf(i) : engine;
       const r = startDevTask(hub, {
         projectId: p.id,
         instruction: t.instruction,
         title: t.title,
-        engine,
+        engine: author,
         groupId: id,
         dependsOn: t.after.map((a) => ids[a]),
         waiting: t.after.length > 0 || gated.has(i),
       });
-      if (r.ok) ids.push(r.id);
+      if (r.ok) {
+        ids.push(r.id);
+        if (input.binome && author) store.dev.update(r.id, { reviewer: otherEngine(author) });
+      }
     });
     for (const d of decisions) store.dev.createGate({ groupId: id, question: d.question, options: d.options, taskIds: d.tasks.map((i) => ids[i]) });
     const now = tasks.filter((t, i) => !t.after.length && !gated.has(i)).length;
     const later = tasks.length - now;
     await hub.post(
       OWNER_CHAT,
-      `Groupe dev #${id} (${p.name}) : ${now} sous-tâche${now > 1 ? "s" : ""} lancée${now > 1 ? "s" : ""}${later ? `, ${later} en attente${decisions.length ? ` (dont ${decisions.length} décision${decisions.length > 1 ? "s" : ""} à prendre dans Activité)` : " de celles dont elles dépendent"}` : ""}.`,
+      `${input.binome ? "Binôme" : "Groupe dev"} #${id} (${p.name}) : ${input.binome ? `plan de Claude relu par Codex, ` : ""}${now} sous-tâche${now > 1 ? "s" : ""} lancée${now > 1 ? "s" : ""}${later ? `, ${later} en attente${decisions.length ? ` (dont ${decisions.length} décision${decisions.length > 1 ? "s" : ""} à prendre dans Activité)` : " de celles dont elles dépendent"}` : ""}.`,
       "system", "dev");
   })();
   return { ok: true, id };

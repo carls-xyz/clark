@@ -1,3 +1,4 @@
+import { announceDev, crossReview } from "./binome.ts";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, realpathSync, symlinkSync } from "node:fs";
 import { basename, isAbsolute, join, resolve, sep } from "node:path";
@@ -342,7 +343,7 @@ const setAside = new Set<number>();
 export const setAsideDevTask = (id: number) => void setAside.add(id);
 
 /** Un tour de l'agent dans la copie, puis le diff : la tâche passe en relecture. */
-async function runTurn(hub: Hub, id: number, prompt: string, images: string[] = []) {
+export async function runTurn(hub: Hub, id: number, prompt: string, images: string[] = []) {
   const { store } = hub.deps;
   // Noté avant d'attendre une place : coupé pendant l'attente, le tour est relancé au démarrage
   // au lieu de passer pour fini avec le résultat du tour d'avant.
@@ -410,6 +411,15 @@ export async function collect(hub: Hub, id: number) {
     store.dev.update(id, { status: "failed", error: why, diff_stat: stat, summary: run.result });
     if (t.compare_with) await compareNotice(hub, id);
     else await hub.post(OWNER_CHAT, `Tâche dev #${id} (${p.name}) arrêtée : ${why}. Tu peux répondre, la relancer sur l'autre moteur ou la jeter, dans Dev.`, "system", "dev");
+    return;
+  }
+  // Binôme : avant Charles, l'autre moteur relit cette version (et l'auteur corrige si besoin).
+  if (run?.status === "done" && t.reviewer) {
+    store.dev.update(id, { summary: run.result, diff_stat: stat });
+    void crossReview(hub, id, { runTurn, patchOf: devPatch, announce: announceDev(hub) }).catch(async (err) => {
+      store.dev.update(id, { status: "review", review_state: "skipped" });
+      await hub.post(OWNER_CHAT, `Tâche dev #${id} prête à relire ; la relecture croisée a échoué (${err instanceof Error ? err.message : String(err)}).`, "system", "dev");
+    });
     return;
   }
   if (run?.status === "done") {
@@ -487,6 +497,8 @@ export function retouchDevTask(hub: Hub, id: number, instruction: string, design
   if (!t) return "missing";
   if (instruction.trim().length < 3) return { error: "Écris la retouche" };
   if (!store.dev.transition(id, ["review", "failed"], "working")) return "already";
+  // Binôme : une retouche de Charles ouvre un nouveau cycle de relecture croisée.
+  if (t.reviewer) store.dev.update(id, { review_rounds: 0, review_state: null });
   const context = design ? `\n\n${designContext(design)}` : "";
   void runTurn(
     hub,

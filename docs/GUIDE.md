@@ -540,6 +540,16 @@ npm test
 npm run typecheck
 ```
 
+## Binôme Claude + Codex
+
+Pour les longues tâches de code : « + » › **Binôme Claude + Codex**, un projet, la consigne. Il faut les deux moteurs connectés.
+1. **Plan** : Claude lit le projet et découpe la tâche ; Codex critique le plan (ce qui manque, les fichiers partagés, les hypothèses fausses) ; Claude le corrige. La critique reste visible dans le groupe.
+2. **Code** : les sous-tâches alternent d'auteur (Claude, Codex, Claude…), chacune dans sa copie.
+3. **Relecture croisée** : avant toi, l'autre moteur relit chaque version (en lecture seule) et rend un verdict par points (bloquant, important, mineur). L'auteur corrige, ou conteste un point en le disant. Jusqu'à 3 tours ; s'ils ne sont toujours pas d'accord, la sous-tâche t'arrive avec leurs arguments et tu tranches. Une retouche de ta part relance un cycle.
+4. Tu acceptes chaque sous-tâche comme d'habitude, puis la réunion et la PR.
+
+Codex n'est **pas** un moteur de secours : Réglages › Moteurs › Moteur de secours est coupé par défaut.
+
 ## Clark travaille sur lui-même
 
 Le dépôt de Clark est un projet dev comme les autres (`clark`, tests : `npm test`). Une tâche de code tourne dans une copie (`workspace/dev/…`), jamais dans le dossier qui tourne ; l'accepter fait un commit sur la branche de la tâche, puis **Ouvrir la PR** l'envoie sur `carls-xyz/clark`. Tu relis et fusionnes sur GitHub, puis, pour que Clark l'utilise : `git pull` dans `~/Developer/clark` et redémarrage (Réglages › Moteurs › Redémarrer, ou `scripts/service.sh restart`). Un sous-dossier de Clark ne peut pas devenir un projet.

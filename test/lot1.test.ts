@@ -87,7 +87,7 @@ test("message pendant le travail : glissé dans le tour en cours, pas mis en fil
   release();
 });
 
-test("moteur de secours : quota Claude atteint → la demande part sur Codex, avec une note", async () => {
+test("moteur de secours : coupé par défaut ; activé, quota Claude atteint → la demande part sur Codex, avec une note", async () => {
   const store = new Store(":memory:");
   const journal = new TaskJournal(store.db);
   const conversation = new Conversation(store.db);
@@ -101,10 +101,19 @@ test("moteur de secours : quota Claude atteint → la demande part sur Codex, av
   const hub = createHub({ config, store, journal, conversation }, { execute: fake("claude"), executors: { claude: fake("claude"), codex: fake("codex") } });
   hub.setConnection("codex", { ready: true, account: "ChatGPT", problem: null });
   hub.markLimitReached("claude", Date.now() + 3600_000);
+  // Coupé (par défaut) : Codex ne prend pas le relais, la demande reste sur Claude.
   submitRequest(hub, "Bonjour", { source: "web" });
   await wait(() => used.length === 1);
-  assert.deepEqual(used, ["codex"]);
-  assert.ok(conversation.recent(OWNER_CHAT).some((m) => m.text === "Quota Claude atteint : je passe sur Codex jusqu'à la remise à zéro."));
+  assert.deepEqual(used, ["claude"]);
+  process.env.CLARK_BACKUP_ENGINE = "on";
+  try {
+    submitRequest(hub, "Re-bonjour", { source: "web" });
+    await wait(() => used.length === 2);
+    assert.deepEqual(used, ["claude", "codex"]);
+    assert.ok(conversation.recent(OWNER_CHAT).some((m) => m.text === "Quota Claude atteint : je passe sur Codex jusqu'à la remise à zéro."));
+  } finally {
+    delete process.env.CLARK_BACKUP_ENGINE;
+  }
 });
 
 test("tour planifié sans rien de neuf : rangé dans le fil sans notification", async () => {

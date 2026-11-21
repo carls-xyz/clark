@@ -16,7 +16,7 @@ import { googleStatus, type GoogleStatus } from "../google/auth.ts";
 import { checkChoice, type Catalog, type EngineChoice } from "../engines/choices.ts";
 import { setReadOnlyMcp } from "../policy/permissions.ts";
 import { goalOfChat, isGoalChat } from "./goals.ts";
-import { devOfLabel, devPlanOfLabel, isDevChat } from "../dev/store.ts";
+import { devCritiqueOfLabel, devOfLabel, devPlanOfLabel, devReviewOfLabel, isDevChat } from "../dev/store.ts";
 import { platformName } from "../social/platforms.ts";
 import type { Initiative } from "./initiatives.ts";
 import type { Memory } from "../memory/store.ts";
@@ -150,8 +150,11 @@ export function createHub(
   const cwdOf = (label: string) => {
     const id = devOfLabel(label);
     if (id) return store.dev.get(id)?.worktree;
-    // L'agent de plan d'un groupe lit sa propre copie, en lecture seule.
-    const group = devPlanOfLabel(label);
+    // Binôme : le relecteur lit la copie de la tâche (en lecture seule).
+    const reviewed = devReviewOfLabel(label);
+    if (reviewed) return store.dev.get(reviewed)?.worktree;
+    // L'agent de plan d'un groupe, et celui qui critique ce plan, lisent sa propre copie, en lecture seule.
+    const group = devPlanOfLabel(label) ?? devCritiqueOfLabel(label);
     return group ? (store.dev.group(group)?.plan_worktree ?? undefined) : undefined;
   };
   // Serveurs MCP : la liste « lecture seule » suit la base, l'interface se met à jour.
@@ -397,8 +400,10 @@ export function createHub(
     const q = quotas[name];
     return Boolean(q?.reached) && !isStale(q ?? null);
   };
+  // Coupé par défaut (Réglages › Moteurs › Moteur de secours) : Codex sert au binôme, pas de roue de secours.
+  const backupOn = () => ["on", "1", "true", "oui"].includes((process.env.CLARK_BACKUP_ENGINE ?? "off").trim().toLowerCase());
   const backupOf = (name: EngineName): EngineName | null =>
-    (["claude", "codex"] as EngineName[]).find((n) => n !== name && executors[n] && connections[n]?.ready === true && !limited(n)) ?? null;
+    backupOn() ? ((["claude", "codex"] as EngineName[]).find((n) => n !== name && executors[n] && connections[n]?.ready === true && !limited(n)) ?? null) : null;
   const quotaKey = (name: EngineName) => String(quotas[name]?.readAt ?? "");
   const backupNoted: Partial<Record<EngineName, string>> = {};
   const backupRuns = new Set<number>();
@@ -684,6 +689,8 @@ export function createHub(
 
     /** Connexion d'un moteur, telle que vérifiée au démarrage ou à l'actualisation. */
     connection: (name: EngineName) => connections[name] ?? null,
+    /** Ce moteur peut-il travailler (présent, et pas signalé déconnecté) ? */
+    canRun: (name: EngineName) => Boolean(executors[name]) && connections[name]?.ready !== false,
     setConnection(name: EngineName, c: { ready: boolean | null; account: string | null; problem: string | null }) {
       connections[name] = c;
       changed();

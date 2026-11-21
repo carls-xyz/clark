@@ -44,6 +44,7 @@ export const SETTINGS: SettingDef[] = [
     fallback: "",
     apply: "restart",
   },
+  { key: "backup", env: "CLARK_BACKUP_ENGINE", label: "Moteur de secours", hint: "Quota d'un moteur atteint : l'autre prend le relais. Coupé : Claude et Codex ne servent qu'à ce que tu leur confies (binôme, rôles).", section: "Moteurs", type: "bool", fallback: "off", apply: "now" },
   { key: "roles", env: "CLARK_ROLE_ENGINES", label: "Moteur par rôle", hint: "Pour un regard croisé : par exemple Codex rédige, Claude relit.", section: "Moteurs", type: "roles", fallback: "", apply: "now" },
   { key: "usdDay", env: "CLARK_MAX_USD_PER_DAY", label: "Dépense par jour ($)", hint: "Avec une clé API seulement (l'abonnement ne facture pas à l'appel).", section: "Dépense", type: "number", min: 0, max: 1000, fallback: "5", apply: "now" },
   { key: "usdTask", env: "CLARK_MAX_USD_PER_TASK", label: "Dépense par tâche ($)", hint: "Avec une clé API seulement.", section: "Dépense", type: "number", min: 0, max: 200, fallback: "1", apply: "now" },

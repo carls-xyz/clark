@@ -17,6 +17,16 @@ export const devGroupChat = (id: number) => DEV_GROUP_CHAT_BASE + id;
 export const DEV_PLAN_PREFIX = "devplan:";
 export const devPlanOfLabel = (label: string) => (label.startsWith(DEV_PLAN_PREFIX) ? Number(label.slice(DEV_PLAN_PREFIX.length)) || null : null);
 
+/** Binôme : fil du relecteur d'une tâche, et fil du second moteur qui critique le plan d'un groupe. */
+export const DEV_REVIEW_CHAT_BASE = 4_000_000;
+export const devReviewChat = (id: number) => DEV_REVIEW_CHAT_BASE + id;
+export const DEV_REVIEW_PREFIX = "devrev:";
+export const devReviewOfLabel = (label: string) => (label.startsWith(DEV_REVIEW_PREFIX) ? Number(label.slice(DEV_REVIEW_PREFIX.length)) || null : null);
+export const DEV_CRITIQUE_CHAT_BASE = 5_000_000;
+export const devCritiqueChat = (id: number) => DEV_CRITIQUE_CHAT_BASE + id;
+export const DEV_CRITIQUE_PREFIX = "devcrit:";
+export const devCritiqueOfLabel = (label: string) => (label.startsWith(DEV_CRITIQUE_PREFIX) ? Number(label.slice(DEV_CRITIQUE_PREFIX.length)) || null : null);
+
 /**
  * Groupe : une consigne découpée en sous-tâches parallèles, chacune dans sa copie.
  * - planning : l'agent de plan lit le projet.   - running : les sous-tâches travaillent ou attendent la relecture.
@@ -38,6 +48,10 @@ export type DevGroup = {
   issue_number: number | null;
   issue_url: string | null;
   pr_status: string | null;
+  /** « binome » : Claude et Codex (l'un écrit, l'autre relit) ; null : sous-tâches classiques. */
+  mode: string | null;
+  /** La critique du plan par le second moteur (binôme). */
+  plan_note: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -129,6 +143,13 @@ export type DevTask = {
   existing_branch: number;
   /** Résolution de conflit : branche fusionnée dans la copie avant le tour, conflits à résoudre. */
   merge_branch: string | null;
+  /** Binôme : le moteur qui relit chaque version (l'autre que l'auteur). */
+  reviewer: string | null;
+  review_rounds: number;
+  /** approved (relu et approuvé), disagree (désaccord après le dernier tour), skipped (relecture impossible). */
+  review_state: string | null;
+  /** JSON : un élément par tour de relecture { round, reviewer, approve, issues, summary }. */
+  review_notes: string | null;
   /** Tâche de suivi d'une PR : « task:5 » ou « group:2 ». Accepter pousse sur la PR. */
   pr_of: string | null;
   /** Issue GitHub d'origine (« Closes #n » dans la PR). */
@@ -240,7 +261,8 @@ export class DevStore {
       const cols = db.prepare("PRAGMA table_info(projects)").all() as { name: string }[];
       if (!cols.some((c) => c.name === col)) db.exec(`ALTER TABLE projects ADD COLUMN ${col} TEXT`);
     }
-    for (const [col, def] of [["issue_number", "INTEGER"], ["issue_url", "TEXT"], ["pr_status", "TEXT"]]) {
+    // mode : « binome » (Claude et Codex : l'un écrit, l'autre relit) ; plan_note : la critique du plan.
+    for (const [col, def] of [["issue_number", "INTEGER"], ["issue_url", "TEXT"], ["pr_status", "TEXT"], ["mode", "TEXT"], ["plan_note", "TEXT"]]) {
       const cols = db.prepare("PRAGMA table_info(dev_groups)").all() as { name: string }[];
       if (!cols.some((c) => c.name === col)) db.exec(`ALTER TABLE dev_groups ADD COLUMN ${col} ${def}`);
     }
@@ -262,6 +284,11 @@ export class DevStore {
       ["compare_with", "INTEGER"],
       ["pending_turn", "TEXT"],
       ["merge_branch", "TEXT"],
+      // Binôme : le moteur qui relit, les tours de relecture faits, l'état (approved, disagree, skipped), les notes.
+      ["reviewer", "TEXT"],
+      ["review_rounds", "INTEGER NOT NULL DEFAULT 0"],
+      ["review_state", "TEXT"],
+      ["review_notes", "TEXT"],
     ]) {
       const cols = db.prepare("PRAGMA table_info(dev_tasks)").all() as { name: string }[];
       if (!cols.some((c) => c.name === col)) db.exec(`ALTER TABLE dev_tasks ADD COLUMN ${col} ${def}`);
@@ -311,7 +338,7 @@ export class DevStore {
     return this.db.prepare("SELECT * FROM dev_tasks WHERE group_id = ? ORDER BY id").all(groupId) as DevTask[];
   }
 
-  updateGroup(id: number, fields: Partial<Pick<DevGroup, "status" | "plan_worktree" | "branch" | "commit_sha" | "pr_url" | "error" | "issue_number" | "issue_url" | "pr_status">>) {
+  updateGroup(id: number, fields: Partial<Pick<DevGroup, "status" | "plan_worktree" | "branch" | "commit_sha" | "pr_url" | "error" | "issue_number" | "issue_url" | "pr_status" | "mode" | "plan_note">>) {
     const keys = Object.keys(fields) as (keyof typeof fields)[];
     if (!keys.length) return;
     this.db.prepare(`UPDATE dev_groups SET ${keys.map((k) => `${k} = ?`).join(", ")}, updated_at = datetime('now') WHERE id = ?`).run(...keys.map((k) => (fields[k] ?? null) as any), id);
@@ -526,6 +553,7 @@ export class DevStore {
         DevTask,
         | "status" | "error" | "summary" | "diff_stat" | "commit" | "tests" | "base_commit" | "rounds" | "pr_url" | "instruction" | "branch" | "worktree"
         | "engine" | "model" | "effort" | "attempts" | "depends_on" | "existing_branch" | "pr_of" | "issue_number" | "issue_url" | "pr_status" | "setup_log" | "at_round" | "agent_note" | "compare_with" | "pending_turn" | "merge_branch"
+        | "reviewer" | "review_rounds" | "review_state" | "review_notes"
       >
     >,
   ) {

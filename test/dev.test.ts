@@ -532,3 +532,74 @@ test("nettoyage : une copie oubliée part, une copie avec un fichier irremplaça
   assert.deepEqual(r.kept.map((k) => [k.dir, k.files]), [[keep, ["notes.local"]]]);
   assert.ok(existsSync(join(keep, "notes.local")));
 });
+
+test("binôme : Claude planifie, Codex critique, auteurs alternés, relecture croisée jusqu'à l'accord ou au désaccord", async () => {
+  const dir = repo("binome");
+  const plan = (extra = "") => ({
+    tasks: [
+      { title: "Fichier A", instruction: `Écris le fichier a.txt avec A${extra}`, files: ["a.txt"] },
+      { title: "Fichier B", instruction: `Écris le fichier b.txt avec B${extra}`, files: ["b.txt"] },
+    ],
+  });
+  const store = new Store(":memory:");
+  const journal = new TaskJournal(store.db);
+  const conversation = new Conversation(store.db);
+  const calls: { engine: string; kind: string; access?: string; prompt: string }[] = [];
+  const reviewsOfA = { n: 0 };
+  const fake = (engine: string) =>
+    (async (deps: any, taskId: number, opts: RunOptions) => {
+      const p = opts.prompt;
+      const kind = p.startsWith("[Plan dev") ? "plan" : p.startsWith("[Critique de plan") ? "critique" : p.startsWith("[Plan corrigé") ? "revise" : p.startsWith("[Relecture croisée") ? "review" : "code";
+      calls.push({ engine, kind, access: opts.access, prompt: p });
+      let text = "Fait. BILAN : fait";
+      if (kind === "plan") text = JSON.stringify(plan());
+      else if (kind === "critique") text = "Il manque des tests pour chaque fichier.";
+      else if (kind === "revise") text = JSON.stringify(plan(" et un test"));
+      else if (kind === "review") {
+        // A : un problème au premier tour, approuvé ensuite. B : jamais d'accord.
+        text = p.includes("a.txt")
+          ? JSON.stringify(++reviewsOfA.n === 1 ? { approve: false, summary: "Presque.", issues: [{ file: "a.txt", problem: "pas de fin de ligne", fix: "ajoute-la", severity: "important" }] } : { approve: true, summary: "Bon.", issues: [] })
+          : JSON.stringify({ approve: false, summary: "Non.", issues: [{ file: "b.txt", problem: "mauvais contenu", fix: "écris C", severity: "bloquant" }] });
+      } else {
+        const f = p.match(/fichier (\w\.txt) avec (\w)/);
+        const fix = p.match(/(\w\.txt) : /);
+        if (p.startsWith("Relecture de") && fix) writeFileSync(join(opts.cwd!, fix[1]), `${readFileSync(join(opts.cwd!, fix[1]), "utf8").trim()}!\n`);
+        else if (f) writeFileSync(join(opts.cwd!, f[1]), `${f[2]}\n`);
+      }
+      deps.journal.finish(taskId, "done", text, 0);
+      return { text, costUsd: 0, status: "done" };
+    }) as unknown as typeof executeTask;
+  const hub = createHub({ config, store, journal, conversation }, { execute: fake("claude"), executors: { claude: fake("claude"), codex: fake("codex") } });
+  const p = (await addProject(hub, { name: "binome", path: dir })) as any;
+
+  // Sans Codex connecté : refusé, on ne fait pas semblant.
+  hub.setConnection("codex", { ready: false, account: null, problem: "pas connecté" });
+  assert.match((startDevGroup(hub, { projectId: p.id, instruction: "Ajoute deux fichiers au projet", binome: true }) as any).error, /Codex/);
+  hub.setConnection("codex", { ready: true, account: "ChatGPT", problem: null });
+
+  const g = startDevGroup(hub, { projectId: p.id, instruction: "Ajoute deux fichiers au projet", binome: true }) as any;
+  await until(() => store.dev.groupTasks(g.id).length === 2 && store.dev.groupTasks(g.id).every((t) => t.status === "review"), 30_000);
+
+  // Plan : Claude, critique : Codex (lecture seule), correction : Claude ; la critique est gardée.
+  const planning = calls.filter((c) => ["plan", "critique", "revise"].includes(c.kind)).map((c) => `${c.kind}:${c.engine}`);
+  assert.deepEqual(planning, ["plan:claude", "critique:codex", "revise:claude"]);
+  assert.equal(calls.find((c) => c.kind === "critique")!.access, "read");
+  assert.match(store.dev.group(g.id)!.plan_note ?? "", /tests/);
+  assert.equal(store.dev.group(g.id)!.mode, "binome");
+
+  const [a, b] = store.dev.groupTasks(g.id);
+  assert.match(a.instruction, /et un test/, "les sous-tâches viennent du plan corrigé");
+  assert.deepEqual([a.engine, a.reviewer, b.engine, b.reviewer], ["claude", "codex", "codex", "claude"]);
+  // A : relue par Codex, corrigée une fois par Claude, puis approuvée.
+  assert.equal(a.review_state, "approved");
+  assert.equal(a.review_rounds, 2);
+  assert.equal(readFileSync(join(a.worktree, "a.txt"), "utf8"), "A!\n", "la correction de l'auteur est dans la copie");
+  assert.ok(calls.some((c) => c.kind === "code" && c.engine === "claude" && c.prompt.includes("Relecture de Codex")));
+  // B : jamais d'accord → au bout de 3 tours, Charles tranche.
+  assert.equal(b.review_state, "disagree");
+  assert.equal(b.review_rounds, 3);
+  assert.ok(calls.filter((c) => c.kind === "review").every((c) => c.access === "read"), "le relecteur ne fait que lire");
+  const said = conversation.recent(OWNER_CHAT).map((m) => m.text).join("\n");
+  assert.match(said, /écrite par Claude, relue et approuvée par Codex après 2 tours/);
+  assert.match(said, /Codex et Claude ne sont pas d'accord après 3 tours/);
+});
