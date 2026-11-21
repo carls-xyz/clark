@@ -527,20 +527,7 @@ function renderDevTask(t, nested = false) {
     ${t.status === "working" && t.stoppable ? `<div class="card-actions"><button type="button" class="btn ghost" data-dev-action="stop"${t.waiting ? " data-waiting" : ""}>${t.waiting ? "Annuler" : "Arrêter l'agent"}</button></div>` : ""}
     ${t.status === "working" ? (t.waiting ? `<p class="quiet">En attente d'un agent libre (${state.dev?.parallel ?? 2} en même temps au plus).</p>` : `${t.checkpoint ? `<p class="checkpoint solo">${esc(t.checkpoint)}</p>` : ""}${t.steps.length ? renderSteps(t.steps) : `<p class="quiet">L'agent lit le projet.</p>`}`) : ""}
     ${t.error ? `<p class="goal-reason">${esc(t.error)}</p>` : ""}
-    ${open && t.summary ? `<div class="prose dev-summary">${md(t.summary)}</div>` : ""}
-    ${
-      open && files.length
-        ? `<ul class="dev-files">${files
-            .map((f, i) => `<li><span class="dev-mark" title="${f.status}">${fileStatusMark[f.status] ?? "M"}</span><button type="button" class="link dev-file-go" data-diff-goto="${i}"><code>${esc(f.path)}</code></button><span class="dev-count">${f.binary ? "binaire" : `<span class="d-add">+${f.added}</span> <span class="d-del">−${f.removed}</span>`}</span></li>`)
-            .join("")}</ul>
-          <details class="goal-log dev-diff" data-dev-diff><summary>Voir le diff (+${t.diff.added} −${t.diff.removed})</summary>${devPatches.get(t.id)?.rounds === patchKey(t) ? renderPatch(devPatches.get(t.id).patch, t) : `<p class="quiet">Chargement du diff…</p>`}</details>`
-        : open
-          ? `<p class="quiet">Aucun fichier changé.</p>`
-          : ""
-    }
-    ${testBlock}
-    ${t.status === "accepted" ? `<p class="card-note">${t.commit ? `Commit <code>${esc(t.commit.slice(0, 7))}</code> sur <code>${esc(t.branch)}</code>.` : "Acceptée, sans changement."}</p>` : ""}
-    ${t.status === "accepted" && t.commit && !nested && !t.prOf ? renderPr("tasks", t.id, t.pr, t.prStatus, t.followUps) : ""}
+    ${/* Les actions en haut, sous l'état : sur une longue tâche, elles ne se perdent plus sous le résumé et le diff. */ ""}
     ${
       open
         ? `<div class="card-actions">
@@ -559,6 +546,21 @@ function renderDevTask(t, nested = false) {
           ? `<div class="card-actions"><button type="button" class="btn ghost" data-dev-action="discard">Jeter</button></div>`
           : ""
     }
+
+    ${open && t.summary ? `<div class="prose dev-summary">${md(t.summary)}</div>` : ""}
+    ${
+      open && files.length
+        ? `<ul class="dev-files">${files
+            .map((f, i) => `<li><span class="dev-mark" title="${f.status}">${fileStatusMark[f.status] ?? "M"}</span><button type="button" class="link dev-file-go" data-diff-goto="${i}"><code>${esc(f.path)}</code></button><span class="dev-count">${f.binary ? "binaire" : `<span class="d-add">+${f.added}</span> <span class="d-del">−${f.removed}</span>`}</span></li>`)
+            .join("")}</ul>
+          <details class="goal-log dev-diff" data-dev-diff><summary>Voir le diff (+${t.diff.added} −${t.diff.removed})</summary>${devPatches.get(t.id)?.rounds === patchKey(t) ? renderPatch(devPatches.get(t.id).patch, t) : `<p class="quiet">Chargement du diff…</p>`}</details>`
+        : open
+          ? `<p class="quiet">Aucun fichier changé.</p>`
+          : ""
+    }
+    ${testBlock}
+    ${t.status === "accepted" ? `<p class="card-note">${t.commit ? `Commit <code>${esc(t.commit.slice(0, 7))}</code> sur <code>${esc(t.branch)}</code>.` : "Acceptée, sans changement."}</p>` : ""}
+    ${t.status === "accepted" && t.commit && !nested && !t.prOf ? renderPr("tasks", t.id, t.pr, t.prStatus, t.followUps) : ""}
   </div>`;
 }
 
