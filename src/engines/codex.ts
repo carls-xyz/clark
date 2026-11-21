@@ -1,4 +1,5 @@
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { paths } from "../config.ts";
@@ -53,7 +54,26 @@ const toml = (s: string) => JSON.stringify(s); // une chaîne JSON est une chaî
  */
 export const PERMISSION_PROFILES = { write: "clark", read: "clark-read" } as const;
 
-export function permissionProfilesToml(home = homedir()) {
+/**
+ * Les dépendances des projets dev (node_modules, .venv…) : lisibles par Codex dans ses tâches de
+ * code (tests, build), jamais en écriture ; le reste des dépôts d'origine reste fermé (.env…).
+ * Lues dans la base au démarrage de Codex : un projet ajouté ensuite attend son redémarrage.
+ */
+export function projectSharedDirs(db: string): string[] {
+  try {
+    const d = new DatabaseSync(db, { readOnly: true });
+    try {
+      const rows = d.prepare("SELECT path FROM projects").all() as { path: string }[];
+      return rows.flatMap((r) => ["node_modules", ".venv", "venv"].map((x) => join(r.path, x)).filter((x) => existsSync(x)).map((x) => realpathSync(x)));
+    } finally {
+      d.close();
+    }
+  } catch {
+    return [];
+  }
+}
+
+export function permissionProfilesToml(home = homedir(), sharedRead: string[] = []) {
   return `default_permissions = "${PERMISSION_PROFILES.read}"
 
 [permissions.${PERMISSION_PROFILES.write}]
@@ -64,6 +84,7 @@ extends = ":workspace"
 ${toml(home)} = "deny"
 ${toml(paths.workspace)} = "write"
 ${toml(paths.coreMemory)} = "write"
+${sharedRead.map((p) => `${toml(p)} = "read"`).join("\n")}
 
 [permissions.${PERMISSION_PROFILES.read}]
 description = "Clark en lecture seule : son dossier lisible, rien en écriture, le reste de ton dossier personnel fermé"
@@ -82,7 +103,7 @@ export function writeCodexConfig(codexHome: string, db: string) {
   writeFileSync(
     join(codexHome, "config.toml"),
     `# Géré par Clark : réécrit à chaque démarrage. Ta config perso (~/.codex) n'est pas utilisée ici.
-${permissionProfilesToml()}
+${permissionProfilesToml(homedir(), projectSharedDirs(db))}
 [features]
 memories = false
 
@@ -249,7 +270,9 @@ export function createCodexEngine(
     const effort = run.effort ?? choice.effort;
     const threadOpts = {
       cwd: run.cwd ?? paths.workspace,
-      approvalPolicy: "untrusted",
+      // Tâche de code : les commandes dans le bac à sable passent sans bouton (tests, build) ; seule
+      // une demande d'en sortir arrive à Charles. Ailleurs : chaque commande non sûre lui est demandée.
+      approvalPolicy: run.codeTask && !readOnly ? "on-request" : "untrusted",
       // Profil du bac à sable : dossier personnel fermé, dossier de Clark en écriture ou en lecture.
       permissions: readOnly ? PERMISSION_PROFILES.read : PERMISSION_PROFILES.write,
       developerInstructions: buildSystemPrompt(store, paths.coreMemory),
@@ -407,7 +430,7 @@ export function createCodexEngine(
       const started = await c.request("turn/start", {
         threadId,
         input: [{ type: "text", text: run.prompt, text_elements: [] }, ...(run.images ?? []).map((path) => ({ type: "localImage", path }))],
-        approvalPolicy: "untrusted",
+        approvalPolicy: run.codeTask && !readOnly ? "on-request" : "untrusted",
         // Profil choisi à chaque tour : un fil peut passer en lecture seule (vérification avant reprise).
         // Pas de réseau, dossier personnel fermé ; les demandes d'élargissement sont refusées plus haut.
         permissions: readOnly ? PERMISSION_PROFILES.read : PERMISSION_PROFILES.write,

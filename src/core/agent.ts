@@ -3,7 +3,7 @@ import { extname } from "node:path";
 import { query, type EffortLevel, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { reportClaudeLimit } from "../engines/claude-probe.ts";
 import { claudeMcpConfig } from "../mcp/servers.ts";
-import { claudeSandbox } from "../engines/sandbox.ts";
+import { claudeSandbox, sharedReadPaths } from "../engines/sandbox.ts";
 import type { Config } from "../config.ts";
 import { paths } from "../config.ts";
 import type { Store } from "../memory/store.ts";
@@ -37,7 +37,17 @@ export type RunOptions = {
   effort?: string | null;
   /** Images jointes à la consigne (chemins absolus) : la capture d'un élément choisi en mode design. */
   images?: string[];
+  /**
+   * Tâche de code (dans une copie du dépôt) : plus d'étapes par tour, les dépendances du projet
+   * lisibles dans le bac à sable, et le shell sans bouton (confiné : pas de réseau, écriture dans
+   * la copie seulement) pour que l'agent lance lui-même tests et build.
+   */
+  codeTask?: boolean;
 };
+
+/** Étapes par tour : une conversation reste courte, une tâche de code peut être longue. */
+export const MAX_TURNS = 40;
+export const CODE_MAX_TURNS = 150;
 
 const ROOTS = [paths.workspace, paths.coreMemory];
 
@@ -142,7 +152,7 @@ puis redémarre-moi. (Ou ajoute ANTHROPIC_API_KEY dans .env pour passer par l'AP
     let sessionSeen = false;
 
     const claudeChoice = store.choices.get("claude");
-    const sandbox = claudeSandbox();
+    const sandbox = claudeSandbox(opts.codeTask && opts.cwd ? sharedReadPaths(opts.cwd) : []);
     const abort = new AbortController();
     const offStop = onStop(taskId, () => abort.abort());
     const effort = opts.effort ?? claudeChoice.effort;
@@ -168,13 +178,13 @@ puis redémarre-moi. (Ou ajoute ANTHROPIC_API_KEY dans .env pour passer par l'AP
             ...claudeMcpConfig(store.mcp.enabled()),
             memory: memoryServer(store, { taskId, readOnly: opts.access === "read", onProgress: () => journal.touch() }),
           },
-          canUseTool: createPolicy({ store, journal, taskId, roots: ROOTS, approve: opts.approve, access: opts.access, attempt: opts.attempt }),
+          canUseTool: createPolicy({ store, journal, taskId, roots: ROOTS, approve: opts.approve, access: opts.access, attempt: opts.attempt, autoBash: Boolean(opts.codeTask && sandbox) }),
           ...(subscription ? {} : { maxBudgetUsd: Math.min(config.maxUsdPerTask, remaining) }),
           // Dossier Claude propre à Clark : sa connexion, ses sessions, rien de ta config perso.
           env: claudeEnv(),
           // Commandes shell confinées (Seatbelt) : dossier de travail seulement, pas de réseau.
           ...(sandbox ? { sandbox } : {}),
-          maxTurns: 40,
+          maxTurns: opts.codeTask ? CODE_MAX_TURNS : MAX_TURNS,
           resume,
         },
       });

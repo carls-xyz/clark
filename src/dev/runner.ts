@@ -68,7 +68,7 @@ export async function addProject(hub: Hub, input: { name: string; path: string; 
 
 // ── Tâches ──
 
-export function devPrompt(t: DevTask, projectName: string, base: string): string {
+export function devPrompt(t: DevTask, projectName: string, base: string, testCommand?: string | null): string {
   return `[Tâche dev #${t.id} — projet ${projectName}]
 Tu travailles dans une copie isolée du dépôt « ${projectName} » : ${t.worktree}
 (branche ${t.branch}, partie de ${base}). C'est ton dossier de travail.
@@ -77,8 +77,10 @@ Consigne de Charles : ${t.instruction}
 
 Règles :
 - Ne modifie que les fichiers de cette copie. N'utilise pas git : Clark s'occupe des commits quand Charles accepte.
-- Tes commandes tournent dans un bac à sable, sans réseau : pas d'installation de dépendances.
+- Tes commandes tournent dans un bac à sable, sans réseau : pas d'installation de dépendances. Elles passent sans demander l'accord de Charles.
 - Un dossier de dépendances (node_modules, .venv…) peut être partagé avec le dépôt par un lien : lis-le, n'y écris jamais.
+- Vérifie ton travail toi-même avant de le rendre : lance les tests${testCommand ? ` (« ${testCommand} »)` : " du projet s'il y en a"} et, s'il y en a un, le build ou la vérification de types. Corrige ce qui casse. Si une commande a besoin du réseau ou d'une installation, dis-le dans ton résumé au lieu de contourner.
+- Une longue tâche : avance par étapes, vérifie au fur et à mesure.
 - Lis le code concerné avant de le changer, garde le style du projet, fais des changements ciblés.
 - À la fin, résume en quelques lignes : ce que tu as changé (fichiers), pourquoi, et ce qui reste à vérifier.
 - Termine par une dernière ligne exacte : « BILAN : réussi », « BILAN : échoué — la raison » ou « BILAN : bloqué — ce qu'il faut à Charles ». Ne cache jamais un échec dans le texte.`;
@@ -260,7 +262,7 @@ async function prepareAndRun(hub: Hub, id: number) {
   baseNote.delete(id);
   const resolve = conflictNote.get(id);
   conflictNote.delete(id);
-  await runTurn(hub, id, devPrompt(fresh, p.name, p.base_branch) + from + setupNote + (startNote ? `\n\nPoint de départ : ${startNote}.` : "") + (resolve ? `\n\n${resolve}` : ""));
+  await runTurn(hub, id, devPrompt(fresh, p.name, p.base_branch, p.test_command) + from + setupNote + (startNote ? `\n\nPoint de départ : ${startNote}.` : "") + (resolve ? `\n\n${resolve}` : ""));
 }
 
 /**
@@ -382,6 +384,13 @@ export async function runTurn(hub: Hub, id: number, prompt: string, images: stri
   await collect(hub, id);
 }
 
+/** Tâches longues : relances après la limite d'étapes, corrections après des tests rouges. */
+export const AUTO_CONTINUES = 3;
+export const AUTO_TEST_FIXES = 2;
+export const isStepLimit = (text: string | null | undefined) => Boolean(text && /nombre maximum d'étapes/.test(text));
+export const continuePrompt = (n: number) =>
+  `Tu as atteint la limite d'étapes de ce tour (relance ${n} sur ${AUTO_CONTINUES}). Reprends exactement où tu en étais : relis rapidement ce que tu as déjà changé dans la copie, termine la consigne, lance les tests et le build s'il y en a, puis termine comme d'habitude (résumé, puis la ligne « BILAN : … »). Mêmes règles : seulement cette copie, pas de git, pas de réseau.`;
+
 /** Après un tour : le diff, et l'état de la tâche selon la façon dont le tour s'est terminé. */
 export async function collect(hub: Hub, id: number) {
   const { store, journal } = hub.deps;
@@ -404,6 +413,12 @@ export async function collect(hub: Hub, id: number) {
   } catch (err) {
     console.warn(`[clark] point de reprise de la tâche dev #${id} non gardé :`, err instanceof Error ? err.message : err);
   }
+  // Limite d'étapes du tour atteinte en plein travail : il reprend tout seul (3 fois au plus par consigne).
+  if (run && run.status !== "done" && isStepLimit(run.result) && t.auto_continues < AUTO_CONTINUES) {
+    store.dev.update(id, { auto_continues: t.auto_continues + 1, diff_stat: stat });
+    void runTurn(hub, id, continuePrompt(t.auto_continues + 1));
+    return;
+  }
   // L'agent dit lui-même qu'il a échoué ou qu'il est bloqué : pas de relecture d'un travail raté.
   const report = parseDevReport(run?.result);
   if (run?.status === "done" && (report.outcome === "failed" || report.outcome === "blocked")) {
@@ -412,6 +427,22 @@ export async function collect(hub: Hub, id: number) {
     if (t.compare_with) await compareNotice(hub, id);
     else await hub.post(OWNER_CHAT, `Tâche dev #${id} (${p.name}) arrêtée : ${why}. Tu peux répondre, la relancer sur l'autre moteur ou la jeter, dans Dev.`, "system", "dev");
     return;
+  }
+  // Avant Charles (et avant le relecteur d'un binôme) : les tests du projet. Rouges, l'agent corrige
+  // tout seul (2 fois au plus) ; toujours rouges, la tâche arrive à Charles avec les tests affichés.
+  if (run?.status === "done" && p.test_command && !t.merge_branch) {
+    store.dev.update(id, { summary: run.result, diff_stat: stat });
+    const r = await runDevTests(hub, id, undefined, { duringWork: true });
+    const tests = r === "done" ? (JSON.parse(store.dev.get(id)!.tests ?? "{}") as { ok?: boolean; output?: string; timedOut?: boolean }) : null;
+    if (tests && !tests.ok && t.test_fixes < AUTO_TEST_FIXES) {
+      store.dev.update(id, { test_fixes: t.test_fixes + 1 });
+      void runTurn(
+        hub,
+        id,
+        `Clark a lancé les tests du projet (${p.test_command}) : ils échouent${tests.timedOut ? " (délai dépassé)" : ""}. Correction automatique ${t.test_fixes + 1} sur ${AUTO_TEST_FIXES}. Corrige le code pour qu'ils passent, sans les désactiver ni les contourner. Si l'échec ne vient pas de ton changement (test déjà cassé, réseau), dis-le dans ton résumé.\n\nSortie des tests (la fin) :\n${(tests.output ?? "").slice(-3000)}\n\nMêmes règles : seulement cette copie, pas de git, pas de réseau. Termine par un résumé puis la ligne « BILAN : … ».`,
+      );
+      return;
+    }
   }
   // Binôme : avant Charles, l'autre moteur relit cette version (et l'auteur corrige si besoin).
   if (run?.status === "done" && t.reviewer) {
@@ -499,6 +530,8 @@ export function retouchDevTask(hub: Hub, id: number, instruction: string, design
   if (!store.dev.transition(id, ["review", "failed"], "working")) return "already";
   // Binôme : une retouche de Charles ouvre un nouveau cycle de relecture croisée.
   if (t.reviewer) store.dev.update(id, { review_rounds: 0, review_state: null });
+  // Une nouvelle consigne : de nouveau droit aux relances et corrections automatiques.
+  store.dev.update(id, { auto_continues: 0, test_fixes: 0 });
   const context = design ? `\n\n${designContext(design)}` : "";
   void runTurn(
     hub,
@@ -535,6 +568,7 @@ export function sendReviewComments(hub: Hub, id: number): DevOutcome {
   const open = store.dev.comments(id).filter((c) => c.status === "open");
   if (!open.length) return { error: "Aucun commentaire ouvert à envoyer." };
   if (!store.dev.transition(id, ["review", "failed"], "working")) return "already";
+  store.dev.update(id, { auto_continues: 0, test_fixes: 0, ...(store.dev.get(id)?.reviewer ? { review_rounds: 0, review_state: null } : {}) });
   store.dev.markCommentsSent(
     open.map((c) => c.id),
     t.rounds + 1,
@@ -744,13 +778,15 @@ const testing = new Set<number>();
  * bac à sable (les tests ont souvent besoin du réseau ou des dépendances). Les node_modules
  * du dépôt sont reliés à la copie s'ils y manquent et sont ignorés par git.
  */
-export async function runDevTests(hub: Hub, id: number, timeoutMs = 10 * 60_000): Promise<DevOutcome> {
+export async function runDevTests(hub: Hub, id: number, timeoutMs = 10 * 60_000, opts: { duringWork?: boolean } = {}): Promise<DevOutcome> {
   const { store } = hub.deps;
   const t = store.dev.get(id);
   if (!t) return "missing";
   const p = store.dev.project(t.project_id)!;
   if (!p.test_command) return { error: "Ce projet n'a pas de commande de test (à régler dans Dev › Projets)." };
-  if (!["review", "failed"].includes(t.status) || !existsSync(t.worktree)) return { error: "Les tests se lancent sur une tâche à relire." };
+  // Pendant le travail (fin d'un tour, avant la relecture de Charles) : la tâche est encore « working ».
+  const allowed = opts.duringWork ? ["working", "review", "failed"] : ["review", "failed"];
+  if (!allowed.includes(t.status) || !existsSync(t.worktree)) return { error: "Les tests se lancent sur une tâche à relire." };
   if (testing.has(id)) return "already";
   testing.add(id);
   store.dev.update(id, { tests: JSON.stringify({ running: true, at: Date.now() }) });

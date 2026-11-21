@@ -482,6 +482,8 @@ export function createHub(
         run(deps, taskId, {
           prompt,
           ...(cwdOf(label) ? { cwd: cwdOf(label) } : {}),
+          // Une tâche de code : tour long, tests et build possibles dans le bac à sable.
+          ...(devOfLabel(label) ? { codeTask: true } : {}),
           // Le tour de veille repart toujours de zéro : il ne reprend pas ta conversation.
           // Le tour de veille et les avis du groupe repartent de zéro : ils ne reprennent pas ta conversation.
           resume: label === HEARTBEAT_LABEL || opts.parentId !== undefined ? undefined : (store.getSession(chatId) ?? undefined), // lu au moment d'exécuter
@@ -559,7 +561,7 @@ export function createHub(
     const cwd = cwdOf(task.label);
     return {
       run: engine && executors[engine] ? executors[engine]! : execute,
-      extra: { ...(cwd ? { cwd } : {}), ...(dev?.model ? { model: dev.model } : {}), ...(dev?.effort ? { effort: dev.effort } : {}) },
+      extra: { ...(cwd ? { cwd } : {}), ...(dev ? { codeTask: true } : {}), ...(dev?.model ? { model: dev.model } : {}), ...(dev?.effort ? { effort: dev.effort } : {}) },
     };
   };
 
