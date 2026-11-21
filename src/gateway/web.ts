@@ -1065,7 +1065,11 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
     // La fenêtre de choix du Finder, sur ce Mac : un fichier ou un dossier pour Clark (ou un projet).
     if (path === "/api/pick") {
       const kind = body.kind === "folder" ? "folder" : "file";
-      return json(res, 200, { path: await pickPath(kind) });
+      try {
+        return json(res, 200, { path: await pickPath(kind) });
+      } catch (err) {
+        throw new HttpError(409, err instanceof Error ? err.message : "Fenêtre de choix impossible à ouvrir");
+      }
     }
 
     if (path === "/api/messages") {
