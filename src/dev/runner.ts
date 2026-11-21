@@ -371,6 +371,9 @@ export async function runTurn(hub: Hub, id: number, prompt: string, images: stri
     }
     const t = store.dev.get(id)!;
     store.dev.update(id, { rounds: t.rounds + 1, error: null, at_round: null, agent_note: null });
+    // Une copie créée avant le partage des dépendances (ou dont le lien a sauté) : il est remis à chaque tour.
+    const project = store.dev.project(t.project_id);
+    if (project && existsSync(t.worktree)) await linkSharedDirs(project, t.worktree).catch(() => {});
     const label = `${DEV_LABEL_PREFIX}${id}`;
     // Retour à un tour précédent : l'agent le sait avant de reprendre (sa conversation a vu la suite).
     const full = t.agent_note ? `${t.agent_note}\n\n${prompt}` : prompt;
