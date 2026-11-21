@@ -38,7 +38,8 @@ Mis à jour le 21 novembre 2026. Ce qui est fait est décrit dans le [mode d'emp
 - [x] Veille du soir : Hacker News, GitHub Trending, Lobsters, dev.to, nouveautés Shopify (21/11).
 - [ ] VPS + Tailscale : Clark allumé 24 h/24, même Mac éteint, accessible depuis l'iPhone. Prérequis de WhatsApp (voie officielle).
 - [x] Mémoire en couches : conversations du jour, journal du jour dans Obsidian (relu au début de chaque conversation), souvenirs confirmés (21/11).
-- [ ] Consolidation plus longue : un résumé par semaine et par mois à partir des journaux ; des notes par sujet qui regroupent les souvenirs proches.
+- [x] Notes par sujet dans `Clark/Sujets`, reliées aux souvenirs et aux jours du journal (21/11).
+- [ ] Consolidation plus longue : un résumé par semaine et par mois à partir des journaux.
 - [x] Veille du soir écrite aussi dans Obsidian (`Clark/Veille/`), reliée au journal (21/11).
 - [ ] Auto-amélioration : Clark propose de lui-même ses corrections en PR, relues par Charles.
 - [ ] Réseaux sociaux, suite : Instagram.
