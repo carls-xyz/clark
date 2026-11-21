@@ -16,14 +16,14 @@ test("tâche de code : le shell passe sans bouton (bac à sable) ; ailleurs, il 
   const approve = async () => ((asked++), false);
   const ctx = { toolUseID: "t1", signal: new AbortController().signal } as any;
   const code = createPolicy({ store, journal, taskId, roots: [tmpdir()], approve, autoBash: true });
-  assert.equal((await code("Bash", { command: "npm test" }, ctx)).behavior, "allow");
+  assert.equal(((await code("Bash", { command: "npm test" }, ctx)) as any).behavior, "allow");
   assert.equal(asked, 0);
   const chat = createPolicy({ store, journal, taskId, roots: [tmpdir()], approve });
-  assert.equal((await chat("Bash", { command: "npm test" }, { ...ctx, toolUseID: "t2" })).behavior, "deny");
+  assert.equal(((await chat("Bash", { command: "npm test" }, { ...ctx, toolUseID: "t2" })) as any).behavior, "deny");
   assert.equal(asked, 1, "hors tâche de code : le bouton de Charles");
   // En lecture seule, même une tâche de code ne lance rien.
   const ro = createPolicy({ store, journal, taskId, roots: [tmpdir()], approve, autoBash: true, access: "read" });
-  assert.equal((await ro("Bash", { command: "rm -rf x" }, { ...ctx, toolUseID: "t3" })).behavior, "deny");
+  assert.equal(((await ro("Bash", { command: "rm -rf x" }, { ...ctx, toolUseID: "t3" })) as any).behavior, "deny");
 });
 
 test("tâche de code : seules les dépendances reliées deviennent lisibles, pas le reste du dépôt d'origine", () => {
@@ -60,6 +60,9 @@ test("copie de travail : node_modules partagé même quand le .gitignore écrit 
   const linked = await linkSharedDirs({ path: repo } as any, copy);
   assert.deepEqual(linked, ["node_modules"]);
   assert.deepEqual(sharedReadPaths(copy), [realpathSync(join(repo, "node_modules"))]);
+  // Le lien est un fichier pour git : il ne doit pas apparaître dans le diff (ni partir dans un commit).
+  const status = execFileSync("git", ["status", "--porcelain"], { cwd: copy, encoding: "utf8" });
+  assert.doesNotMatch(status, /node_modules/);
 });
 
 test("bac à sable : pas de réseau, mais un serveur de test peut écouter en local", () => {

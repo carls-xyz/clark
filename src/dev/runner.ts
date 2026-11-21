@@ -9,7 +9,7 @@ import type { Hub } from "../core/hub.ts";
 import { OWNER_CHAT } from "../core/hub.ts";
 import { addWorktree, branchExists, commitAll, defaultBranch, freshBase, git, parseDevReport, previewConflicts, removeWorktree, repoRoot, resolvePrompt, snapshotCommit, worktreeDiff, type Diff } from "./git.ts";
 import { DEV_LABEL_PREFIX, devChat, type DevTask } from "./store.ts";
-import { isIgnored, linkSharedDirs, prepareCopy } from "./project-setup.ts";
+import { ignoreLink, isIgnored, linkSharedDirs, prepareCopy } from "./project-setup.ts";
 import { dropCheckpoints, restore, snapshot } from "./checkpoints.ts";
 import { closePreviewFor, designDir, dropDesignShots } from "./preview.ts";
 import { killTree } from "../core/kill-tree.ts";
@@ -806,7 +806,10 @@ export async function runDevTests(hub: Hub, id: number, timeoutMs = 10 * 60_000,
     const nm = join(p.path, "node_modules");
     if (existsSync(nm) && !existsSync(join(t.worktree, "node_modules"))) {
       // Pas ignoré par git : on ne l'ajoute pas (il apparaîtrait dans le diff).
-      if (await isIgnored(t.worktree, "node_modules")) symlinkSync(nm, join(t.worktree, "node_modules"));
+      if (await isIgnored(t.worktree, "node_modules")) {
+        symlinkSync(nm, join(t.worktree, "node_modules"));
+        await ignoreLink(t.worktree, "node_modules");
+      }
     }
     const result = await new Promise<{ code: number | null; output: string; timedOut: boolean }>((done) => {
       const child = spawn("/bin/zsh", ["-lc", p.test_command!], { cwd: t.worktree, env: { ...process.env, CI: "1" }, detached: true });

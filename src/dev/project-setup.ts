@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, symlinkSync } from "node:fs";
+import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, normalize, sep } from "node:path";
 import { promisify } from "node:util";
 import { git } from "./git.ts";
@@ -75,15 +75,30 @@ export type SetupLog = {
  * copie. Deux installations en parallèle, c'est beaucoup de disque et de mémoire sur 8 Go.
  */
 export const SHARED_DIRS = ["node_modules", ".venv", "venv", "vendor/bundle"];
+const ignoredAs = async (worktree: string, path: string) =>
+  git(worktree, ["check-ignore", "-q", path]).then(
+    () => true,
+    () => false,
+  );
+
 /** Le chemin est-il ignoré par git (comme fichier ou comme dossier) ? */
 export async function isIgnored(worktree: string, path: string): Promise<boolean> {
-  for (const p of [path, `${path}/`]) {
-    try {
-      await git(worktree, ["check-ignore", "-q", p]);
-      return true;
-    } catch {}
-  }
-  return false;
+  return (await ignoredAs(worktree, path)) || (await ignoredAs(worktree, `${path}/`));
+}
+
+/**
+ * Un lien est un fichier pour git : « node_modules/ » (un dossier) ne l'ignore pas, et il partirait
+ * dans le commit. On l'ajoute alors aux exclusions locales du dépôt (.git/info/exclude, jamais
+ * commitées), qui valent pour toutes ses copies.
+ */
+export async function ignoreLink(worktree: string, dir: string): Promise<void> {
+  if (await ignoredAs(worktree, dir)) return;
+  const rel = (await git(worktree, ["rev-parse", "--git-path", "info/exclude"])).trim();
+  const file = isAbsolute(rel) ? rel : join(worktree, rel);
+  mkdirSync(dirname(file), { recursive: true });
+  const line = `/${dir}`;
+  const current = existsSync(file) ? readFileSync(file, "utf8") : "";
+  if (!current.split("\n").includes(line)) appendFileSync(file, `${current && !current.endsWith("\n") ? "\n" : ""}# Lien de dépendances partagées (Clark)\n${line}\n`);
 }
 
 export async function linkSharedDirs(project: Project, worktree: string): Promise<string[]> {
@@ -97,6 +112,7 @@ export async function linkSharedDirs(project: Project, worktree: string): Promis
     if (!(await isIgnored(worktree, dir))) continue; // pas ignoré : le lien apparaîtrait dans le diff
     mkdirSync(dirname(to), { recursive: true });
     symlinkSync(from, to);
+    await ignoreLink(worktree, dir);
     linked.push(dir);
   }
   return linked;
