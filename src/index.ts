@@ -338,7 +338,7 @@ const stopBackups = startBackups(store.db, join(paths.root, "data", "backups"));
 // Mémoire de moyen terme : le journal du jour, écrit chaque soir (dans Obsidian s'il y a un coffre).
 const stopJournal =
   claude.mode !== "none"
-    ? startDailyJournal(hub, (p) => claudeThink(p, "Tu écris le journal du jour d'un assistant personnel, en Markdown, uniquement à partir des faits donnés."), () => vault)
+    ? startDailyJournal(hub, (p) => claudeThink(p, "Tu écris le journal (du jour ou de la semaine) d'un assistant personnel, en Markdown, uniquement à partir des faits donnés."), () => vault)
     : () => {};
 // Notes par sujet : les souvenirs regroupés (« Portfolio », « Boîte mail »…), dans « Clark/Sujets ».
 const stopTopics =
