@@ -21,7 +21,7 @@ import { relatedNotes, setRelatedFinder } from "./obsidian/related.ts";
 import { semanticOf, stopEmbedder } from "./memory/semantic.ts";
 import { claudeJudge, claudeThink } from "./engines/judge.ts";
 import { startMemoryReview } from "./core/memory-review.ts";
-import { startDailyJournal } from "./core/daily-journal.ts";
+import { parisDay, startDailyJournal, writeJournalNow } from "./core/daily-journal.ts";
 import { startTopics, topicsOf } from "./obsidian/topics.ts";
 import { startWorktreeSweep } from "./dev/cleanup.ts";
 import type { Quota } from "./engines/quota.ts";
@@ -256,9 +256,18 @@ const terminalWatch = setInterval(() => {
 }, 1000);
 terminalWatch.unref();
 
+// Le journal du jour : même consigne pour le bouton de Réglages › Connexions et pour celui du soir.
+const JOURNAL_SYSTEM = "Tu écris le journal du jour d'un assistant personnel, en Markdown, uniquement à partir des faits donnés.";
+// Défini avant startWeb : le bouton « Écrire le journal du jour » s'en sert.
+const journalThink = (p: string) => claudeThink(p, JOURNAL_SYSTEM);
+
 const web = await startWeb(hub, {
   terminal,
-  obsidian: { status: () => obsidian, syncNow: syncVault },
+  obsidian: {
+    status: () => obsidian,
+    syncNow: syncVault,
+    ...(claude.mode !== "none" ? { writeJournal: () => writeJournalNow(hub, parisDay(new Date()), journalThink, vault) } : {}),
+  },
   port: config.webPort,
   browser,
   messages,
@@ -338,7 +347,7 @@ const stopBackups = startBackups(store.db, join(paths.root, "data", "backups"));
 // Mémoire de moyen terme : le journal du jour, écrit chaque soir (dans Obsidian s'il y a un coffre).
 const stopJournal =
   claude.mode !== "none"
-    ? startDailyJournal(hub, (p) => claudeThink(p, "Tu écris le journal du jour d'un assistant personnel, en Markdown, uniquement à partir des faits donnés."), () => vault)
+    ? startDailyJournal(hub, journalThink, () => vault)
     : () => {};
 // Notes par sujet : les souvenirs regroupés (« Portfolio », « Boîte mail »…), dans « Clark/Sujets ».
 const stopTopics =

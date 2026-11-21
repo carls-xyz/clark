@@ -164,14 +164,18 @@ export function journalNote(day: string, body: string, previous: string | null):
   return `---\ntype: journal\ndate: ${day}\ntags: [clark/journal]\n---\n# Journal du ${day}\n\n${body}${nav}\n\nRetour à [[Clark]]\n`;
 }
 
-/**
- * Écrit le journal d'un jour : dans la base toujours, dans le coffre s'il y en a un.
- * Rien s'il ne s'est presque rien passé. Renvoie le jour écrit, ou null.
- */
-export async function writeJournal(hub: Hub, day: string, think: (prompt: string) => Promise<string>, vault: string | null): Promise<string | null> {
+/** Une journée presque vide : moins de deux demandes de Charles, aucune décision, aucune tâche de code. */
+export function quietDay(hub: Hub, day: string, a: Activity = dayActivity(hub.deps.store.db, day)): boolean {
+  return a.messages.filter((m) => m.role === "user").length < MIN_MESSAGES && !a.decisions.length && !a.dev.length;
+}
+
+type Outcome = { day: string } | { empty: true } | { unusable: true };
+
+/** Le travail commun : écrit le journal (base, puis coffre s'il y en a un) et dit comment ça s'est passé. */
+async function composeJournal(hub: Hub, day: string, think: (prompt: string) => Promise<string>, vault: string | null): Promise<Outcome> {
   const db = hub.deps.store.db;
   const a = dayActivity(db, day);
-  if (a.messages.filter((m) => m.role === "user").length < MIN_MESSAGES && !a.decisions.length && !a.dev.length) return null;
+  if (quietDay(hub, day, a)) return { empty: true };
   // Les souvenirs (et leur note) qu'on peut relier : ceux du jour et les plus importants.
   const ids = new Set<number>(a.learned.map((m) => m.id));
   for (const m of hub.deps.store.top(25)) ids.add(m.id);
@@ -184,7 +188,8 @@ export async function writeJournal(hub: Hub, day: string, think: (prompt: string
   const allowed = new Set<string>([...noteNames.values(), ...extra, "Clark"]);
   const text = await think(journalPrompt(day, a, noteNames, extra));
   const clean = cleanJournal(text, allowed);
-  if (!clean) return null;
+  if (!clean) return { unusable: true };
+  // Remplace le journal du jour s'il existe déjà (base et fichier).
   journalOf(db).save(day, clean.brief, clean.body);
   if (vault) {
     const prev = journalOf(db).recent(1, day)[0]?.day ?? null;
@@ -192,7 +197,71 @@ export async function writeJournal(hub: Hub, day: string, think: (prompt: string
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, journalNote(day, clean.body, prev));
   }
-  return day;
+  return { day };
+}
+
+/**
+ * Écrit le journal d'un jour : dans la base toujours, dans le coffre s'il y en a un.
+ * Rien s'il ne s'est presque rien passé. Renvoie le jour écrit, ou null.
+ */
+export async function writeJournal(hub: Hub, day: string, think: (prompt: string) => Promise<string>, vault: string | null): Promise<string | null> {
+  const r = await composeJournal(hub, day, think, vault);
+  return "day" in r ? r.day : null;
+}
+
+/** Un seul journal en cours d'écriture par base : partagé entre le bouton et le planificateur du soir. */
+const writing = new WeakSet<DatabaseSync>();
+
+export const JOURNAL_BUSY = "Le journal est déjà en cours d'écriture.";
+export const JOURNAL_UNUSABLE = "Le modèle n'a pas rendu de journal utilisable, réessaie.";
+
+/** Une écriture demandée qui n'a pas abouti : « busy » (verrou pris) ou « unusable » (réponse du modèle inutilisable). */
+export class JournalError extends Error {
+  readonly code: "busy" | "unusable";
+  constructor(code: "busy" | "unusable") {
+    super(code === "busy" ? JOURNAL_BUSY : JOURNAL_UNUSABLE);
+    this.code = code;
+  }
+}
+
+/**
+ * Écrit tout de suite le journal d'un jour (bouton « Écrire le journal du jour »), en remplaçant celui qui existe.
+ * Journée presque vide : { empty: true }, sans appeler le modèle.
+ */
+export async function writeJournalNow(hub: Hub, day: string, think: (prompt: string) => Promise<string>, vault: string | null): Promise<{ day: string } | { empty: true }> {
+  const db = hub.deps.store.db;
+  if (writing.has(db)) throw new JournalError("busy");
+  writing.add(db);
+  try {
+    const r = await composeJournal(hub, day, think, vault);
+    if ("unusable" in r) throw new JournalError("unusable");
+    return r;
+  } finally {
+    writing.delete(db);
+  }
+}
+
+/**
+ * Faut-il (ré)écrire le journal de ce jour ? created_at est en UTC (« AAAA-MM-JJ HH:MM:SS », heure de la base).
+ * Vrai si le journal a été écrit avant 23 h (Paris) ce jour-là, à la main par exemple : celui du soir le remplace.
+ */
+export function needsRewrite(createdAt: string, day: string): boolean {
+  const at = new Date(`${createdAt.replace(" ", "T")}Z`);
+  if (Number.isNaN(at.getTime())) return true;
+  const p = parisParts(at);
+  return p.date < day || (p.date === day && p.hour < JOURNAL_HOUR);
+}
+
+/** Délai avant le seul réessai, quand le modèle a rendu un journal inutilisable. */
+export const RETRY_DELAY_MS = 30 * 60_000;
+
+/** Les échecs d'un jour : combien, et quand le dernier. */
+export type JournalFailure = { count: number; at: number };
+
+/** Peut-on tenter le journal ? Pas d'échec : oui. Un échec : une seule fois, 30 min après. Deux : abandon pour le jour. */
+export function mayTryJournal(failure: JournalFailure | undefined, now: number): boolean {
+  if (!failure) return true;
+  return failure.count < 2 && now - failure.at >= RETRY_DELAY_MS;
 }
 
 /** Les derniers jours, pour le début de chaque conversation (court : seulement les « En bref »). */
@@ -215,20 +284,30 @@ export const parisDay = (d: Date) => parisParts(d).date;
  */
 export function startDailyJournal(hub: Hub, think: (prompt: string) => Promise<string>, vault: () => string | null, now: () => Date = () => new Date()): () => void {
   const db = hub.deps.store.db;
-  let busy = false;
+  // Les réponses inutilisables, par jour (une journée vide n'en est pas une).
+  const failures = new Map<string, JournalFailure>();
   const run = async (day: string) => {
-    if (busy || journalOf(db).get(day)) return;
-    busy = true;
+    // Verrou partagé avec le bouton : s'il est pris, on saute ce tour.
+    if (writing.has(db)) return;
+    const existing = journalOf(db).get(day);
+    if (existing && !needsRewrite(existing.created_at, day)) return;
+    if (!mayTryJournal(failures.get(day), now().getTime())) return;
+    writing.add(db);
     try {
-      const written = await writeJournal(hub, day, think, vault());
-      if (written) {
+      const r = await composeJournal(hub, day, think, vault());
+      if ("day" in r) {
+        failures.delete(day);
         console.log(`[clark] journal du ${day} écrit`);
         hub.touch();
+      } else if ("unusable" in r) {
+        const count = (failures.get(day)?.count ?? 0) + 1;
+        failures.set(day, { count, at: now().getTime() });
+        console.warn(`[clark] journal du ${day} : réponse inutilisable${count < 2 ? ", réessai dans 30 min" : ", abandon pour aujourd'hui"}`);
       }
     } catch (err) {
       console.warn(`[clark] journal du ${day} impossible :`, err instanceof Error ? err.message : err);
     } finally {
-      busy = false;
+      writing.delete(db);
     }
   };
   const tick = () => {

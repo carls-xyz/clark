@@ -7,7 +7,7 @@ import type { Config } from "../src/config.ts";
 import type { executeTask } from "../src/core/agent.ts";
 import { Conversation } from "../src/core/conversation.ts";
 import { createHub, OWNER_CHAT } from "../src/core/hub.ts";
-import { cleanJournal, dayBounds, journalOf, JOURNAL_DIR, recentJournalForPrompt, writeJournal } from "../src/core/daily-journal.ts";
+import { cleanJournal, dayBounds, journalOf, JOURNAL_BUSY, JOURNAL_DIR, JOURNAL_UNUSABLE, mayTryJournal, needsRewrite, quietDay, recentJournalForPrompt, RETRY_DELAY_MS, writeJournal, writeJournalNow } from "../src/core/daily-journal.ts";
 import { buildSystemPrompt } from "../src/core/prompt.ts";
 import { Store } from "../src/memory/store.ts";
 import { TaskJournal } from "../src/tasks/journal.ts";
@@ -65,4 +65,74 @@ test("journal : rien d'écrit pour une journée presque vide", async () => {
   const r = await writeJournal(hub, "2026-11-01", async () => ((called = true), "## En bref\nx"), null);
   assert.equal(r, null);
   assert.equal(called, false, "pas d'appel au modèle pour rien");
+});
+
+const parisToday = () => new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Paris" });
+const journalText = (brief: string) => `## En bref\n${brief}\n## Ce qu'on a fait\n- x\n## Ce que j'ai décidé seul\nRien.\n## En suspens\nRien.`;
+/** Deux demandes de Charles aujourd'hui : assez pour un journal. */
+function busyDay() {
+  const s = setup();
+  s.conversation.add({ chatId: OWNER_CHAT, role: "user", text: "Trie mes mails" });
+  s.conversation.add({ chatId: OWNER_CHAT, role: "user", text: "Et regarde la PR" });
+  return s;
+}
+
+test("journal : une seconde écriture remplace la première, dans la base et dans le fichier", async () => {
+  const { store, hub } = busyDay();
+  const vault = mkdtempSync(join(tmpdir(), "clark-journal-"));
+  const day = parisToday();
+  await writeJournal(hub, day, async () => journalText("Première version de la journée."), vault);
+  await writeJournal(hub, day, async () => journalText("Seconde version, plus complète."), vault);
+  assert.equal(journalOf(store.db).get(day)?.brief, "Seconde version, plus complète.");
+  const note = readFileSync(join(vault, JOURNAL_DIR, `Journal ${day}.md`), "utf8");
+  assert.match(note, /Seconde version/);
+  assert.doesNotMatch(note, /Première version/);
+});
+
+test("writeJournalNow : journée vide sans appel au modèle ; réponse inutilisable : une erreur claire", async () => {
+  const { hub } = setup();
+  let called = false;
+  assert.equal(quietDay(hub, "2026-11-01"), true);
+  assert.deepEqual(await writeJournalNow(hub, "2026-11-01", async () => ((called = true), ""), null), { empty: true });
+  assert.equal(called, false);
+
+  const busy = busyDay();
+  const day = parisToday();
+  await assert.rejects(writeJournalNow(busy.hub, day, async () => "pas de journal", null), { message: JOURNAL_UNUSABLE });
+  assert.equal(journalOf(busy.store.db).get(day), undefined);
+  assert.deepEqual(await writeJournalNow(busy.hub, day, async () => journalText("Une journée bien remplie."), null), { day });
+});
+
+test("writeJournalNow : un seul à la fois par base, verrou relâché après", async () => {
+  const { hub } = busyDay();
+  const day = parisToday();
+  let release: (v: string) => void = () => {};
+  const first = writeJournalNow(hub, day, () => new Promise<string>((ok) => (release = ok)), null);
+  await assert.rejects(writeJournalNow(hub, day, async () => journalText("Ne doit pas passer."), null), { message: JOURNAL_BUSY });
+  release(journalText("La première écriture aboutit."));
+  assert.deepEqual(await first, { day });
+  // Relâché, même après un échec.
+  await assert.rejects(writeJournalNow(hub, day, async () => "rien", null), { message: JOURNAL_UNUSABLE });
+  assert.deepEqual(await writeJournalNow(hub, day, async () => journalText("Et encore une fois."), null), { day });
+});
+
+test("needsRewrite : écrit à 15 h (Paris) → réécrit le soir ; écrit à 23 h 10 → gardé", () => {
+  // Hiver : Paris = UTC+1.
+  assert.equal(needsRewrite("2026-11-21 14:00:00", "2026-11-21"), true);
+  assert.equal(needsRewrite("2026-11-21 22:10:00", "2026-11-21"), false);
+  // Écrit la veille (impossible en pratique) : à refaire ; écrit le lendemain (rattrapage) : gardé.
+  assert.equal(needsRewrite("2026-11-20 10:00:00", "2026-11-21"), true);
+  assert.equal(needsRewrite("2026-11-22 08:00:00", "2026-11-21"), false);
+});
+
+test("réessai après une réponse inutilisable : un seul, 30 min après, puis abandon pour le jour", () => {
+  const t = Date.UTC(2026, 10, 21, 22, 0);
+  assert.equal(mayTryJournal(undefined, t), true);
+  const once = { count: 1, at: t };
+  assert.equal(mayTryJournal(once, t + 5 * 60_000), false);
+  assert.equal(mayTryJournal(once, t + RETRY_DELAY_MS - 1), false);
+  assert.equal(mayTryJournal(once, t + RETRY_DELAY_MS), true);
+  assert.equal(RETRY_DELAY_MS, 30 * 60_000);
+  const twice = { count: 2, at: t + RETRY_DELAY_MS };
+  assert.equal(mayTryJournal(twice, t + 3 * RETRY_DELAY_MS), false);
 });
