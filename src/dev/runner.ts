@@ -9,7 +9,7 @@ import type { Hub } from "../core/hub.ts";
 import { OWNER_CHAT } from "../core/hub.ts";
 import { addWorktree, branchExists, commitAll, defaultBranch, freshBase, git, parseDevReport, previewConflicts, removeWorktree, repoRoot, resolvePrompt, snapshotCommit, worktreeDiff, type Diff } from "./git.ts";
 import { DEV_LABEL_PREFIX, devChat, type DevTask } from "./store.ts";
-import { linkSharedDirs, prepareCopy } from "./project-setup.ts";
+import { ignoreLink, isIgnored, linkSharedDirs, prepareCopy } from "./project-setup.ts";
 import { dropCheckpoints, restore, snapshot } from "./checkpoints.ts";
 import { closePreviewFor, designDir, dropDesignShots } from "./preview.ts";
 import { killTree } from "../core/kill-tree.ts";
@@ -82,6 +82,7 @@ Règles :
 - Tes commandes tournent dans un bac à sable, sans réseau : pas d'installation de dépendances. Elles passent sans demander l'accord de Charles.
 - Un dossier de dépendances (node_modules, .venv…) peut être partagé avec le dépôt par un lien : lis-le, n'y écris jamais.
 - Vérifie ton travail toi-même avant de le rendre : lance les tests${testCommand ? ` (« ${testCommand} »)` : " du projet s'il y en a"} et, s'il y en a un, le build ou la vérification de types. Corrige ce qui casse. Si une commande a besoin du réseau ou d'une installation, dis-le dans ton résumé au lieu de contourner.
+- Ne pas pouvoir tout vérifier dans le bac à sable n'est PAS un blocage : Clark relance les tests du projet hors du bac à sable dès que tu as fini. Termine alors par « BILAN : réussi » et dis ce qui n'a pas pu tourner. « BILAN : bloqué » est réservé à ce qui empêche de faire la consigne.
 - Une longue tâche : avance par étapes, vérifie au fur et à mesure.
 - Lis le code concerné avant de le changer, garde le style du projet, fais des changements ciblés.
 - À la fin, résume en quelques lignes : ce que tu as changé (fichiers), pourquoi, et ce qui reste à vérifier.
@@ -804,11 +805,10 @@ export async function runDevTests(hub: Hub, id: number, timeoutMs = 10 * 60_000,
   try {
     const nm = join(p.path, "node_modules");
     if (existsSync(nm) && !existsSync(join(t.worktree, "node_modules"))) {
-      try {
-        await git(t.worktree, ["check-ignore", "-q", "node_modules"]);
+      // Pas ignoré par git : on ne l'ajoute pas (il apparaîtrait dans le diff).
+      if (await isIgnored(t.worktree, "node_modules")) {
         symlinkSync(nm, join(t.worktree, "node_modules"));
-      } catch {
-        // pas ignoré par git : on ne l'ajoute pas (il apparaîtrait dans le diff)
+        await ignoreLink(t.worktree, "node_modules");
       }
     }
     const result = await new Promise<{ code: number | null; output: string; timedOut: boolean }>((done) => {
