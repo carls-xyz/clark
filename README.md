@@ -541,3 +541,15 @@ npm run typecheck
 ## Clark travaille sur lui-même
 
 Le dépôt de Clark est un projet dev comme les autres (`clark`, tests : `npm test`). Une tâche de code tourne dans une copie (`workspace/dev/…`), jamais dans le dossier qui tourne ; l'accepter fait un commit sur la branche de la tâche, puis **Ouvrir la PR** l'envoie sur `carls-xyz/clark`. Tu relis et fusionnes sur GitHub, puis, pour que Clark l'utilise : `git pull` dans `~/Developer/clark` et redémarrage (Réglages › Moteurs › Redémarrer, ou `scripts/service.sh restart`). Un sous-dossier de Clark ne peut pas devenir un projet.
+
+## Obsidian et recherche par le sens
+
+**Le coffre.** Par défaut `~/Documents/Obsidian Vault` (ou `CLARK_OBSIDIAN_VAULT=…` dans `.env`, `off` pour couper). Chaque souvenir confirmé y devient une note dans `Clark/Mémoire` : propriétés (type, source, dates, importance), texte, liens vers son type (`[[Faits]]`, `[[Leçons]]`…) et vers les souvenirs proches (« Proche de »). `Clark/Clark.md` est l'accueil. Dans les deux sens, toutes les 2 minutes et à chaque changement :
+- tu corriges le texte d'une note → Clark reprend ta version ;
+- tu la supprimes (ou la ranges dans `Clark/Mémoire/Oubliés`) → Clark l'oublie (archivé, jamais effacé) ;
+- tu écris une note dans `Clark/Mémoire` (propriété `type:` facultative) → Clark l'apprend ;
+- Clark oublie un souvenir → sa note part dans `Clark/Mémoire/Oubliés`.
+
+Outils : `vault_search` (par mots et par le sens), `vault_read` (une note, ses liens, ce qui la cite), `vault_write` (seulement dans `Clark/`, hors `Clark/Mémoire`). État et « Synchroniser maintenant » dans Réglages › Connexions.
+
+**Par le sens.** Souvenirs et notes ont un vecteur (modèle local `paraphrase-multilingual-MiniLM-L12-v2`, ~120 Mo dans `data/models`, téléchargé une fois). `recall` et `vault_search` mêlent mots et sens. Le modèle tourne dans un processus à part, lancé à la demande, arrêté après 2 minutes sans usage (~650 Mo le temps du calcul). `CLARK_EMBEDDINGS=off` coupe tout. Limite connue : un petit modèle ne sait pas tout (« ma banque » ne trouve pas « Société Générale ») ; la recherche par mots reste à côté.

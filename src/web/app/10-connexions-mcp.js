@@ -17,6 +17,8 @@ const TOOLS = [
   ["Mail et agenda", "mail_search, mail_read, send_mail, calendar_events"],
   ["iMessage", "messages_recent, messages_read, send_imessage"],
   ["Navigateur", "browser_open, browser_read, browser_scroll, browser_back, browser_click, browser_type, browser_select"],
+  ["Obsidian", "vault_search, vault_read, vault_write"],
+  ["Terminal", "run_command"],
 ];
 
 const hostOf = (url) => {
@@ -26,6 +28,42 @@ const hostOf = (url) => {
     return "";
   }
 };
+
+/** Obsidian : la mémoire de Clark en notes liées dans ton coffre, et sa recherche par le sens. */
+function renderObsidianPlugin() {
+  const o = state.obsidian ?? {};
+  if (!o.vault)
+    return plugin(
+      "Obsidian",
+      "off",
+      "La mémoire de Clark en notes liées dans ton coffre : tu la vois en graphe, tu la corriges, il suit.",
+      `<p class="quiet">Aucun coffre trouvé. Mets son chemin dans .env (CLARK_OBSIDIAN_VAULT=…), puis redémarre Clark.</p>`,
+    );
+  const when = o.lastSync ? new Date(o.lastSync).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : null;
+  return plugin(
+    "Obsidian",
+    o.error ? "off" : "on",
+    "La mémoire de Clark en notes liées dans ton coffre, dossier « Clark/Mémoire » : corrige une note, il reprend ton texte ; supprime-la, il oublie ; écris-en une, il l'apprend. Il cherche aussi dans tes notes, par mots et par le sens, et n'écrit que dans « Clark/ ».",
+    `<p class="quiet">${esc(o.vault)} · ${o.notes} souvenir${o.notes > 1 ? "s" : ""} en notes${when ? ` · synchro à ${when}` : ""}</p>
+     ${o.error ? `<p class="inline-error" role="alert">${esc(o.error)}</p>` : ""}
+     <div class="card-actions"><button type="button" class="btn secondary" data-obsidian-sync>Synchroniser maintenant</button></div>`,
+  );
+}
+
+side.addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-obsidian-sync]");
+  if (!btn) return;
+  btn.disabled = true;
+  btn.textContent = "Synchro…";
+  try {
+    await post("/api/obsidian/sync", {});
+  } catch (err) {
+    btn.insertAdjacentHTML("afterend", `<p class="inline-error" role="alert">${esc(err.message)}</p>`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Synchroniser maintenant";
+  }
+});
 
 /** iMessage : l'accès à la base de Messages, puis le canal (ta conversation avec toi-même). */
 function renderIMessagePlugin() {
@@ -168,6 +206,7 @@ function buildPlugins() {
         "Les commandes shell de Clark ne lisent et n'écrivent que dans son dossier de travail, sans réseau, quel que soit le moteur. Ton dossier personnel, .env et les données de Clark restent fermés.",
         state.sandbox ? "" : `<p class="quiet">Coupé pour le moteur Claude (Réglages › Général › Sécurité). Codex garde le sien.</p>`,
       )}
+      ${renderObsidianPlugin()}
       ${renderIMessagePlugin()}
       ${renderBrowserPlugin()}
       ${plugin("Réseaux sociaux", "built", "Clark monte des vidéos verticales pour TikTok à partir de tes clips, sur ton Mac. Tu publies toi-même dans TikTok.")}

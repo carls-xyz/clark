@@ -13,11 +13,12 @@ import { startAutonomy } from "./core/autonomy.ts";
 import { startReminders } from "./core/reminders.ts";
 import { startDelegations } from "./core/delegation-runner.ts";
 import { startBackups } from "./core/backup.ts";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import { Terminal } from "./terminal/terminal.ts";
 import { vaultPath, VaultSync } from "./obsidian/vault.ts";
-import { relatedNotes } from "./obsidian/related.ts";
+import { relatedNotes, setRelatedFinder } from "./obsidian/related.ts";
+import { semanticOf, stopEmbedder } from "./memory/semantic.ts";
 import { claudeJudge, claudeThink } from "./engines/judge.ts";
 import { startMemoryReview } from "./core/memory-review.ts";
 import { startWorktreeSweep } from "./dev/cleanup.ts";
@@ -179,19 +180,49 @@ const vault = vaultPath();
 const obsidian = { vault, lastSync: null as string | null, error: null as string | null, notes: 0 };
 let vaultSync: VaultSync | null = null;
 let syncTimer: NodeJS.Timeout | null = null;
+// Recherche par le sens : l'index suit les souvenirs et le coffre (le modèle ne tourne que le temps du calcul).
+const semantic = semanticOf(store);
+const noteOfMemory = store.db.prepare("SELECT file FROM obsidian_notes WHERE memory_id = ?");
+setRelatedFinder((m) =>
+  semantic
+    .neighbours(m.id)
+    .map((id) => (noteOfMemory.get(id) as { file: string } | undefined)?.file)
+    .filter((f): f is string => Boolean(f))
+    .map((f) => basename(f, ".md")),
+);
+let semanticRunning = false;
+const refreshSemantic = async () => {
+  if (semanticRunning) return;
+  semanticRunning = true;
+  try {
+    const changed = await semantic.refresh(vault);
+    // De nouveaux vecteurs : les liens « Proche de » des notes peuvent changer.
+    if (changed && vaultSync) vaultSync.sync();
+  } catch (err) {
+    console.error("[clark] recherche par le sens :", err instanceof Error ? err.message : err);
+  } finally {
+    semanticRunning = false;
+  }
+};
 const syncVault = () => {
-  if (!vaultSync) return;
+  if (!vaultSync) return void refreshSemantic();
   try {
     const r = vaultSync.sync();
     obsidian.lastSync = new Date().toISOString();
     obsidian.error = null;
     obsidian.notes = (store.db.prepare("SELECT count(*) AS n FROM obsidian_notes").get() as { n: number }).n;
     if (r.edited || r.forgotten || r.learned) hub.touch();
+    void refreshSemantic();
   } catch (err) {
     obsidian.error = err instanceof Error ? err.message : String(err);
     console.error("[clark] obsidian :", obsidian.error);
   }
 };
+if (!vault) {
+  // Sans coffre, l'index suit quand même les souvenirs (recall par le sens).
+  store.onMemory(() => void refreshSemantic());
+  setTimeout(() => void refreshSemantic(), 30_000).unref();
+}
 if (vault) {
   vaultSync = new VaultSync(store, vault, { related: (m) => relatedNotes(m), log: (msg) => console.log(`[clark] obsidian : ${msg}`) });
   syncVault();
@@ -238,6 +269,7 @@ const shutdown = async (code = 0) => {
   logins.close();
   codex?.close();
   clearInterval(terminalWatch);
+  stopEmbedder();
   terminal.stopAll();
   await browser.close();
   await preview.stop();

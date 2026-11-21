@@ -134,14 +134,14 @@ test("moteur Codex : en lecture seule, bac à sable read-only et demandes d'écr
 
 // ── Mémoire : refus côté outil, quel que soit le moteur ──────────────────
 
-test("mémoire : en lecture seule, proposer, corriger et oublier sont refusés ; chercher reste possible", () => {
+test("mémoire : en lecture seule, proposer, corriger et oublier sont refusés ; chercher reste possible", async () => {
   const { store } = base();
   const keep = store.remember({ kind: "fact", content: "Le Mac a 8 Go de RAM" });
   const t = memoryTools(store, { taskId: () => undefined, writeRefusal: () => "Refusé : cet agent est en lecture seule." });
   assert.throws(() => t.propose_memory.run({ kind: "fact", content: "Charles a un chat", source: "x" }), /lecture seule/);
   assert.throws(() => t.propose_correction.run({ id: keep, content: "16 Go", source: "x" }), /lecture seule/);
   assert.throws(() => t.forget.run({ id: keep }), /lecture seule/);
-  assert.match(t.recall.run({ query: "RAM" }), /8 Go/);
+  assert.match(await t.recall.run({ query: "RAM" }), /8 Go/);
   assert.equal(store.proposals().length, 0);
 });
 
