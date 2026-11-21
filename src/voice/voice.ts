@@ -45,7 +45,7 @@ export function voiceStatus(): VoiceStatus {
     : !whisperBin()
       ? "whisper.cpp introuvable : brew install whisper-cpp"
       : !existsSync(whisperModel())
-        ? "modèle de transcription absent : voir README, « Voix »"
+        ? "modèle de transcription absent : voir docs/GUIDE.md, « Personnalité et voix »"
         : null;
   return { ready: !problem, canSpeak: Boolean(ffmpeg && sayBin()), problem };
 }

@@ -12,3 +12,6 @@ workspace/
 # Fichiers de test temporaires
 .*-test.ts
 .repro.ts
+
+# Mémoire cœur : personnelle (modèle dans docs/profil.exemple.md)
+memory/

@@ -1,35 +1,44 @@
 # Clark : objectifs
 
-Mis à jour le 20 novembre 2026. Ce qui est fait est décrit dans le README ; ici, ce qui reste.
+Mis à jour le 21 novembre 2026. Ce qui est fait est décrit dans le [mode d'emploi](docs/GUIDE.md) ; ici, ce qui reste.
 
 ## 1. Branchements (Charles)
 
-- [x] Google : client OAuth créé (projet « clark », en mode test avec Charles comme testeur), connecté le 20/11. Reste : remplir Branding puis publier, sinon reconnexion tous les 7 jours.
-- [ ] Codex : Réglages › Moteurs › Connecter Codex. Prévu le 20/11.
+- [x] Google : client OAuth (projet « clark »), connecté le 20/11. Reste : remplir Branding puis publier l'appli, sinon reconnexion tous les 7 jours.
+- [ ] Codex : Réglages › Moteurs › Connecter Codex.
 - [ ] iMessage : Réglages Système › Confidentialité › Accès complet au disque pour `node`.
+- [ ] Obsidian : réinstaller l'app et ouvrir le coffre `Documents/Obsidian Vault` pour voir le graphe.
 - [ ] Fusionner la PR portfolio #1 (animations des dossiers) après test de l'aperçu sur Safari.
 
 ## 2. Recette réelle
 
-- [x] Clark confie une mission à un agent (delegate), attend la réponse, fait la synthèse. (20/11, Mousse sur le portfolio)
-- [ ] Une décision prise seul en journée (tour de veille), puis le résumé de 21 h.
-- [x] La relecture de mémoire propose une action (pas seulement des souvenirs). (20/11, relance alternance)
-- [x] Accepter une tâche de code lance les tests du projet ; un échec déclenche une correction. (20/11, dépôt clark-recette-code)
-- [x] Un conflit entre deux sous-tâches est résolu par un agent, puis la réunion passe. (20/11, dépôt clark-recette-conflit)
-- [ ] Après Google : brief du matin avec mails et agenda, relance par mail validée par bouton.
+- [x] Clark confie une mission à un agent (delegate), attend la réponse, fait la synthèse. (20/11)
+- [x] Des décisions prises seul en journée (19 entre le 20 et le 21/11), annulables dans Activité.
+- [ ] Le résumé de 21 h des décisions, vu dans la conversation (celui du 20/11 a été supprimé avec sa conversation).
+- [x] La relecture de mémoire propose une action (pas seulement des souvenirs). (20/11)
+- [x] Accepter une tâche de code lance les tests du projet ; un échec déclenche une correction. (20/11)
+- [x] Un conflit entre deux sous-tâches est résolu par un agent, puis la réunion passe. (20/11)
+- [ ] Brief du matin avec mails et agenda (réglé à 9 h depuis le 21/11), relance par mail validée par bouton.
 - [ ] Après Codex : moteur de secours en cas de quota, regard croisé (Codex rédige, Claude relit).
+- [ ] Clark sur lui-même : une première tâche de code sur le projet « clark », jusqu'à la PR fusionnée.
 
 ## 3. Fiabilité
 
-- [x] Clark sous git (sans secrets ni données personnelles).
-- [x] Dépôt GitHub privé : carls-xyz/clark.
-- [x] Ménage des sauvegardes de base dans `data/` (anciennes à la Corbeille) ; sauvegarde automatique chaque nuit à 3 h dans `data/backups` (7 gardées).
-- [x] Interface rangée par zone dans `src/web/app/` (18 fichiers, assemblés par le serveur). Étape suivante possible : de vrais modules JavaScript, zone par zone.
+- [x] Clark sous git, sans secrets ni données personnelles (profil hors de git depuis le 21/11).
+- [x] Dépôt GitHub public en vitrine : carls-xyz/clark. Une branche et une PR par changement, fusion en squash, push direct sur `main` bloqué sur le Mac, versions taguées (v0.2.0).
+- [x] Sauvegarde automatique de la base chaque nuit à 3 h dans `data/backups` (7 gardées).
+- [x] Interface rangée par zone dans `src/web/app/`. Étape suivante possible : de vrais modules JavaScript.
 - [ ] API locale : joignable par tout programme du Mac (accepté pour l'instant, à revoir avec le VPS).
+- [ ] Un test de démarrage complet (le plantage « table obsidian_notes » du 21/11 n'était couvert par aucun test).
 
 ## 4. Chantiers suivants (chemin « à la Emilien »)
 
-- [ ] VPS + Tailscale : Clark allumé 24 h/24, même Mac éteint. Prérequis de WhatsApp (voie officielle).
-- [ ] Auto-amélioration : Clark propose ses propres corrections en PR, relues par Charles.
-- [ ] Réseaux sociaux, suite : Instagram, Reddit.
+- [x] Terminal dans Clark (21/11), pièces jointes depuis le Finder (21/11).
+- [x] Mémoire visible dans Obsidian et recherche par le sens, embeddings locaux (21/11).
+- [x] Veille du soir : Hacker News, GitHub Trending, Lobsters, dev.to, nouveautés Shopify (21/11).
+- [ ] VPS + Tailscale : Clark allumé 24 h/24, même Mac éteint, accessible depuis l'iPhone. Prérequis de WhatsApp (voie officielle).
+- [ ] Mémoire en couches (courte, moyenne, longue), consolidée la nuit.
+- [ ] Veille du soir écrite aussi dans Obsidian (`Clark/Veille/`).
+- [ ] Auto-amélioration : Clark propose de lui-même ses corrections en PR, relues par Charles.
+- [ ] Réseaux sociaux, suite : Instagram.
 - [ ] Idées d'OpenBot restantes : schémas dans la conversation, fichiers produits en cartes.

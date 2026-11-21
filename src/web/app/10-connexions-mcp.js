@@ -182,7 +182,7 @@ function buildPlugins() {
       ? `<p class="quiet">Compte : ${esc(g.email ?? "connecté")}${g.missingScopes ? ". Des autorisations manquent : relance <code>npm run google:login</code>." : ""}</p>`
       : g.configured
         ? `<p class="quiet">Pour le brancher, lance dans le dossier de Clark :</p><code class="engine-cmd">npm run google:login</code>`
-        : `<p class="quiet">Crée d'abord un identifiant OAuth « application de bureau » (README, « Mail et agenda »), puis mets GOOGLE_CLIENT_ID et GOOGLE_CLIENT_SECRET dans .env.</p>`;
+        : `<p class="quiet">Crée d'abord un identifiant OAuth « application de bureau » (docs/GUIDE.md, « Mail et agenda »), puis mets GOOGLE_CLIENT_ID et GOOGLE_CLIENT_SECRET dans .env.</p>`;
   const notify = !notifySupported
     ? plugin("Notifications du navigateur", "off", "Ce navigateur ne les prend pas en charge.")
     : Notification.permission === "denied"
