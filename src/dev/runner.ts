@@ -1,4 +1,6 @@
 import { announceDev, crossReview } from "./binome.ts";
+import { autopilotReady, isAutopilot } from "./autopilot.ts";
+import { integrateGroup, openPullRequest, prDraft } from "./groups.ts";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, realpathSync, symlinkSync } from "node:fs";
 import { basename, isAbsolute, join, resolve, sep } from "node:path";
@@ -384,6 +386,14 @@ export async function runTurn(hub: Hub, id: number, prompt: string, images: stri
   await collect(hub, id);
 }
 
+/** Pilote automatique : s'il est choisi pour cette tâche (ou son groupe), il prend la main ; true si oui. */
+async function pilot(hub: Hub, id: number): Promise<boolean> {
+  const t = hub.deps.store.dev.get(id);
+  if (!t || !isAutopilot(hub, t)) return false;
+  await autopilotReady(hub, id, { accept: acceptDevTask, integrate: integrateGroup, draft: prDraft, openPr: openPullRequest });
+  return true;
+}
+
 /** Tâches longues : relances après la limite d'étapes, corrections après des tests rouges. */
 export const AUTO_CONTINUES = 3;
 export const AUTO_TEST_FIXES = 2;
@@ -447,7 +457,7 @@ export async function collect(hub: Hub, id: number) {
   // Binôme : avant Charles, l'autre moteur relit cette version (et l'auteur corrige si besoin).
   if (run?.status === "done" && t.reviewer) {
     store.dev.update(id, { summary: run.result, diff_stat: stat });
-    void crossReview(hub, id, { runTurn, patchOf: devPatch, announce: announceDev(hub) }).catch(async (err) => {
+    void crossReview(hub, id, { runTurn, patchOf: devPatch, announce: announceDev(hub), ready: (x) => pilot(hub, x) }).catch(async (err) => {
       store.dev.update(id, { status: "review", review_state: "skipped" });
       await hub.post(OWNER_CHAT, `Tâche dev #${id} prête à relire ; la relecture croisée a échoué (${err instanceof Error ? err.message : String(err)}).`, "system", "dev");
     });
@@ -458,6 +468,7 @@ export async function collect(hub: Hub, id: number) {
     if (t.group_id) void warnConflicts(hub, id);
     const what = diff.files.length ? `${diff.files.length} fichier${diff.files.length > 1 ? "s" : ""} (+${diff.added} −${diff.removed})` : "aucun fichier changé";
     if (t.compare_with) await compareNotice(hub, id);
+    else if (await pilot(hub, id)) return;
     else await hub.post(OWNER_CHAT, `Tâche dev #${id} prête à relire (${p.name}) : « ${short(t.title, 100)} », ${what}. Relis-la dans Dev.`, "system", "dev");
   } else {
     const why = run?.status === "needs_check" ? "le tour a été coupé en pleine écriture" : `l'agent n'a pas fini${run?.result ? ` : ${short(run.result, 200)}` : ""}`;

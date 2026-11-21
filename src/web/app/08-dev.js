@@ -213,6 +213,7 @@ function renderDevGroup(g) {
   return `<div class="card dev-group" data-dev-group="${g.id}" data-status="${g.status}">
     <div class="goal-head">
       <span class="kind-line">${g.mode === "binome" ? `Binôme #${g.id} · ${esc(g.project)} · Claude + Codex` : `Groupe #${g.id} · ${esc(g.project)}${g.engine ? ` · ${esc(ENGINE_NAMES[g.engine] ?? g.engine)}` : ""}`}${g.tasks.length ? ` · ${g.tasks.length} sous-tâche${g.tasks.length > 1 ? "s" : ""}` : ""}</span>
+      ${g.autopilot ? `<span class="tag" title="Clark accepte seul les versions vertes, réunit et ouvre la PR">pilote auto</span>` : ""}
       <span class="tag dev-${g.status === "running" && decided ? "review" : g.status === "planning" ? "working" : g.status}">${g.status === "planning" ? `${sprite("clark", { walking: true, size: 14 })}` : ""}${status}</span>
     </div>
     ${g.status === "planning" ? `<p class="quiet">${g.mode === "binome" ? "Claude lit le projet et découpe la tâche ; Codex critique le plan, puis Claude le corrige." : "Un agent lit le projet et découpe la consigne en sous-tâches indépendantes."}</p>` : ""}
@@ -507,6 +508,7 @@ function renderDevTask(t, nested = false) {
   return `<div class="card dev-task${nested ? " nested" : ""}" data-dev="${t.id}" data-status="${t.status}">
     <div class="goal-head">
       <span class="kind-line">${esc(nested ? `Sous-tâche · ${sideLabel(t)}` : `${t.project} · ${sideLabel(t)}`)}</span>
+      ${t.autopilot && !nested ? `<span class="tag" title="Clark accepte seul si les tests sont verts, puis ouvre la PR">pilote auto</span>` : ""}
       <span class="tag dev-${t.status}">${t.status === "working" ? `${sprite("clark", { walking: true, size: 14 })}` : ""}${devStatus[t.status] ?? t.status}</span>
     </div>
     ${nested ? `<p class="card-title">${esc(t.title)}</p>` : ""}
