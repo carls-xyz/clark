@@ -112,6 +112,14 @@ export class Store {
   }
 
   private migrate() {
+    // Le lien souvenir ⇄ note Obsidian (src/obsidian/vault.ts) : créé ici pour exister avant toute lecture,
+    // coffre branché ou non.
+    this.db.exec(`CREATE TABLE IF NOT EXISTS obsidian_notes (
+      memory_id    INTEGER PRIMARY KEY,
+      file         TEXT NOT NULL,
+      body_hash    TEXT NOT NULL,
+      content_hash TEXT NOT NULL
+    )`);
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS memories (
         id           INTEGER PRIMARY KEY,

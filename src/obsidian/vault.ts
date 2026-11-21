@@ -81,7 +81,8 @@ export function noteName(m: Pick<Memory, "id" | "content">): string {
     .trim()
     .slice(0, 60)
     .replace(/\s+\S*$/, "");
-  return `${words || "Souvenir"} (${m.id})`;
+  const name = words ? words[0].toLocaleUpperCase("fr") + words.slice(1) : "Souvenir";
+  return `${name} (${m.id})`;
 }
 
 export function renderMemoryNote(m: Memory, related: string[] = []): string {
