@@ -35,8 +35,8 @@ function untitled(createdAt: string): string {
   return `Conversation du ${d.toLocaleDateString("fr-FR", { day: "numeric", month: "long", timeZone: "Europe/Paris" })}`;
 }
 
-export type ConversationRow = { id: number; chat_id: number; title: string | null; session_id: string | null; agent: string | null; seen_id: number; created_at: string; updated_at: string };
-export type ConversationSummary = { id: number; title: string; agent: string | null; at: string; created_at: string; preview: string | null; preview_role: string | null; unread: number };
+export type ConversationRow = { id: number; chat_id: number; title: string | null; session_id: string | null; agent: string | null; seen_id: number; pinned: number; created_at: string; updated_at: string };
+export type ConversationSummary = { id: number; title: string; agent: string | null; at: string; created_at: string; preview: string | null; preview_role: string | null; unread: number; pinned: number };
 
 export class Conversation {
   private readonly db: DatabaseSync;
@@ -83,6 +83,8 @@ export class Conversation {
     const convCols = db.prepare("PRAGMA table_info(conversations)").all() as { name: string }[];
     // L'agent à qui Charles parle (null : Clark), et le dernier message qu'il a vu (non-lus).
     if (!convCols.some((c) => c.name === "agent")) db.exec("ALTER TABLE conversations ADD COLUMN agent TEXT");
+    // Épinglée par Charles : en tête de la liste, quoi qu'il arrive.
+    if (!convCols.some((c) => c.name === "pinned")) db.exec("ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");
     if (!convCols.some((c) => c.name === "seen_id")) {
       db.exec("ALTER TABLE conversations ADD COLUMN seen_id INTEGER NOT NULL DEFAULT 0");
       // Tout ce qui existait déjà est considéré comme lu.
@@ -239,7 +241,7 @@ export class Conversation {
   list(chatId: number, limit = 50): ConversationSummary[] {
     const rows = this.db
       .prepare(
-        `SELECT c.id, c.title, c.agent, c.updated_at AS at, c.created_at,
+        `SELECT c.id, c.title, c.agent, c.pinned, c.updated_at AS at, c.created_at,
            (SELECT m.text FROM messages m WHERE m.conversation_id = c.id AND m.role != 'system' ORDER BY m.id DESC LIMIT 1) AS preview,
            (SELECT m.role FROM messages m WHERE m.conversation_id = c.id AND m.role != 'system' ORDER BY m.id DESC LIMIT 1) AS preview_role,
            (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id AND m.role = 'clark' AND m.id > c.seen_id) AS unread
@@ -250,6 +252,31 @@ export class Conversation {
       .all(chatId, limit) as ConversationSummary[];
     // Sans message de Charles (que des réponses, des rappels) : un titre quand même.
     return rows.map((r) => ({ ...r, title: r.title ?? untitled(r.created_at) }));
+  }
+
+  /** Charles renomme une conversation (le titre ne bouge plus ensuite). */
+  rename(id: number, title: string): boolean {
+    const t = title.replace(/\s+/g, " ").trim().slice(0, 80);
+    if (!t) return false;
+    return this.db.prepare("UPDATE conversations SET title = ? WHERE id = ?").run(t, id).changes > 0;
+  }
+
+  setPinned(id: number, pinned: boolean): boolean {
+    return this.db.prepare("UPDATE conversations SET pinned = ? WHERE id = ?").run(pinned ? 1 : 0, id).changes > 0;
+  }
+
+  /** Efface une conversation et ses messages, pour de bon (les tâches restent dans Activité). */
+  remove(id: number) {
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare("DELETE FROM messages WHERE conversation_id = ?").run(id);
+      this.db.prepare("DELETE FROM conversation_current WHERE conversation_id = ?").run(id);
+      this.db.prepare("DELETE FROM conversations WHERE id = ?").run(id);
+      this.db.exec("COMMIT");
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
   }
 
   /** Les messages d'une conversation, du plus ancien au plus récent. */

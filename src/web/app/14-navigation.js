@@ -97,17 +97,44 @@ let keptUnread = new Set();
 /** L'agent ouvert travaille : son bonhomme marche dans la liste. */
 const agentBusy = (agent) => (state.conversationAgent ?? null) === (agent ?? null) && state.running.some((t) => t.status === "running");
 
+/** Conversation en cours de renommage (son id), et l'ordre choisi pour la liste. */
+let renamingId = null;
+let convSort = "recent";
+try {
+  convSort = localStorage.getItem("clark.convSort") || "recent";
+} catch {}
+const SORTS = { recent: "Activité récente", created: "Date de création", name: "Nom" };
+function sortConvs(list) {
+  const by = {
+    recent: (a, b) => String(b.at).localeCompare(String(a.at)) || b.id - a.id,
+    created: (a, b) => String(b.created_at).localeCompare(String(a.created_at)) || b.id - a.id,
+    name: (a, b) => a.title.localeCompare(b.title, "fr", { sensitivity: "base" }),
+  }[convSort] ?? (() => 0);
+  return [...list].sort(by);
+}
+
 /** Un contact ou une conversation : avatar, nom, aperçu du dernier message, heure, non-lus. */
-function listRow({ href, agent, title, badge, preview, previewRole, at, unread, current }) {
+function listRow({ href, agent, title, badge, preview, previewRole, at, unread, current, convId = null, pinned = false, convTitle = title }) {
   const busy = agentBusy(agent);
   const who = previewRole === "user" ? "Toi : " : "";
-  return `<a class="conv-row${unread ? " unread" : ""}" href="${href}"${current ? ' aria-current="page"' : ""}>
+  if (convId !== null && renamingId === convId) {
+    return `<form class="conv-rename" data-conv-rename="${convId}">
+      <label class="visually-hidden" for="conv-rename-${convId}">Nouveau nom de la conversation</label>
+      <input id="conv-rename-${convId}" name="title" value="${esc(convTitle)}" maxlength="80" autocomplete="off" />
+      <button type="submit" class="btn primary">OK</button>
+      <button type="button" class="btn ghost" data-conv-rename-cancel>Annuler</button>
+    </form>`;
+  }
+  const row = `<a class="conv-row${unread ? " unread" : ""}" href="${href}"${current ? ' aria-current="page"' : ""}>
     <span class="conv-avatar" data-agent="${esc(agentRole(agent))}">${sprite(agentRole(agent), { walking: busy, size: 26 })}</span>
     <span class="conv-main">
       <span class="conv-top"><span class="conv-title">${esc(title)}</span>${badge ? `<span class="conv-badge">${esc(badge)}</span>` : ""}${at ? `<span class="conv-time">${esc(convWhen(at))}</span>` : ""}</span>
       <span class="conv-bottom"><span class="conv-preview">${busy ? "écrit…" : preview ? esc(who + preview) : "Pas encore de message"}</span>${unread ? `<span class="conv-unread" aria-label="${unread} non lu${unread > 1 ? "s" : ""}">${unread}</span>` : ""}</span>
     </span>
   </a>`;
+  if (convId === null) return row;
+  // Le menu ⋯ est un bouton à côté du lien (un bouton ne se met pas dans un lien).
+  return `<div class="conv-item${pinned ? " is-pinned" : ""}" data-conv-item="${convId}">${row}<button type="button" class="conv-more" data-conv-menu="${convId}" aria-haspopup="menu" aria-label="Actions pour « ${esc(convTitle)} »" title="Renommer, épingler, supprimer"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="3.5" cy="8" r="1.2" fill="currentColor" /><circle cx="8" cy="8" r="1.2" fill="currentColor" /><circle cx="12.5" cy="8" r="1.2" fill="currentColor" /></svg></button></div>`;
 }
 
 const matchesList = (...texts) => !listQuery.trim() || texts.some((t) => t && matchesQuery(t, listQuery));
@@ -130,9 +157,14 @@ function renderConversationList() {
       at: c.at,
       unread: isCurrent(c) ? 0 : c.unread,
       current: isCurrent(c),
+      convId: c.id,
+      pinned: Boolean(c.pinned),
     });
   // Une conversation qu'on lit garde sa place dans « Non lues » jusqu'à ce qu'on la quitte : la liste ne saute pas sous le doigt.
-  const unread = list.filter((c) => (c.unread || (isCurrent(c) && keptUnread.has(c.id))) && matchesList(c.title, c.preview));
+  // Épinglées : en tête, triées comme le reste ; elles ne se répètent pas plus bas.
+  const pinned = sortConvs(list.filter((c) => c.pinned && matchesList(c.title, c.preview, contactOf(c.agent).name)));
+  const pinnedIds = new Set(pinned.map((c) => c.id));
+  const unread = list.filter((c) => !pinnedIds.has(c.id) && (c.unread || (isCurrent(c) && keptUnread.has(c.id))) && matchesList(c.title, c.preview));
   keptUnread = new Set(unread.map((c) => c.id));
   const team = (state.contacts ?? [])
     .filter((ct) => matchesList(ct.name, ct.badge))
@@ -150,16 +182,24 @@ function renderConversationList() {
         unread: open ? 0 : (latest?.unread ?? 0),
         // L'agent dont la conversation est affichée : sa ligne est mise en avant.
         current: open,
+        // Sa conversation la plus récente se gère d'ici (si elle a du contenu).
+        convId: latest ? latest.id : null,
+        pinned: false,
+        convTitle: latest?.title ?? ct.name,
       });
     })
     .join("");
   const unreadIds = new Set(unread.map((c) => c.id));
   // La conversation la plus récente de chaque agent est déjà sa ligne dans « Équipe » : pas deux fois.
   const shownByTeam = new Set((state.contacts ?? []).map((ct) => ct.latest).filter(Boolean));
-  const rest = list.filter((c) => !unreadIds.has(c.id) && (listQuery.trim() || !shownByTeam.has(c.id)) && matchesList(c.title, c.preview, contactOf(c.agent).name));
-  return `${unread.length ? `<p class="threads-title">Non lues <span class="threads-count">${unread.length}</span></p>${unread.map(row).join("")}` : ""}
+  const rest = sortConvs(list.filter((c) => !unreadIds.has(c.id) && !pinnedIds.has(c.id) && (listQuery.trim() || !shownByTeam.has(c.id)) && matchesList(c.title, c.preview, contactOf(c.agent).name)));
+  const sorter = `<label class="visually-hidden" for="conv-sort">Trier les conversations</label><select class="conv-sort" id="conv-sort">${Object.entries(SORTS)
+    .map(([k, v]) => `<option value="${k}"${k === convSort ? " selected" : ""}>${v}</option>`)
+    .join("")}</select>`;
+  return `${pinned.length ? `<p class="threads-title">Épinglées</p>${pinned.map(row).join("")}` : ""}
+    ${unread.length ? `<p class="threads-title">Non lues <span class="threads-count">${unread.length}</span></p>${unread.map(row).join("")}` : ""}
     ${team ? `<p class="threads-title">Équipe</p>${team}` : ""}
-    ${rest.length ? `<p class="threads-title">Plus anciennes</p>${rest.map(row).join("")}` : listQuery.trim() ? `<p class="threads-empty">Rien ne correspond.</p>` : ""}`;
+    ${rest.length ? `<div class="threads-title threads-title-row"><span>Plus anciennes</span>${sorter}</div>${rest.map(row).join("")}` : listQuery.trim() ? `<p class="threads-empty">Rien ne correspond.</p>` : ""}`;
 }
 
 function renderThreads() {
@@ -191,6 +231,8 @@ function renderThreads() {
     ${live.length ? `<p class="threads-title">En cours</p>${live.sort(byDate).map((i) => i.html).join("")}` : ""}
     ${renderConversationList()}`;
   const nav = $("#threads");
+  // Un nom en cours de frappe n'est pas effacé par une mise à jour.
+  if (renamingId !== null && nav.contains(document.activeElement) && document.activeElement.closest("[data-conv-rename]")) return;
   const key = focusKey(nav);
   nav.innerHTML = html;
   restoreFocus(nav, key);

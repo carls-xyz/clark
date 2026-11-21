@@ -1501,6 +1501,17 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
       return json(res, 200, { ok: true });
     }
 
+    const edit = path.match(/^\/api\/conversations\/(\d+)$/);
+    if (edit) {
+      const action = String(body.action ?? "");
+      if (!["rename", "pin", "unpin", "delete"].includes(action)) throw new HttpError(400, "Action inconnue");
+      const r = hub.editConversation(Number(edit[1]), action as "rename" | "pin" | "unpin" | "delete", typeof body.title === "string" ? body.title : "");
+      if (r === "unknown") throw new HttpError(404, "Conversation introuvable");
+      if (r === "invalid") throw new HttpError(400, "Donne un nom (80 caractères au plus).");
+      if (r === "busy") throw new HttpError(409, "Clark est en train de répondre dans cette conversation : attends qu'il ait fini pour la supprimer.");
+      return json(res, 200, { ok: true });
+    }
+
     const reopen = path.match(/^\/api\/conversations\/(\d+)\/open$/);
     if (reopen) {
       const r = hub.switchConversation(Number(reopen[1]));

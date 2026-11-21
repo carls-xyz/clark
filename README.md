@@ -132,6 +132,10 @@ Clark a son propre Chrome (ton Google Chrome, avec un profil à part dans `data/
 - Variables facultatives : `CLARK_BROWSER_EXECUTABLE` (autre Chrome), `CLARK_BROWSER_PROFILE`.
 - Démo : « Remplis le formulaire de contact sur le site de Studio Pixel » pilote le vrai Chrome (profil jetable) sur un site fictif local, jusqu'à ta validation.
 
+## Gérer les conversations
+
+Dans la barre de gauche, le bouton **⋯** d'une conversation (au survol, ou au clavier) : **Renommer** (le nom reste ensuite), **Épingler en haut** (section « Épinglées »), **Supprimer…** (avec confirmation : ses messages sont effacés pour de bon, les tâches restent dans Activité ; refusé tant que Clark y répond). Les agents de « Équipe » ont le même menu pour leur dernière conversation. « Plus anciennes » se trie par activité récente, date de création ou nom (gardé sur l'appareil).
+
 ## Terminal
 
 Icône Terminal dans la colonne de gauche (`#terminal`), **sur le Mac seulement** : rien de tout ça ne passe par Telegram.

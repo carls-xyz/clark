@@ -969,6 +969,34 @@ export function createHub(
       changed();
     },
 
+    /** Renommer, épingler, supprimer une conversation de Charles (depuis l'interface). */
+    editConversation(id: number, action: "rename" | "pin" | "unpin" | "delete", title = "", chatId = OWNER_CHAT): "ok" | "unknown" | "busy" | "invalid" {
+      const c = conversation.conversation(id);
+      if (!c || c.chat_id !== chatId) return "unknown";
+      if (action === "rename") {
+        if (!conversation.rename(id, title)) return "invalid";
+      } else if (action === "pin" || action === "unpin") conversation.setPinned(id, action === "pin");
+      else {
+        // Une demande qui tourne dans cette conversation y écrira sa réponse : on attend qu'elle finisse.
+        const busy = journal.unfinished().some((t) => t.chat_id === chatId && t.parent_id === null && t.label !== HEARTBEAT_LABEL && conversation.conversationOfTask(t.id) === id);
+        if (busy) return "busy";
+        if (conversation.current(chatId) === id) {
+          // C'était l'ouverte : on retombe sur la dernière conversation avec le même interlocuteur, ou une neuve.
+          conversation.saveSession(id, null);
+          store.clearSession(chatId);
+          conversation.remove(id);
+          const next = conversation.latestWith(chatId, c.agent);
+          if (next !== null) {
+            conversation.switchTo(chatId, next);
+            const target = conversation.conversation(next);
+            if (target?.session_id) store.setSession(chatId, target.session_id);
+          } else conversation.startNew(chatId, c.agent);
+        } else conversation.remove(id);
+      }
+      changed();
+      return "ok";
+    },
+
     switchConversation(id: number, chatId = OWNER_CHAT): "ok" | "busy" | "unknown" {
       const before = conversation.current(chatId);
       if (id === before) return "ok";

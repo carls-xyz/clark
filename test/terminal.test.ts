@@ -79,3 +79,25 @@ test("terminal : une commande proposée par Clark attend le clic, tourne, puis C
   requests.expireStale();
   assert.equal(requests.pending().length, 0);
 });
+
+test("terminal : Clark ne propose pas de commande quand Charles écrit depuis Telegram (personne pour cliquer)", async () => {
+  const { Store } = await import("../src/memory/store.ts");
+  const { TaskJournal } = await import("../src/tasks/journal.ts");
+  const { memoryTools } = await import("../src/memory/tools.ts");
+  const store = new Store(":memory:");
+  const journal = new TaskJournal(store.db);
+  const fromPhone = journal.create(1, "chat", "lance les tests");
+  journal.setSource(fromPhone, "telegram");
+  let current = fromPhone;
+  const t = memoryTools(store, { taskId: () => current, writeRefusal: () => null });
+  const said = await t.run_command.run({ command: "npm test", cwd: tmpdir(), reason: "vérifier" });
+  assert.match(said, /Pas proposée/);
+  assert.equal(store.terminal.pending().length, 0, "rien n'attend un clic impossible");
+  // Depuis l'interface du Mac : la demande part (et attend le clic).
+  const fromMac = journal.create(1, "chat", "lance les tests");
+  journal.setSource(fromMac, "web");
+  current = fromMac;
+  void t.run_command.run({ command: "npm test", cwd: tmpdir(), reason: "vérifier" });
+  await until(() => store.terminal.pending().length === 1);
+  store.terminal.expireStale();
+});

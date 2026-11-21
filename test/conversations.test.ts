@@ -200,3 +200,31 @@ test("conversations : la réparation remet les messages mal rangés à leur plac
   assert.deepEqual(conversation.messagesOf(group).map((m) => m.text), ["question", "avis égaré"]);
   assert.equal(conversation.repairTaskMessages(), 0, "une deuxième fois : rien à faire");
 });
+
+test("conversations : renommer, épingler, supprimer (et retomber sur la bonne si c'était l'ouverte)", () => {
+  const { conversation, hub, journal } = setup();
+  conversation.add({ chatId: OWNER_CHAT, role: "user", text: "première" });
+  const first = conversation.current(OWNER_CHAT);
+  conversation.startNew(OWNER_CHAT);
+  conversation.add({ chatId: OWNER_CHAT, role: "user", text: "deuxième" });
+  const second = conversation.current(OWNER_CHAT);
+
+  assert.equal(hub.editConversation(first, "rename", "  Relances   alternance "), "ok");
+  assert.equal(hub.editConversation(first, "rename", "   "), "invalid");
+  conversation.add({ chatId: OWNER_CHAT, role: "user", text: "suite" });
+  assert.equal(conversation.conversation(first)?.title, "Relances alternance", "un message ne change pas un nom donné");
+  assert.equal(hub.editConversation(first, "pin"), "ok");
+  assert.equal(conversation.list(OWNER_CHAT).find((c) => c.id === first)?.pinned, 1);
+
+  // Une demande tourne dans l'ouverte : on ne la supprime pas sous ses pieds.
+  const task = journal.create(OWNER_CHAT, "chat", "question");
+  conversation.add({ chatId: OWNER_CHAT, role: "user", text: "question", taskId: task });
+  assert.equal(hub.editConversation(second, "delete"), "busy");
+  journal.finish(task, "done", "ok", 0);
+
+  assert.equal(hub.editConversation(second, "delete"), "ok");
+  assert.equal(conversation.conversation(second), undefined);
+  assert.deepEqual(conversation.messagesOf(second), [], "ses messages partent avec elle");
+  assert.equal(conversation.current(OWNER_CHAT), first, "on retombe sur la dernière avec Clark");
+  assert.equal(hub.editConversation(999, "delete"), "unknown");
+});
