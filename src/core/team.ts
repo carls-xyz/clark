@@ -1,3 +1,6 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { paths } from "../config.ts";
 import type { Access, Approver } from "../policy/permissions.ts";
 import { describeStep, uncertainSteps, type Step, type Task } from "../tasks/journal.ts";
 import { INCONCLUSIVE, resumeVerified } from "./recovery.ts";
@@ -36,6 +39,18 @@ export const agentName = (label: string) => {
 export const roleMarker = (role: Role) => `[Équipe de Clark — ${ROLE_NAMES[role]}]`;
 
 export const draftFile = (parentId: number, round: number) => `equipe/${parentId}/brouillon-v${round}.md`;
+
+/** « workspace/equipe/<mission>/rendu-<étape>.md » : ce qu'un spécialiste a rendu, lisible par les suivants. */
+export const renderingFile = (parentId: number, key: string) => `equipe/${parentId}/rendu-${key}.md`;
+export function keepRendering(parentId: number, step: Pick<PlanStep, "key" | "name">, text: string) {
+  try {
+    const file = join(paths.workspace, renderingFile(parentId, step.key));
+    mkdirSync(join(paths.workspace, "equipe", String(parentId)), { recursive: true });
+    writeFileSync(file, `# ${step.name} — mission ${parentId}\n\n${text.trim()}\n`);
+  } catch {
+    // Pas de fichier : le résultat reste dans le journal des tâches, rien d'autre ne casse.
+  }
+}
 
 // ── Consignes des agents ────────────────────────────────────────────────
 
@@ -290,7 +305,11 @@ export function createTeam(o: {
       );
       // On garde tout ce qui a abouti, même si l'autre spécialiste du lot a échoué.
       outcomes.forEach((out, i) => {
-        if (out.status === "fulfilled") results.set(batch[i].key, out.value);
+        if (out.status !== "fulfilled") return;
+        results.set(batch[i].key, out.value);
+        // Le rendu de chaque spécialiste est gardé dans un fichier : une équipe suivante (ou Clark)
+        // retrouve la relecture ou la recherche d'avant, au lieu de la redemander à Charles.
+        keepRendering(parent.id, batch[i], out.value);
       });
       const failures = outcomes.filter((x): x is PromiseRejectedResult => x.status === "rejected").map((x) => x.reason);
       if (failures.length) {
@@ -304,6 +323,7 @@ export function createTeam(o: {
       () => synthesisPrompt(request, steps.map((s) => ({ step: s, result: results.get(s.key) ?? "" }))),
       { access: "read", name: "Clark (synthèse)", role: "synthese" },
     );
+    keepRendering(parent.id, { key: "synthese", name: "Clark (synthèse)" }, synthesis);
     const team = steps.map((s) => `${s.name}${s.role === "temporaire" ? " (temporaire)" : ""}`).join(", ");
     const text = `**Équipe :** ${team}\n\n${synthesis.trim()}`;
     journal.finish(parent.id, "done", text, 0);

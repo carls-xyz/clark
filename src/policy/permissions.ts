@@ -54,6 +54,10 @@ const READ_ONLY = new Set([
   // Lire ses iMessages ne change rien ; envoyer (send_imessage) est une écriture.
   "mcp__memory__messages_recent",
   "mcp__memory__messages_read",
+  // Relire les conversations passées ne change rien : un agent en lecture seule doit pouvoir retrouver
+  // ce qui a été dit (sans ça, une équipe perdait le fil d'une mission à l'autre).
+  "mcp__memory__history_search",
+  "mcp__memory__history_read",
   // Chercher et lire dans le coffre Obsidian ne change rien ; y écrire (vault_write) est une écriture.
   "mcp__memory__vault_search",
   "mcp__memory__vault_read",
