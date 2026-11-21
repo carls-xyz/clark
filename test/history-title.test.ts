@@ -34,3 +34,11 @@ test("recherche : sans accents ni majuscules, chaque mot dans n'importe quel ord
   assert.ok(!matchesQuery(t, "fonce titre"), "tous les mots doivent y être");
   assert.ok(matchesQuery(t, ""), "rien tapé : tout passe");
 });
+
+test("titre d'historique : ton message plutôt que le contexte ajouté pour l'agent", () => {
+  const injected = "[Affiché à Charles depuis votre dernier échange, envoyé en ton nom par Clark (rappels…) :]\n- 10:00 Clark : Rappel : brancher Google\n\nMessage de Charles : Vas-y bro";
+  assert.equal(historyTitle({ label: "chat", prompt: injected }), "Vas-y bro");
+  assert.equal(historyTitle({ label: "chat", prompt: "[Discussion directe — Chercheur]\nCharles t'écrit directement…\n\nMessage de Charles : « trouve des offres »" }), "trouve des offres");
+  assert.equal(historyTitle({ label: "chat", prompt: "Lire le mail SG (id 1a1f…) et résumer", source: "initiative:Alerte SG : solde débiteur" }), "Alerte SG : solde débiteur");
+  assert.equal(historyTitle({ label: "chat", prompt: "Veille du soir pour Charles. Tu lis seulement…", source: "automation:Veille du soir" }), "Veille du soir");
+});

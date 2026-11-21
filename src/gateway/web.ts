@@ -94,8 +94,19 @@ export function matchesQuery(text: string, query: string): boolean {
     .every((w) => hay.includes(w) || (w.length > 3 && w.endsWith("s") && hay.includes(w.slice(0, -1))));
 }
 
-export function historyTitle(t: Pick<Task, "label" | "prompt">, store?: Store): string {
+export function historyTitle(t: Pick<Task, "label" | "prompt"> & { id?: number; source?: string | null }, store?: Store): string {
   if (t.label === HEARTBEAT_LABEL) return "Tour de veille";
+  // Une proposition acceptée, une automatisation : leur nom, pas la consigne envoyée à l'agent.
+  const src = t.source ?? "";
+  if (src.startsWith("initiative:")) return src.slice(11);
+  if (src.startsWith("automation:")) return src.slice(11);
+  // Une demande de Charles : ce qu'il a écrit (le fil le garde), pas le contexte ajouté pour l'agent.
+  if (store && t.id !== undefined && (t.label === "chat" || t.label === TEAM_LABEL || t.label === "groupe")) {
+    const said = store.db.prepare("SELECT text FROM messages WHERE task_id = ? AND role = 'user' ORDER BY id LIMIT 1").get(t.id) as { text: string } | undefined;
+    if (said?.text.trim()) return said.text.replace(/\s+/g, " ").trim();
+  }
+  const asked = t.prompt.match(/\nMessage de Charles : «?\s*([\s\S]+?)\s*»?\s*$/);
+  if (asked) return asked[1].replace(/\s+/g, " ").trim();
   if (t.label === "brief") return "Brief du matin";
   const goal = t.prompt.match(/tour (\d+) sur \d+\]\nObjectif de Charles : (.*)/);
   if (goal) return `Tour ${goal[1]} · ${goal[2]}`;
@@ -317,7 +328,7 @@ export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voi
     approvals: hub.approvals(OWNER_CHAT).map((a) => ({ id: a.id, taskId: a.taskId, tool: a.tool, summary: a.summary, agent: a.agent ?? null, expiresAt: a.expiresAt })),
     checks: mine(journal.awaitingCheck()).map((t) => ({
       id: t.id,
-      prompt: short(t.prompt, 160),
+      prompt: short(historyTitle(t, store), 160),
       at: t.updated_at,
       // Pour une équipe, l'écriture incertaine est celle de l'agent coupé.
       uncertain: (t.label === TEAM_LABEL ? journal.children(t.id).flatMap((c) => uncertainSteps(journal.steps(c.id))) : uncertainSteps(journal.steps(t.id))).map(

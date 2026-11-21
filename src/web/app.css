@@ -6033,3 +6033,200 @@ ui-menu-separator {
 .conv-sort:focus-visible {
   outline: 2px solid var(--focus);
 }
+
+/* ── Activité : une hiérarchie claire ─────────────────────────────────── */
+/* Grandes parties (À traiter, En cours, Décisions, Historique) au-dessus, genres en petits intitulés. */
+
+#view-inbox .activity-group {
+  margin: 40px 0 12px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+#view-inbox .activity-summary + .activity-group {
+  margin-top: 8px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.activity-group .block-count.is-hot,
+.activity-summary a.is-hot strong {
+  color: var(--accent-text);
+}
+
+.activity-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 20px;
+}
+
+.activity-summary a {
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text-2);
+  font-size: var(--fs-small);
+  text-decoration: none;
+}
+
+.activity-summary a:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.activity-summary a:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.activity-summary strong {
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-summary a.is-hot {
+  border-color: var(--accent-text);
+}
+
+.activity-sub-block + .activity-sub-block {
+  margin-top: 20px;
+}
+
+.activity-sub {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0 0 8px;
+  font-size: var(--fs-meta);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.activity-meta {
+  margin: -4px 0 10px;
+}
+
+/* Décisions : une ligne chacune, le pourquoi au clic. */
+.dec-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.dec-row + .dec-row {
+  border-top: 1px solid var(--line);
+}
+
+.dec-row summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.dec-row summary::-webkit-details-marker {
+  display: none;
+}
+
+.dec-row summary:hover {
+  background: var(--surface-2);
+}
+
+.dec-row summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.dec-time {
+  flex: none;
+  width: 42px;
+  font: 400 var(--fs-meta) / 1 var(--mono);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.dec-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-small);
+}
+
+.dec-row details[open] .dec-title {
+  white-space: normal;
+}
+
+.dec-state {
+  font-size: var(--fs-meta);
+  color: var(--text-3);
+}
+
+.dec-row.undone .dec-title {
+  color: var(--text-3);
+  text-decoration: line-through;
+}
+
+.dec-detail {
+  padding: 0 12px 12px 64px;
+}
+
+.dec-detail .card-note {
+  margin: 0;
+}
+
+.dec-detail .card-actions {
+  margin-top: 8px;
+}
+
+.dec-older {
+  margin-top: 10px;
+}
+
+.dec-older > summary {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: var(--fs-small);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.dec-older > summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.dec-older[open] > summary {
+  margin-bottom: 8px;
+}
+
+.hist-beats {
+  margin: 0 0 8px;
+}
+
+@media (max-width: 640px) {
+  .dec-detail {
+    padding-left: 12px;
+  }
+}
+
+.dec-row .tag {
+  flex: none;
+  align-self: center;
+  margin: 0;
+}

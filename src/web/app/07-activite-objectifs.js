@@ -30,6 +30,10 @@ function engineKeep(root) {
   return box && root.contains(box) && !box.querySelector("select:disabled") ? [`[data-engine="${box.dataset.engine}"]`] : [];
 }
 
+/** Un genre de chose à traiter (accords, à vérifier…) : un petit intitulé, sous le grand titre. */
+const sub = (id, title, count, body) =>
+  `<section class="activity-sub-block" aria-labelledby="h-${id}"><h3 class="activity-sub" id="h-${id}">${title}${count ? ` <span class="block-count">${count}</span>` : ""}</h3>${body}</section>`;
+
 const section = (id, title, count, body, extra = "") =>
   `<section class="block" aria-labelledby="h-${id}">
     <div class="block-head"><h2 class="block-title" id="h-${id}">${title}</h2>${count ? `<span class="block-count">${count}</span>` : ""}${extra}</div>
@@ -196,10 +200,14 @@ function renderHistory() {
   if (history.error && !history.tasks.length) return `<p class="inline-error">Historique indisponible : ${esc(history.error)}</p>`;
   if (!history.tasks.length) return `<p class="quiet">Rien encore. Chaque demande, automatisation et tour de veille apparaîtra ici.</p>`;
   if (history.q !== activityFilter) return `<p class="quiet">Recherche…</p>`;
-  const tasks = history.tasks.filter((t) => matches(t.prompt, t.origin));
+  const matching = history.tasks.filter((t) => matches(t.prompt, t.origin));
+  // Les tours de veille sans suite font du bruit : masqués, sauf demande (ou recherche).
+  const beats = matching.filter((t) => t.origin === "Tour de veille");
+  const tasks = showBeats || activityFilter ? matching : matching.filter((t) => t.origin !== "Tour de veille");
+  const beatsToggle = beats.length && !activityFilter ? `<p class="quiet hist-beats"><button type="button" class="link" data-show-beats>${showBeats ? "Masquer les tours de veille" : `Afficher les tours de veille (${beats.length})`}</button></p>` : "";
   const more = history.more ? `<button type="button" class="btn secondary hist-more" data-history-more>Chercher plus ancien</button>` : "";
-  if (!tasks.length) return `<p class="quiet">Rien ne correspond à « ${esc(activityFilter)} »${history.more ? " dans l'historique récent" : ""}.</p>${more}`;
-  let html = "";
+  if (!tasks.length) return activityFilter ? `<p class="quiet">Rien ne correspond à « ${esc(activityFilter)} »${history.more ? " dans l'historique récent" : ""}.</p>${more}` : `${beatsToggle}<p class="quiet">Seulement des tours de veille.</p>${more}`;
+  let html = beatsToggle;
   let lastDay = null;
   for (const t of tasks) {
     const d = parseDate(t.at);
@@ -250,27 +258,64 @@ function waitingCount() {
 }
 
 const DECISION_KINDS = { veille: "Veille", lancer: "Mission", souvenir: "Souvenir" };
+// Décisions dépliées (leur raison, le bouton Annuler) : gardées ouvertes quand la page se redessine.
+const decOpen = new Set();
+let decOlderOpen = false;
+let showBeats = false;
 
-/** Ce que Clark a décidé seul : quoi, pourquoi, et de quoi annuler. */
-function renderDecisions() {
-  const list = state.decisions ?? [];
-  const a = state.autonomy;
-  if (!list.length && !(a && (a.veille || a.lancer || a.souvenir))) return "";
-  const head = a ? `<p class="quiet">${a.today} sur ${a.max} aujourd'hui${a.now?.ok === false ? ` · ${esc(a.now.why)}` : ""}. <a class="link" href="#reglages/general">Régler l'autonomie</a></p>` : "";
-  const rows = list
-    .map((d) => {
-      const undone = d.status === "undone";
-      return `<div class="card decision${undone ? " undone" : ""}" data-decision="${d.id}">
-        <div class="goal-head"><p class="card-title">${esc(d.title)}</p><span class="tag">${esc(DECISION_KINDS[d.kind] ?? d.kind)}</span></div>
+function decisionRow(d) {
+  const undone = d.status === "undone";
+  return `<li class="dec-row${undone ? " undone" : ""}" data-decision="${d.id}">
+    <details data-dec="${d.id}"${decOpen.has(d.id) ? " open" : ""}>
+      <summary>
+        <span class="dec-time">${esc(time(parseDate(d.created_at)))}</span>
+        <span class="dec-title">${esc(d.title)}</span>
+        <span class="tag">${esc(DECISION_KINDS[d.kind] ?? d.kind)}</span>
+        ${undone ? `<span class="dec-state">annulée</span>` : ""}
+      </summary>
+      <div class="dec-detail">
         <p class="card-note">${esc(d.reason)}</p>
-        <p class="quiet decision-meta">${esc(convWhen(d.created_at))}${undone ? ` · annulé (${esc(d.undo_note ?? "")})` : ""}</p>
-        ${undone ? "" : `<div class="card-actions"><button type="button" class="btn ghost" data-undo-decision="${d.id}">Annuler</button></div>`}
+        ${undone ? `<p class="quiet">Annulée${d.undo_note ? ` : ${esc(d.undo_note)}` : ""}.</p>` : `<div class="card-actions"><button type="button" class="btn ghost" data-undo-decision="${d.id}">Annuler cette décision</button></div>`}
         <p class="inline-error" role="alert" hidden></p>
-      </div>`;
-    })
-    .join("");
-  return `<h2 class="activity-group" id="h-decisions">Décidé par Clark${list.length ? ` <span class="block-count">${list.length}</span>` : ""}</h2>${head}<div class="stack">${rows || `<p class="quiet">Rien pour l'instant.</p>`}</div>`;
+      </div>
+    </details>
+  </li>`;
 }
+
+/** Ce que Clark a décidé seul : aujourd'hui en lignes courtes (un clic pour le pourquoi), le reste replié. */
+function renderDecisions() {
+  const all = (state.decisions ?? []).filter((d) => matches(d.title, d.reason, DECISION_KINDS[d.kind]));
+  const a = state.autonomy;
+  const now = new Date();
+  const today = all.filter((d) => sameDay(parseDate(d.created_at), now));
+  const older = all.filter((d) => !sameDay(parseDate(d.created_at), now));
+  const autonomy = a
+    ? `<p class="quiet activity-meta">${a.veille || a.lancer || a.souvenir ? `${a.today} décision${a.today > 1 ? "s" : ""} sur ${a.max} permises aujourd'hui${a.now?.ok === false ? ` · ${esc(a.now.why)}` : ""}` : "Clark ne décide rien seul"} · <a class="link" href="#reglages/general">Régler l'autonomie</a></p>`
+    : "";
+  const body = `${today.length ? `<ol class="dec-list">${today.map(decisionRow).join("")}</ol>` : `<p class="quiet">Rien décidé seul aujourd'hui.</p>`}
+    ${older.length ? `<details class="dec-older"${decOlderOpen ? " open" : ""}><summary>Avant aujourd'hui <span class="block-count">${older.length}</span></summary><ol class="dec-list">${older.map(decisionRow).join("")}</ol></details>` : ""}
+    ${heartbeatLine(state.heartbeat)}`;
+  return `<h2 class="activity-group" id="h-decisions">Décisions de Clark${today.length ? ` <span class="block-count">${today.length} aujourd'hui</span>` : ""}</h2>${autonomy}${body}`;
+}
+
+$("#inbox").addEventListener(
+  "toggle",
+  (e) => {
+    const d = e.target;
+    if (d.matches?.("[data-dec]")) {
+      const id = Number(d.dataset.dec);
+      if (d.open) decOpen.add(id);
+      else decOpen.delete(id);
+    } else if (d.matches?.(".dec-older")) decOlderOpen = d.open;
+  },
+  true,
+);
+
+$("#inbox").addEventListener("click", (e) => {
+  if (!e.target.closest("[data-show-beats]")) return;
+  showBeats = !showBeats;
+  renderView();
+});
 
 side.addEventListener("click", async (e) => {
   const btn = e.target.closest("[data-undo-decision]");
@@ -295,12 +340,12 @@ function renderInbox() {
   const goals = (state.goals ?? []).filter((g) => g.status === "waiting");
   const asks = [...state.approvals.map(renderApproval), ...state.questions.map(renderQuestion), ...(state.mails ?? []).map(renderMailCard), ...state.posts.map(renderPost)];
   let html = "";
-  if (asks.length) html += section("asks", "Accords et questions", asks.length, `<div class="stack">${asks.join("")}</div>`);
+  if (asks.length) html += sub("asks", "Accords et questions", asks.length, `<div class="stack">${asks.join("")}</div>`);
   const gates = state.gates ?? [];
-  if (gates.length) html += section("gates", "Décisions pour le dev", gates.length, `<div class="stack">${gates.map((x) => renderGate({ ...x, resolution: null }, x.groupTitle)).join("")}</div>`);
+  if (gates.length) html += sub("gates", "Décisions pour le dev", gates.length, `<div class="stack">${gates.map((x) => renderGate({ ...x, resolution: null }, x.groupTitle)).join("")}</div>`);
   const stalled = state.stalled ?? [];
   if (stalled.length)
-    html += section(
+    html += sub(
       "stalled",
       "Agents silencieux",
       stalled.length,
@@ -318,7 +363,7 @@ function renderInbox() {
         .join("")}</div>`,
     );
   if (review.length)
-    html += section(
+    html += sub(
       "review",
       "Tâches dev à relire",
       review.length,
@@ -327,28 +372,37 @@ function renderInbox() {
   const allStopped = dev.tasks.filter((t) => t.status === "failed");
   const stopped = allStopped.filter((t) => matches(t.title, t.project));
   if (stopped.length)
-    html += section(
+    html += sub(
       "dev-stopped",
       "Tâches dev arrêtées",
       stopped.length,
       `<ul class="link-list">${stopped.map((t) => `<li><a href="#dev/${t.id}"><span class="dot" data-s="wait"></span><span class="ll-label">${esc(t.title)}</span><span class="quiet">${esc(t.project)} · à relancer ou jeter</span></a></li>`).join("")}</ul>`,
     );
-  if (goals.length) html += section("goals-wait", "Objectifs qui t'attendent", goals.length, goals.map(renderGoal).join(""));
-  if (checks.length) html += section("checks", "À vérifier", checks.length, renderChecks(checks));
-  if (proposals.length) html += section("proposals", "Souvenirs à confirmer", proposals.length, proposals.map(renderProposal).join(""));
-  html += renderInitiatives(state.initiatives ?? [], state.heartbeat);
+  if (goals.length) html += sub("goals-wait", "Objectifs qui t'attendent", goals.length, goals.map(renderGoal).join(""));
+  if (checks.length) html += sub("checks", "Coupées en pleine écriture", checks.length, renderChecks(checks));
+  if (proposals.length) html += sub("proposals", "Souvenirs à confirmer", proposals.length, proposals.map(renderProposal).join(""));
+  const initiatives = state.initiatives ?? [];
+  if (initiatives.length) html += sub("initiatives", "Propositions de Clark", initiatives.length, initiativeCards(initiatives));
   // Le filtre écarte des tâches dev : le compte suit ce qui est affiché.
   const shown = waitingCount() - (allReview.length - review.length) - (allStopped.length - stopped.length);
-  if (!waitingCount()) html = `<p class="empty-note">Rien ne t'attend. Les accords, questions et relectures arrivent ici.</p>${html}`;
+  if (!waitingCount()) html = `<p class="empty-note">Rien ne t'attend. Les accords, questions, propositions et relectures arrivent ici.</p>${html}`;
   else if (!shown) html = `<p class="quiet">Rien ne correspond à « ${esc(activityFilter)} ».</p>${html}`;
-  html = `<h2 class="activity-group" id="h-waiting">T'attend${shown ? ` <span class="block-count">${shown}</span>` : ""}</h2>${html}`;
-  html += renderDecisions();
+  html = `<h2 class="activity-group" id="h-waiting">À traiter${shown ? ` <span class="block-count is-hot">${shown}</span>` : ""}</h2>${html}`;
   const allLive = liveRows().filter((r) => r.s !== "review" && r.s !== "wait");
   const live = allLive.filter((r) => matches(r.label, r.meta));
-  html += `<h2 class="activity-group">En cours${live.length ? ` <span class="block-count">${live.length}</span>` : ""}</h2>${
+  html += `<h2 class="activity-group" id="h-live">En cours${live.length ? ` <span class="block-count">${live.length}</span>` : ""}</h2>${
     live.length ? `<ul class="link-list">${live.map((r) => `<li><a href="${r.href}"><span class="dot" data-s="${r.s}"></span><span class="ll-label">${esc(r.label)}</span><span class="quiet">${esc(r.meta)}</span></a></li>`).join("")}</ul>` : `<p class="quiet">${allLive.length ? `Rien ne correspond à « ${esc(activityFilter)} ».` : "Aucun agent ne travaille."}</p>`
   }`;
-  html += `<h2 class="activity-group">Fini</h2>${renderHistory()}`;
+  html += renderDecisions();
+  html += `<h2 class="activity-group" id="h-history">Historique</h2>${renderHistory()}`;
+  // Sommaire en tête : où en est chaque partie, d'un coup d'œil (et un clic pour y aller).
+  const todayDecisions = (state.decisions ?? []).filter((d) => sameDay(parseDate(d.created_at), new Date())).length;
+  html = `<nav class="activity-summary" aria-label="Parties de l'activité">
+    <a href="#h-waiting" data-jump class="${shown ? "is-hot" : ""}"><strong>${shown}</strong> à traiter</a>
+    <a href="#h-live" data-jump><strong>${live.length}</strong> en cours</a>
+    <a href="#h-decisions" data-jump><strong>${todayDecisions}</strong> décision${todayDecisions > 1 ? "s" : ""} aujourd'hui</a>
+    <a href="#h-history" data-jump>Historique</a>
+  </nav>${html}`;
   const root = $("#inbox");
   const keepQuestions = [...root.querySelectorAll("[data-question]")].filter((c) => {
     const i = c.querySelector("input");
@@ -464,3 +518,14 @@ side.addEventListener("submit", async (e) => {
   }
 });
 
+
+// Sommaire de l'Activité : un clic descend à la partie (sans changer d'adresse, qui sert à la navigation).
+$("#inbox").addEventListener("click", (e) => {
+  const a = e.target.closest("[data-jump]");
+  if (!a) return;
+  e.preventDefault();
+  const target = document.querySelector(a.getAttribute("href"));
+  target?.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  target?.setAttribute("tabindex", "-1");
+  target?.focus({ preventScroll: true });
+});

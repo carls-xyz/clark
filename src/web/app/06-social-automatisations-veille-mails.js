@@ -273,10 +273,11 @@ function heartbeatLine(h) {
   return `<p class="quiet">Tour de veille toutes les ${h.minutes} min, de 8 h à 22 h : ${esc(when)}. <button type="button" class="link" data-heartbeat="run">Faire un tour maintenant</button></p>`;
 }
 
-function renderInitiatives(list, heartbeat) {
-  const cards = list
+function initiativeCards(list) {
+  return list
     .map(
       (i) => `<div class="card" data-initiative="${i.id}">
+        <span class="tag">Proposition</span>
         <p class="card-title">${esc(i.title)}</p>
         <p class="card-note">${esc(i.why)}</p>
         ${i.source ? `<p class="auto-meta">source : ${esc(i.source)}</p>` : ""}
@@ -288,6 +289,10 @@ function renderInitiatives(list, heartbeat) {
       </div>`,
     )
     .join("");
+}
+
+function renderInitiatives(list, heartbeat) {
+  const cards = initiativeCards(list);
   return `<section class="block" aria-labelledby="h-initiatives">
     <div class="block-head"><h2 class="block-title" id="h-initiatives">Propositions de Clark</h2>${list.length ? `<span class="block-count">${list.length}</span>` : ""}</div>
     ${cards || `<p class="quiet">Aucune pour l'instant.</p>`}
