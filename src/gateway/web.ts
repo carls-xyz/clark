@@ -1454,7 +1454,9 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
     if (engineChoice) {
       const model = typeof body.model === "string" && body.model ? body.model : null;
       const effort = typeof body.effort === "string" && body.effort ? body.effort : null;
-      const error = hub.setChoice(engineChoice[1] as "claude" | "codex", { model, effort });
+      const reason = body.reason === "model" ? "model" : "effort";
+      const from = typeof body.from === "string" ? body.from.slice(0, 40) : "interface";
+      const error = hub.setChoice(engineChoice[1] as "claude" | "codex", { model, effort }, reason, from);
       if (error) throw new HttpError(400, error);
       return json(res, 200, { ok: true });
     }

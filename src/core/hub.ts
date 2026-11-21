@@ -695,11 +695,24 @@ export function createHub(
       changed();
     },
     choice: (name: EngineName) => store.choices.get(name),
-    /** Choix de Charles dans l'interface, vérifié contre la liste du moteur. Appliqué aux prochaines tâches. */
-    setChoice(name: EngineName, c: EngineChoice): string | null {
-      const error = checkChoice(c, catalogs[name]?.catalog ?? null);
+    /**
+     * Choix de Charles dans l'interface, vérifié contre la liste du moteur. Appliqué aux prochaines tâches.
+     * reason « model » : seul le modèle change ; l'effort devient le niveau choisi par Charles si ce modèle
+     * le propose, sinon Auto (et le niveau choisi reste en mémoire pour le prochain modèle qui l'a).
+     */
+    setChoice(name: EngineName, c: EngineChoice, reason: "model" | "effort" = "effort", from = "interface"): string | null {
+      const before = store.choices.get(name);
+      let next: EngineChoice & { wanted?: string | null } = c;
+      if (reason === "model") {
+        const m = catalogs[name]?.catalog?.models.find((x) => x.id === c.model);
+        const wanted = before.wanted;
+        next = { model: c.model, effort: c.model && wanted && m?.efforts.includes(wanted) ? wanted : null, wanted };
+      }
+      const error = checkChoice(next, catalogs[name]?.catalog ?? null);
       if (error) return error;
-      store.choices.set(name, c);
+      store.choices.set(name, next);
+      // Une trace de chaque changement (quoi, d'où) : si l'effort bouge sans qu'on comprenne, on retrouve pourquoi.
+      store.audit("engine_choice", reason, { engine: name, from, before, after: store.choices.get(name) });
       changed();
       return null;
     },
