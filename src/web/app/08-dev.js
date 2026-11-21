@@ -533,7 +533,7 @@ function renderProjectForm() {
     <label for="pf-name">Nom</label>
     <input id="pf-name" name="name" type="text" maxlength="40" autocomplete="off" placeholder="portfolio" />
     <label for="pf-path">Dossier du dépôt git</label>
-    <input id="pf-path" name="path" type="text" autocomplete="off" placeholder="/Users/charles/Developer/portfolio" />
+    <div class="voice-pick"><input id="pf-path" name="path" type="text" autocomplete="off" placeholder="/Users/charles/Developer/portfolio" /><button type="button" class="btn secondary" data-pick-folder="pf-path">Parcourir…</button></div>
     <label for="pf-base">Branche de base <span class="optional">(facultatif : celle du dépôt par défaut)</span></label>
     <input id="pf-base" name="baseBranch" type="text" autocomplete="off" placeholder="main" />
     <label for="pf-test">Commande de test <span class="optional">(facultatif)</span></label>
@@ -733,3 +733,28 @@ side.addEventListener(
 );
 
 
+
+// « Parcourir… » : la fenêtre du Finder choisit le dossier (le nom du projet suit s'il est vide).
+side.addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-pick-folder]");
+  if (!btn) return;
+  const field = document.getElementById(btn.dataset.pickFolder);
+  btn.disabled = true;
+  try {
+    const r = await post("/api/pick", { kind: "folder" });
+    if (r.path && field) {
+      field.value = r.path;
+      const name = field.form?.elements.name;
+      if (name && !name.value.trim()) name.value = r.path.split("/").pop().slice(0, 40);
+    }
+  } catch (err) {
+    const error = btn.closest("form")?.querySelector(".inline-error");
+    if (error) {
+      error.textContent = err.message;
+      error.hidden = false;
+    }
+  } finally {
+    btn.disabled = false;
+    field?.focus();
+  }
+});

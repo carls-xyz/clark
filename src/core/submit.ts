@@ -16,7 +16,7 @@ export type Mode = "chat" | "team" | "goal";
  * (« /relances Studio Pixel ») est remplacée par sa consigne et prend son mode ; sinon le
  * mode choisi (message, équipe, objectif).
  */
-export function submitRequest(hub: Hub, text: string, opts: { source: "web" | "telegram" | "imessage" | "cli"; mode?: Mode; onCreated?: (taskId: number) => void }): { kind: Mode; command?: string; id?: number } | { error: string } {
+export function submitRequest(hub: Hub, text: string, opts: { source: "web" | "telegram" | "imessage" | "cli"; mode?: Mode; onCreated?: (taskId: number) => void; display?: string }): { kind: Mode; command?: string; id?: number } | { error: string } {
   // Telegram, iMessage, terminal : on parle à Clark. Si l'interface avait une conversation avec
   // un agent ou avec toute l'équipe ouverte, on revient à la dernière conversation de Clark.
   if (opts.source !== "web") {
@@ -43,7 +43,7 @@ export function submitRequest(hub: Hub, text: string, opts: { source: "web" | "t
     if (busy) {
       void steer(busy.id, prompt).then((ok) => {
         if (ok) {
-          conv.add({ chatId: OWNER_CHAT, role: "user", text: prompt, taskId: busy.id, source: opts.source });
+          conv.add({ chatId: OWNER_CHAT, role: "user", text: opts.display ?? prompt, taskId: busy.id, source: opts.source });
           hub.touch();
         } else submitRequest(hub, text, opts);
       });
@@ -62,7 +62,7 @@ export function submitRequest(hub: Hub, text: string, opts: { source: "web" | "t
       .map((m) => ({ who: m.role === "user" ? "Charles" : (m.agent ? (CATALOG as Record<string, { name: string }>)[m.agent]?.name : null) ?? "Clark", text: m.text }));
     const parent = hub.deps.journal.create(OWNER_CHAT, "groupe", prompt);
     hub.deps.journal.setSource(parent, opts.source);
-    conv.add({ chatId: OWNER_CHAT, role: "user", text: expanded ? text.trim() : prompt, taskId: parent, source: opts.source });
+    conv.add({ chatId: OWNER_CHAT, role: "user", text: opts.display ?? (expanded ? text.trim() : prompt), taskId: parent, source: opts.source });
     hub.deps.journal.finish(parent, "done", "Question posée à toute l'équipe.", 0);
     for (const role of GROUP_MEMBERS) {
       void hub.enqueue(OWNER_CHAT, groupPrompt(role, prompt, recent), `avis:${role}`, opts.source, { access: "read", engine: hub.engineFor(role) as EngineName, parentId: parent });
@@ -73,7 +73,7 @@ export function submitRequest(hub: Hub, text: string, opts: { source: "web" | "t
   if (isContactRole(agent)) {
     const engine = hub.engineFor(agent) as EngineName;
     void hub.enqueue(OWNER_CHAT, directPrompt(agent, prompt), "chat", opts.source, {
-      display: expanded ? text.trim() : prompt,
+      display: opts.display ?? (expanded ? text.trim() : prompt),
       access: CATALOG[agent].access,
       engine,
       ...(opts.onCreated ? { onCreated: opts.onCreated } : {}),
@@ -82,7 +82,7 @@ export function submitRequest(hub: Hub, text: string, opts: { source: "web" | "t
   }
   // Le fil montre la commande tapée ; l'agent reçoit sa consigne complète.
   void hub.enqueue(OWNER_CHAT, prompt, mode === "team" ? TEAM_LABEL : "chat", opts.source, {
-    ...(expanded ? { display: text.trim() } : {}),
+    ...(opts.display ? { display: opts.display } : expanded ? { display: text.trim() } : {}),
     ...(opts.onCreated ? { onCreated: opts.onCreated } : {}),
   });
   return { kind: mode, command: expanded?.command.name };

@@ -98,6 +98,7 @@
                 <ui-autocomplete-list id="command-list" aria-label="Commandes"></ui-autocomplete-list>
               </ui-autocomplete-content>
             </ui-autocomplete>
+            <div class="attach-row" id="attach-row" hidden></div>
             <div class="composer-bar">
               <!-- Les façons de demander, derrière « + » ; le choix s'affiche en pastille qu'on retire. -->
               <ui-menu id="mode-menu">
@@ -113,6 +114,9 @@
                   <ui-menu-separator></ui-menu-separator>
                   <ui-menu-item value="goal"><span>Objectif</span><span class="menu-hint">plusieurs tours jusqu'au but</span></ui-menu-item>
                   <ui-menu-item value="team"><span>Équipe</span><span class="menu-hint">des agents spécialisés</span></ui-menu-item>
+                  <ui-menu-separator></ui-menu-separator>
+                  <ui-menu-item value="attach-file"><span>Joindre un fichier</span><span class="menu-hint">choisi dans le Finder</span></ui-menu-item>
+                  <ui-menu-item value="attach-folder"><span>Joindre un dossier</span><span class="menu-hint">Clark reçoit sa liste</span></ui-menu-item>
                 </ui-menu-content>
               </ui-menu>
               <span class="mode-chip" id="mode-chip" hidden><span id="mode-chip-label"></span><button type="button" class="mode-chip-x" id="mode-chip-x" aria-label="Revenir au message simple"><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m4.5 4.5 7 7m0-7-7 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg></button></span>

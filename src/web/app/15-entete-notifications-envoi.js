@@ -213,7 +213,9 @@ $("#composer").addEventListener("submit", async (e) => {
         await post(`/api/conversations/${pastId}/open`, {});
         location.hash = "#conversation";
       }
-      const r = await post("/api/messages", { text, mode });
+      const r = await post("/api/messages", { text, mode, ...(attachments.length ? { attachments: attachments.map((a) => a.path) } : {}) });
+      attachments = [];
+      renderAttachments();
       if (r.kind === "goal" && r.id) location.hash = `#objectif/${r.id}`;
     }
     // Objectif ou tâche dev : une demande à part ; on revient au message simple.
@@ -287,8 +289,54 @@ function setMode(mode) {
   input.placeholder = mode.startsWith("dev") ? "Consigne pour l'agent de code, ou #12 pour une issue GitHub" : mode === "goal" ? "L'objectif à atteindre" : `Écrire à ${state ? contactOf(threadAgent).name : "Clark"}`;
 }
 $("#mode-menu").addEventListener("action", (e) => {
-  setMode(String(e.detail.value));
+  const value = String(e.detail.value);
+  if (value === "attach-file" || value === "attach-folder") return void attachFromMac(value === "attach-folder" ? "folder" : "file");
+  setMode(value);
   setTimeout(() => input.focus(), 0);
+});
+
+// ── Pièces jointes : un fichier ou un dossier du Mac, choisi dans la fenêtre du Finder ──
+let attachments = [];
+const baseName = (p) => p.replace(/\/$/, "").split("/").pop() || p;
+
+function renderAttachments() {
+  const row = $("#attach-row");
+  row.hidden = !attachments.length;
+  row.innerHTML = attachments
+    .map(
+      (a, i) => `<span class="attach-chip" title="${esc(a.path)}">
+        <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">${a.kind === "folder" ? '<path d="M2 4.5h4l1.3 1.5H14v6.5H2z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" fill="none" />' : '<path d="M4 2h5l3 3v9H4zM9 2v3h3" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" fill="none" />'}</svg>
+        <span class="attach-name">${esc(baseName(a.path))}</span>
+        <button type="button" class="attach-x" data-attach-remove="${i}" aria-label="Retirer ${esc(baseName(a.path))}"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="m4.5 4.5 7 7m0-7-7 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg></button>
+      </span>`,
+    )
+    .join("");
+}
+
+async function attachFromMac(kind) {
+  sendError.hidden = true;
+  if (attachments.length >= 5) {
+    sendError.textContent = "5 pièces jointes au plus.";
+    sendError.hidden = false;
+    return;
+  }
+  try {
+    const r = await post("/api/pick", { kind });
+    if (r.path && !attachments.some((a) => a.path === r.path)) attachments.push({ path: r.path, kind });
+    renderAttachments();
+  } catch (err) {
+    sendError.textContent = err.message;
+    sendError.hidden = false;
+  }
+  input.focus();
+}
+
+$("#attach-row").addEventListener("click", (e) => {
+  const x = e.target.closest("[data-attach-remove]");
+  if (!x) return;
+  attachments.splice(Number(x.dataset.attachRemove), 1);
+  renderAttachments();
+  input.focus();
 });
 $("#mode-chip-x").addEventListener("click", () => {
   setMode("chat");

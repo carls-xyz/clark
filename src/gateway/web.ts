@@ -1,5 +1,6 @@
 import type { LoginEngine, Logins } from "../engines/login.ts";
 import type { Terminal } from "../terminal/terminal.ts";
+import { attachmentContext, pickPath } from "../core/attachments.ts";
 import { NEW_CONVERSATION_NOTE } from "../core/conversation.ts";
 import { CONTACTS, isConversationAgent } from "../core/contacts.ts";
 import { canActAlone, decisionsOf, isAutonomous, maxPerDay, parisDayStart, undoDecision } from "../core/autonomy.ts";
@@ -1061,13 +1062,26 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
       return json(res, 200, { ok: true });
     }
 
+    // La fenêtre de choix du Finder, sur ce Mac : un fichier ou un dossier pour Clark (ou un projet).
+    if (path === "/api/pick") {
+      const kind = body.kind === "folder" ? "folder" : "file";
+      return json(res, 200, { path: await pickPath(kind) });
+    }
+
     if (path === "/api/messages") {
       const text = typeof body.text === "string" ? body.text.trim() : "";
       if (!text) throw new HttpError(400, "Message vide");
       // Message, équipe ou objectif ; une commande perso (« /relances … ») prend sa consigne et son mode.
       const mode = body.mode === "goal" || body.mode === "team" ? body.mode : body.team === true ? "team" : "chat";
       // « clark » dans le terminal se signale (« · terminal ») ; il ne peut ni valider ni répondre aux questions.
-      const r = submitRequest(hub, text, { source: body.source === "cli" ? "cli" : "web", mode });
+      // Fichiers et dossiers joints (choisis dans la fenêtre du Mac) : Clark reçoit leur contenu ou leur liste.
+      const attached = attachmentContext(body.attachments);
+      if ("error" in attached) throw new HttpError(400, attached.error);
+      const r = submitRequest(hub, text + attached.prompt, {
+        source: body.source === "cli" ? "cli" : "web",
+        mode,
+        ...(attached.display ? { display: text + attached.display } : {}),
+      });
       if ("error" in r) throw new HttpError(400, r.error);
       return json(res, 202, { ok: true, ...r });
     }
