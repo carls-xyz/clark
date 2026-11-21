@@ -97,8 +97,8 @@ test("hub : choix gardés en base, quota par moteur, limite signalée pendant un
   assert.match(hub.setChoice("claude", { model: "opus", effort: "high" })!, /pas encore la liste/);
   hub.setCatalog("claude", catalog);
   assert.equal(hub.setChoice("claude", { model: "opus", effort: "high" }), null);
-  assert.deepEqual(new Store(":memory:").choices.get("claude"), { model: null, effort: null });
-  assert.deepEqual(store.choices.get("claude"), { model: "opus", effort: "high" }, "rangé en base : survit au redémarrage");
+  assert.deepEqual(new Store(":memory:").choices.get("claude"), { model: null, effort: null, wanted: null });
+  assert.deepEqual(store.choices.get("claude"), { model: "opus", effort: "high", wanted: "high" }, "rangé en base : survit au redémarrage");
   hub.setCatalog("claude", null, "Claude ne répond pas");
   assert.equal(hub.catalog("claude")!.catalog!.models.length, 2, "un échec de relecture garde la dernière liste");
 
@@ -128,4 +128,31 @@ test("bac à sable Claude : dossier personnel fermé sauf le dossier de travail,
   process.env.CLARK_SANDBOX = "off";
   assert.equal(claudeSandbox(), undefined);
   delete process.env.CLARK_SANDBOX;
+});
+
+test("hub : l'effort choisi survit à un aller-retour par un modèle qui ne l'a pas (il ne « repasse » plus en Auto)", () => {
+  const store = new Store(":memory:");
+  const journal = new TaskJournal(store.db);
+  const conversation = new Conversation(store.db);
+  const hub = createHub({ config, store, journal, conversation }, { execute: (async () => ({ text: "", costUsd: 0, status: "done" })) as unknown as typeof executeTask });
+  hub.setCatalog("claude", catalog);
+  assert.equal(hub.setChoice("claude", { model: "opus", effort: "high" }), null);
+  // Vers un modèle sans « élevée » : Auto, mais le choix reste en mémoire.
+  assert.equal(hub.setChoice("claude", { model: "haiku", effort: null }, "model"), null);
+  assert.deepEqual(store.choices.get("claude"), { model: "haiku", effort: null, wanted: "high" });
+  // « Par défaut » non plus.
+  assert.equal(hub.setChoice("claude", { model: null, effort: null }, "model"), null);
+  assert.equal(store.choices.get("claude").wanted, "high");
+  // Retour sur un modèle qui l'a : il revient tout seul.
+  assert.equal(hub.setChoice("claude", { model: "opus", effort: null }, "model"), null);
+  assert.deepEqual(store.choices.get("claude"), { model: "opus", effort: "high", wanted: "high" });
+  // Auto choisi exprès : là, on oublie le niveau.
+  assert.equal(hub.setChoice("claude", { model: "opus", effort: null }), null);
+  assert.equal(hub.setChoice("claude", { model: "haiku", effort: null }, "model"), null);
+  assert.equal(hub.setChoice("claude", { model: "opus", effort: null }, "model"), null);
+  assert.deepEqual(store.choices.get("claude"), { model: "opus", effort: null, wanted: null });
+  // Chaque changement laisse une trace, avec d'où il vient.
+  const traces = store.db.prepare("SELECT decision, detail FROM audit WHERE tool = 'engine_choice'").all() as { decision: string; detail: string }[];
+  assert.equal(traces.length, 7);
+  assert.match(traces[1].detail, /"from":"interface"/);
 });

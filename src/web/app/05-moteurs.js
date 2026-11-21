@@ -30,10 +30,13 @@ const effortLabel = (stop) => (stop ? (EFFORT_LABELS[stop] ?? stop) : "auto");
 function effortSlider(e, current, idp, compact = false) {
   const efforts = current?.efforts ?? [];
   const id = `${idp}effort-${e.name}`;
+  // Ton niveau choisi, mis de côté parce que ce modèle ne le propose pas : il revient avec un modèle qui l'a.
+  const wanted = e.choice.wanted && !e.choice.effort ? e.choice.wanted : null;
+  const aside = wanted && !efforts.includes(wanted) ? `<p class="quiet effort-note">« ${esc(effortLabel(wanted))} » mis de côté : ${current ? "ce modèle ne le propose pas" : "choisis un modèle"}. Il revient avec un modèle qui l'a.</p>` : "";
   if (!current || !efforts.length) {
     return `<div class="effort is-off">
       <div class="effort-head"><span class="effort-title">Effort</span><span class="effort-value">auto</span></div>
-      <p class="quiet effort-note">${!current ? "Choisis un modèle pour régler l'effort." : "Ce modèle n'a pas de niveaux d'effort."}</p>
+      ${aside || `<p class="quiet effort-note">${!current ? "Choisis un modèle pour régler l'effort." : "Ce modèle n'a pas de niveaux d'effort."}</p>`}
     </div>`;
   }
   const chosen = e.choice.effort && efforts.includes(e.choice.effort) ? e.choice.effort : null;
@@ -65,6 +68,7 @@ function effortSlider(e, current, idp, compact = false) {
             .map((x, i) => `<span class="effort-level${i === rec ? " is-rec" : ""}" data-pos="${pos(i)}">${esc(effortLabel(x))}</span>`)
             .join("")}</div>${rec >= 0 ? `<p class="quiet effort-note">Souligné : le niveau par défaut de ${esc(current.name)}, celui qu'Auto utilise.</p>` : ""}`
     }
+    ${aside}
   </div>`;
 }
 
@@ -270,18 +274,16 @@ async function saveEngineChoice(box, select) {
   let effort = effortEl ? (effortEl.type === "range" ? JSON.parse(effortEl.dataset.stops)[Number(effortEl.value)] || null : effortEl.value || null) : null;
   // Auto : l'effort revient au moteur.
   if (select.matches("[data-effort-auto]")) effort = null;
-  // Nouveau modèle : on ne lit pas le curseur (il montre encore l'ancien) mais le choix enregistré.
-  if (select.matches("[data-engine-model]")) effort = engine?.choice.effort ?? null;
-  // Nouveau modèle : on garde l’effort seulement s'il la propose.
-  const m = engine?.models.find((x) => x.id === model);
-  if (select.matches("[data-engine-model]") && effort && !m?.efforts.includes(effort)) effort = null;
+  // Nouveau modèle : c'est le serveur qui remet ton niveau choisi s'il existe pour ce modèle (sinon Auto, sans l'oublier).
+  const modelChange = select.matches("[data-engine-model]");
+  const from = box.closest("#engine-side") ? "barre latérale" : box.closest("#engine-pop") ? "fenêtre du moteur" : "Plugins › Moteurs";
   if (!model) effort = null;
   box.querySelector(".inline-error")?.remove();
   box.dataset.busy = "1";
   // Un menu se fige pendant l'envoi ; le curseur reste utilisable (son focus aussi).
   if (select.tagName === "SELECT") box.querySelectorAll("select").forEach((s) => (s.disabled = true));
   try {
-    await post(`/api/engines/${name}`, { model, effort });
+    await post(`/api/engines/${name}`, modelChange ? { model, reason: "model", from } : { model, effort, from });
     delete box.dataset.busy;
     if (select.tagName === "SELECT") select.blur();
   } catch (err) {
