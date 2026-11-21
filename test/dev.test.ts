@@ -458,7 +458,7 @@ test("agent silencieux : signalé une fois, pas quand il attend Charles ; Arrêt
   delete process.env.CLARK_STALL_MINUTES;
 });
 
-test("accepter : les tests du projet tournent d'abord ; en échec, rien n'est gardé et un agent corrige", async () => {
+test("fin de tour : les tests du projet tournent avant la relecture ; rouges, l'agent corrige seul, et la tâche arrive au vert", async () => {
   const dir = repo("verif");
   let round = 0;
   const { hub, store, runs } = setup((cwd) => {
@@ -470,12 +470,27 @@ test("accepter : les tests du projet tournent d'abord ; en échec, rien n'est ga
   const p = (await addProject(hub, { name: "verif", path: dir, testCommand: "grep -q ok app.txt" })) as any;
   const r = startDevTask(hub, { projectId: p.id, instruction: "Ajoute la ligne ok dans app.txt" }) as any;
   await until(() => store.dev.get(r.id)!.status === "review");
-  const refused = (await acceptDevTask(hub, r.id)) as any;
-  assert.match(refused.error, /Tests en échec : rien n'est gardé\. Un agent corrige/);
-  await until(() => store.dev.get(r.id)!.status === "review" && runs.length === 2);
-  assert.match(runs[1].prompt, /Les tests du projet échouent \(grep -q ok app\.txt\)/);
-  assert.equal(await acceptDevTask(hub, r.id), "done", "les tests passent : gardé");
+  assert.equal(runs.length, 2, "une correction automatique avant que Charles ne voie la tâche");
+  assert.match(runs[0].prompt, /lance les tests \(« grep -q ok app\.txt »\)/, "la consigne demande de vérifier soi-même");
+  assert.match(runs[1].prompt, /Clark a lancé les tests du projet \(grep -q ok app\.txt\) : ils échouent/);
+  assert.equal(JSON.parse(store.dev.get(r.id)!.tests!).ok, true);
+  assert.equal(await acceptDevTask(hub, r.id), "done", "tests déjà verts pour cette version : gardé sans les relancer");
   assert.equal(sh(dir, "show", `${store.dev.get(r.id)!.branch}:app.txt`), "ligne 1\nok");
+});
+
+test("fin de tour : toujours rouge après 2 corrections → la tâche arrive à Charles avec les tests, et Accepter refuse", async () => {
+  const dir = repo("rouge");
+  const { hub, store, runs } = setup((cwd) => {
+    writeFileSync(join(cwd, "app.txt"), "ligne 1\n");
+    return {};
+  });
+  const p = (await addProject(hub, { name: "rouge", path: dir, testCommand: "grep -q ok app.txt" })) as any;
+  const r = startDevTask(hub, { projectId: p.id, instruction: "Ajoute la ligne ok dans app.txt" }) as any;
+  await until(() => store.dev.get(r.id)!.status === "review");
+  assert.equal(runs.length, 3, "le tour, puis 2 corrections au plus");
+  assert.equal(JSON.parse(store.dev.get(r.id)!.tests!).ok, false, "les tests rouges sont affichés à Charles");
+  const refused = (await acceptDevTask(hub, r.id)) as any;
+  assert.match(refused.error, /Tests en échec : rien n'est gardé/);
 });
 
 test("copies légères : node_modules du dépôt partagé par un lien, l'installation seule est sautée", async () => {
@@ -602,4 +617,24 @@ test("binôme : Claude planifie, Codex critique, auteurs alternés, relecture cr
   const said = conversation.recent(OWNER_CHAT).map((m) => m.text).join("\n");
   assert.match(said, /écrite par Claude, relue et approuvée par Codex après 2 tours/);
   assert.match(said, /Codex et Claude ne sont pas d'accord après 3 tours/);
+});
+
+test("tâche longue : limite d'étapes atteinte → l'agent reprend seul (3 fois au plus), puis s'arrête", async () => {
+  const dir = repo("longue");
+  let n = 0;
+  const { hub, store, runs } = setup((cwd) => {
+    n++;
+    writeFileSync(join(cwd, `part${n}.txt`), "x\n");
+    return { status: "failed" };
+  });
+  // Le faux agent rend le texte d'arrêt du SDK quand on dépasse les étapes.
+  const journal = (hub.deps as any).journal;
+  const finish = journal.finish.bind(journal);
+  journal.finish = (id: number, status: string, text: string, cost: number) => finish(id, status, status === "failed" ? "J'ai atteint le nombre maximum d'étapes pour cette tâche. Dis-moi si je continue." : text, cost);
+  const p = (await addProject(hub, { name: "longue", path: dir })) as any;
+  const r = startDevTask(hub, { projectId: p.id, instruction: "Une très longue tâche en plusieurs parties" }) as any;
+  await until(() => store.dev.get(r.id)!.status === "failed");
+  assert.equal(runs.length, 4, "le tour, puis 3 relances");
+  assert.match(runs[1].prompt, /limite d'étapes de ce tour \(relance 1 sur 3\)/);
+  assert.equal(store.dev.get(r.id)!.auto_continues, 3);
 });

@@ -128,12 +128,14 @@ export function createPolicy(opts: {
   approve: Approver;
   access?: Access;
   attempt?: string;
+  /** Tâche de code dans le bac à sable : le shell passe sans bouton (le bac à sable le confine). */
+  autoBash?: boolean;
 }): CanUseTool {
   const { store, journal, taskId, roots, approve } = opts;
   const access = opts.access ?? "write";
 
   return async (toolName, input, { toolUseID }) => {
-    const tier = classify(toolName, input, roots);
+    const tier = toolName === "Bash" && opts.autoBash ? "workspace" : classify(toolName, input, roots);
     const step = { taskId, toolUseId: toolUseID, tool: toolName, input, tier, attempt: opts.attempt };
 
     if (access === "read" && effectOf(toolName) === "write") {

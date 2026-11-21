@@ -1,5 +1,6 @@
 import { homedir, tmpdir } from "node:os";
-import { realpathSync } from "node:fs";
+import { lstatSync, realpathSync } from "node:fs";
+import { join } from "node:path";
 import type { SandboxSettings } from "@anthropic-ai/claude-agent-sdk";
 import { paths } from "../config.ts";
 
@@ -24,7 +25,23 @@ const real = (p: string) => {
  */
 export const sandboxEnabled = () => process.env.CLARK_SANDBOX?.trim().toLowerCase() !== "off";
 
-export function claudeSandbox(): SandboxSettings | undefined {
+/**
+ * Les dossiers de dépendances partagés avec la copie d'une tâche de code (node_modules, .venv…,
+ * reliés au dépôt par un lien) : leur vrai chemin, pour que le bac à sable les laisse LIRE (tests,
+ * build). Jamais en écriture, et rien d'autre du dépôt d'origine (ses .env restent fermés).
+ */
+export function sharedReadPaths(cwd: string): string[] {
+  const out: string[] = [];
+  for (const dir of ["node_modules", ".venv", "venv", "vendor/bundle"]) {
+    const p = join(cwd, dir);
+    try {
+      if (lstatSync(p).isSymbolicLink()) out.push(realpathSync(p));
+    } catch {}
+  }
+  return out;
+}
+
+export function claudeSandbox(extraRead: string[] = []): SandboxSettings | undefined {
   if (!sandboxEnabled()) return undefined;
   const open = [real(paths.workspace), real(paths.coreMemory)];
   return {
@@ -34,7 +51,7 @@ export function claudeSandbox(): SandboxSettings | undefined {
     allowUnsandboxedCommands: false,
     filesystem: {
       denyRead: [real(homedir())],
-      allowRead: open,
+      allowRead: [...open, ...extraRead],
       allowWrite: [...open, real(tmpdir())],
     },
     network: { allowedDomains: [] },

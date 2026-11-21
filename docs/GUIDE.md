@@ -540,6 +540,13 @@ npm test
 npm run typecheck
 ```
 
+## Tâches longues
+
+Une tâche de code peut durer :
+- **150 étapes par tour** (40 pour une conversation). Si l'agent atteint quand même la limite, il **reprend seul** où il en était, jusqu'à 3 fois, avec un point de reprise à chaque tour.
+- **Il vérifie lui-même son travail** : dans son bac à sable (sans réseau, écriture dans sa copie seulement), il lance les tests et le build du projet **sans te demander de clic** ; les dépendances du dépôt (`node_modules`, `.venv`…) lui sont lisibles, jamais le reste du dépôt d'origine (ses `.env` restent fermés). Codex fait pareil (il ne demande que pour sortir de son bac à sable) ; un projet ajouté après son démarrage attend qu'il redémarre.
+- **Tests avant ta relecture** : quand l'agent dit « fini », Clark lance la commande de test du projet. Rouge : l'agent corrige seul (2 fois au plus). La tâche t'arrive au vert, ou avec les tests rouges affichés ; Accepter ne garde jamais une version aux tests rouges. Une retouche ou des commentaires de ta part redonnent droit aux relances et corrections.
+
 ## Binôme Claude + Codex
 
 Pour les longues tâches de code : « + » › **Binôme Claude + Codex**, un projet, la consigne. Il faut les deux moteurs connectés.

@@ -150,6 +150,10 @@ export type DevTask = {
   review_state: string | null;
   /** JSON : un élément par tour de relecture { round, reviewer, approve, issues, summary }. */
   review_notes: string | null;
+  /** Relances automatiques faites après la limite d'étapes d'un tour (3 au plus par consigne). */
+  auto_continues: number;
+  /** Corrections automatiques après des tests rouges, avant la relecture de Charles (2 au plus). */
+  test_fixes: number;
   /** Tâche de suivi d'une PR : « task:5 » ou « group:2 ». Accepter pousse sur la PR. */
   pr_of: string | null;
   /** Issue GitHub d'origine (« Closes #n » dans la PR). */
@@ -289,6 +293,9 @@ export class DevStore {
       ["review_rounds", "INTEGER NOT NULL DEFAULT 0"],
       ["review_state", "TEXT"],
       ["review_notes", "TEXT"],
+      // Tâches longues : relances automatiques après la limite d'étapes, corrections après des tests rouges.
+      ["auto_continues", "INTEGER NOT NULL DEFAULT 0"],
+      ["test_fixes", "INTEGER NOT NULL DEFAULT 0"],
     ]) {
       const cols = db.prepare("PRAGMA table_info(dev_tasks)").all() as { name: string }[];
       if (!cols.some((c) => c.name === col)) db.exec(`ALTER TABLE dev_tasks ADD COLUMN ${col} ${def}`);
@@ -553,7 +560,7 @@ export class DevStore {
         DevTask,
         | "status" | "error" | "summary" | "diff_stat" | "commit" | "tests" | "base_commit" | "rounds" | "pr_url" | "instruction" | "branch" | "worktree"
         | "engine" | "model" | "effort" | "attempts" | "depends_on" | "existing_branch" | "pr_of" | "issue_number" | "issue_url" | "pr_status" | "setup_log" | "at_round" | "agent_note" | "compare_with" | "pending_turn" | "merge_branch"
-        | "reviewer" | "review_rounds" | "review_state" | "review_notes"
+        | "reviewer" | "review_rounds" | "review_state" | "review_notes" | "auto_continues" | "test_fixes"
       >
     >,
   ) {
