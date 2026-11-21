@@ -262,7 +262,7 @@ export class VaultSync {
       const lines = list.map((m) => `- [[${basename(maps.get(m.id)?.file ?? noteName(m), ".md")}]]`);
       this.write(join(MEMORY_DIR, `${label.hub}.md`), `---\ntags: [clark/type]\n---\n${list.length ? `Ce que Clark sait (${label.hub.toLowerCase()}) :\n\n${lines.join("\n")}` : "Rien pour l'instant."}\n\nRetour à [[Clark]]\n`);
     }
-    const home = `---\ntags: [clark]\n---\n# Clark\n\nLa mémoire de Clark, tenue à jour par lui. Corrige une note : il reprend ton texte. Supprime-la : il oublie. Écris une note dans « ${MEMORY_DIR} » : il l'apprend.\n\n${Object.values(KIND_LABELS)
+    const home = `---\ntags: [clark]\n---\n# Clark\n\nLa mémoire de Clark, tenue à jour par lui. Corrige une note : il reprend ton texte. Supprime-la : il oublie. Écris une note dans « ${MEMORY_DIR} » : il l'apprend.\n\nSon journal, un par jour, est dans « Clark/Journal » ; sa veille du soir dans « Clark/Veille ».\n\n${Object.values(KIND_LABELS)
       .map((l) => `- [[${l.hub}]]`)
       .join("\n")}\n`;
     this.write(join(CLARK_DIR, "Clark.md"), home);

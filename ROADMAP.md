@@ -37,8 +37,9 @@ Mis à jour le 21 novembre 2026. Ce qui est fait est décrit dans le [mode d'emp
 - [x] Mémoire visible dans Obsidian et recherche par le sens, embeddings locaux (21/11).
 - [x] Veille du soir : Hacker News, GitHub Trending, Lobsters, dev.to, nouveautés Shopify (21/11).
 - [ ] VPS + Tailscale : Clark allumé 24 h/24, même Mac éteint, accessible depuis l'iPhone. Prérequis de WhatsApp (voie officielle).
-- [ ] Mémoire en couches (courte, moyenne, longue), consolidée la nuit.
-- [ ] Veille du soir écrite aussi dans Obsidian (`Clark/Veille/`).
+- [x] Mémoire en couches : conversations du jour, journal du jour dans Obsidian (relu au début de chaque conversation), souvenirs confirmés (21/11).
+- [ ] Consolidation plus longue : un résumé par semaine et par mois à partir des journaux ; des notes par sujet qui regroupent les souvenirs proches.
+- [x] Veille du soir écrite aussi dans Obsidian (`Clark/Veille/`), reliée au journal (21/11).
 - [ ] Auto-amélioration : Clark propose de lui-même ses corrections en PR, relues par Charles.
 - [ ] Réseaux sociaux, suite : Instagram.
 - [ ] Idées d'OpenBot restantes : schémas dans la conversation, fichiers produits en cartes.

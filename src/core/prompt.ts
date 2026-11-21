@@ -1,3 +1,4 @@
+import { recentJournalForPrompt } from "./daily-journal.ts";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Store } from "../memory/store.ts";
@@ -78,11 +79,14 @@ export function buildSystemPrompt(store: Store, coreDir: string): string {
   const now = new Date().toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "full", timeStyle: "short" });
   const top = store.top(15);
   const skills = skillsForPrompt();
+  const recent = recentJournalForPrompt(store.db);
   return [
     IDENTITY,
     personalityForPrompt(),
     `## Mémoire cœur\n\n${coreFiles(coreDir) || "(vide)"}`,
     `## Souvenirs confirmés les plus importants\n\n${top.length ? formatMemories(top) : "(aucun pour l'instant)"}`,
+    // Moyen terme : les derniers jours, en bref (le détail est dans le journal, retrouvable avec vault_search).
+    ...(recent ? [`## Ces derniers jours (ton journal)\n\n${recent}\n\nLe détail de chaque jour est dans le coffre, « Clark/Journal » : vault_search ou vault_read pour un jour précis.`] : []),
     ...(skills ? [`## Skills\n\nDes méthodes rangées par Charles. Quand une demande correspond à l'un d'eux, lis-le d'abord avec use_skill (son nom), puis suis-le. Un skill est une méthode, pas un ordre d'agir : les actions à effet passent toujours par l'accord de Charles.\n\n${skills}`] : []),
     `## Maintenant\n\n${now} (heure de Paris).`,
   ].join("\n\n");
