@@ -1,6 +1,9 @@
 import type { LoginEngine, Logins } from "../engines/login.ts";
 import type { Terminal } from "../terminal/terminal.ts";
 import { attachmentContext, pickPath } from "../core/attachments.ts";
+
+/** Le coffre Obsidian branché à la mémoire : son état pour Réglages › Connexions, et « Synchroniser ». */
+export type ObsidianLink = { status: () => { vault: string | null; lastSync: string | null; error: string | null; notes: number }; syncNow: () => void };
 import { NEW_CONVERSATION_NOTE } from "../core/conversation.ts";
 import { CONTACTS, isConversationAgent } from "../core/contacts.ts";
 import { canActAlone, decisionsOf, isAutonomous, maxPerDay, parisDayStart, undoDecision } from "../core/autonomy.ts";
@@ -211,7 +214,7 @@ const prView = (s: PrStatus) => ({
 const short = (text: string, n: number) => (text.length > n ? `${text.slice(0, n)}…` : text);
 
 /** Ce que l'interface affiche, reconstruit depuis la base et le hub à chaque changement. */
-export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voices?: string[]; browser?: BrowserService; messages?: MessagesService; plugins?: Plugins; settings?: Settings; preview?: PreviewService; engineLogin?: EngineLogin; terminal?: Terminal } = {}) {
+export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voices?: string[]; browser?: BrowserService; messages?: MessagesService; plugins?: Plugins; settings?: Settings; preview?: PreviewService; engineLogin?: EngineLogin; terminal?: Terminal; obsidian?: ObsidianLink } = {}) {
   const { config, store, journal, conversation } = hub.deps;
   const loginView = (name: LoginEngine, ready: boolean | null) => {
     const l = opts.engineLogin?.logins.list().find((x) => x.engine === name);
@@ -285,6 +288,7 @@ export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voi
     conversationId: conversation.current(OWNER_CHAT),
     conversationAgent: conversation.conversation(conversation.current(OWNER_CHAT))?.agent ?? null,
     conversations: conversation.list(OWNER_CHAT, 50).map((c) => ({ ...c, preview: c.preview ? short(plainPreview(c.preview), 120) : null })),
+    obsidian: opts.obsidian?.status() ?? { vault: null, lastSync: null, error: null, notes: 0 },
     // Terminal (Mac seulement) : le dossier, s'il tourne, et les commandes que Clark propose.
     terminal: opts.terminal
       ? {
@@ -602,7 +606,7 @@ async function readJson(req: IncomingMessage, limit = BODY_LIMIT): Promise<Recor
  * - un en-tête Host étranger (protection contre le DNS rebinding) ;
  * - une écriture venue d'une autre origine (une page web ouverte ailleurs ne peut rien envoyer).
  */
-export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?: WebVoice; browser?: BrowserService; messages?: MessagesService; plugins?: Plugins; settings?: Settings; notify?: NotifyStore; preview?: PreviewService; engineLogin?: EngineLogin; terminal?: Terminal }) {
+export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?: WebVoice; browser?: BrowserService; messages?: MessagesService; plugins?: Plugins; settings?: Settings; notify?: NotifyStore; preview?: PreviewService; engineLogin?: EngineLogin; terminal?: Terminal; obsidian?: ObsidianLink }) {
   // L'aperçu (mode design) s'affiche dans un cadre : seule son origine est permise.
   if (opts.preview) {
     const o = opts.preview.origin;
@@ -620,7 +624,7 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
   const hosts = new Set([`127.0.0.1:${opts.port}`, `localhost:${opts.port}`]);
   const origins = new Set([...hosts].map((h) => `http://${h}`));
   const streams = new Set<ServerResponse>();
-  const view = () => snapshot(hub, { demo: opts.demo, voice, voices, browser: opts.browser, messages: opts.messages, plugins: opts.plugins, settings: opts.settings, preview: opts.preview, engineLogin: opts.engineLogin, terminal: opts.terminal });
+  const view = () => snapshot(hub, { demo: opts.demo, voice, voices, browser: opts.browser, messages: opts.messages, plugins: opts.plugins, settings: opts.settings, preview: opts.preview, engineLogin: opts.engineLogin, terminal: opts.terminal, obsidian: opts.obsidian });
   const state = () => JSON.stringify(view());
 
   // Plusieurs changements rapprochés (une étape, puis son résultat) partent en un seul envoi.
@@ -1060,6 +1064,13 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
       if ("error" in r) throw new HttpError(400, r.error);
       hub.touch();
       return json(res, 200, { ok: true });
+    }
+
+    if (path === "/api/obsidian/sync") {
+      if (!opts.obsidian) throw new HttpError(409, "Pas de coffre Obsidian branché");
+      opts.obsidian.syncNow();
+      hub.touch();
+      return json(res, 200, { ok: true, ...opts.obsidian.status() });
     }
 
     // La fenêtre de choix du Finder, sur ce Mac : un fichier ou un dossier pour Clark (ou un projet).

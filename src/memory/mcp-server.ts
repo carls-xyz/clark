@@ -63,7 +63,7 @@ server.registerTool("recall", { description: recall.description, inputSchema: re
 server.registerTool("propose_correction", { description: propose_correction.description, inputSchema: propose_correction.shape }, async (a) =>
   reply(() => propose_correction.run(a)),
 );
-for (const name of ["mail_search", "mail_read", "calendar_events", "send_mail", "run_command", "report_goal", "use_skill", "messages_recent", "messages_read", "send_imessage", "browser_open", "browser_read", "browser_scroll", "browser_back", "browser_click", "browser_type", "browser_select"] as const) {
+for (const name of ["mail_search", "mail_read", "calendar_events", "send_mail", "run_command", "vault_search", "vault_read", "vault_write", "report_goal", "use_skill", "messages_recent", "messages_read", "send_imessage", "browser_open", "browser_read", "browser_scroll", "browser_back", "browser_click", "browser_type", "browser_select"] as const) {
   const t = tools[name] as { description: string; shape: any; run: (a: any) => string | Promise<string> };
   server.registerTool(name, { description: t.description, inputSchema: t.shape }, async (a: any) => reply(() => t.run(a)));
 }

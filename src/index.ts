@@ -16,6 +16,8 @@ import { startBackups } from "./core/backup.ts";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { Terminal } from "./terminal/terminal.ts";
+import { vaultPath, VaultSync } from "./obsidian/vault.ts";
+import { relatedNotes } from "./obsidian/related.ts";
 import { claudeJudge, claudeThink } from "./engines/judge.ts";
 import { startMemoryReview } from "./core/memory-review.ts";
 import { startWorktreeSweep } from "./dev/cleanup.ts";
@@ -172,6 +174,37 @@ const logins = createLogins({
     hub.touch();
   },
 });
+// Obsidian : la mémoire de Clark en notes liées dans le coffre de Charles, dans les deux sens.
+const vault = vaultPath();
+const obsidian = { vault, lastSync: null as string | null, error: null as string | null, notes: 0 };
+let vaultSync: VaultSync | null = null;
+let syncTimer: NodeJS.Timeout | null = null;
+const syncVault = () => {
+  if (!vaultSync) return;
+  try {
+    const r = vaultSync.sync();
+    obsidian.lastSync = new Date().toISOString();
+    obsidian.error = null;
+    obsidian.notes = (store.db.prepare("SELECT count(*) AS n FROM obsidian_notes").get() as { n: number }).n;
+    if (r.edited || r.forgotten || r.learned) hub.touch();
+  } catch (err) {
+    obsidian.error = err instanceof Error ? err.message : String(err);
+    console.error("[clark] obsidian :", obsidian.error);
+  }
+};
+if (vault) {
+  vaultSync = new VaultSync(store, vault, { related: (m) => relatedNotes(m), log: (msg) => console.log(`[clark] obsidian : ${msg}`) });
+  syncVault();
+  // Un souvenir change chez Clark : la note suit (regroupé) ; tes changements dans Obsidian : relus toutes les 2 min.
+  store.onMemory(() => {
+    if (syncTimer) clearTimeout(syncTimer);
+    syncTimer = setTimeout(syncVault, 3000);
+    syncTimer.unref();
+  });
+  setInterval(syncVault, 2 * 60_000).unref();
+  console.log(`[clark] obsidian : ${vault}`);
+}
+
 // Terminal de Charles (interface web du Mac) : ses commandes, et celles que Clark propose.
 const terminal = new Terminal({ cwd: join(homedir(), "Developer"), onChange: () => hub.touch() });
 store.terminal.expireStale(); // celles d'avant le redémarrage : plus personne pour cliquer
@@ -188,6 +221,7 @@ terminalWatch.unref();
 
 const web = await startWeb(hub, {
   terminal,
+  obsidian: { status: () => obsidian, syncNow: syncVault },
   port: config.webPort,
   browser,
   messages,
