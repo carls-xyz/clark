@@ -5,6 +5,7 @@ import { Posts } from "../social/posts.ts";
 import { Initiatives } from "../core/initiatives.ts";
 import { Outbox } from "../core/outbox.ts";
 import { EngineChoices } from "../engines/choices.ts";
+import { TerminalRequests } from "../terminal/terminal.ts";
 import { McpServers } from "../mcp/servers.ts";
 import { Goals } from "../core/goals.ts";
 import { DevStore } from "../dev/store.ts";
@@ -88,6 +89,8 @@ export class Store {
   /** Côté dev : projets et tâches dans leurs copies du dépôt. */
   readonly dev: DevStore;
   readonly voice: VoiceSettings;
+  /** Commandes proposées par Clark pour le Terminal de Charles (src/terminal/terminal.ts). */
+  readonly terminal: TerminalRequests;
   private readonly listeners = new Set<(event: "proposed" | "changed", m?: Memory) => void>();
 
   constructor(path: string) {
@@ -105,6 +108,7 @@ export class Store {
     this.goals = new Goals(this.db);
     this.dev = new DevStore(this.db);
     this.voice = new VoiceSettings(this.db);
+    this.terminal = new TerminalRequests(this.db);
   }
 
   private migrate() {

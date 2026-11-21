@@ -14,6 +14,8 @@ import { startReminders } from "./core/reminders.ts";
 import { startDelegations } from "./core/delegation-runner.ts";
 import { startBackups } from "./core/backup.ts";
 import { join } from "node:path";
+import { homedir } from "node:os";
+import { Terminal } from "./terminal/terminal.ts";
 import { claudeJudge, claudeThink } from "./engines/judge.ts";
 import { startMemoryReview } from "./core/memory-review.ts";
 import { startWorktreeSweep } from "./dev/cleanup.ts";
@@ -170,7 +172,22 @@ const logins = createLogins({
     hub.touch();
   },
 });
+// Terminal de Charles (interface web du Mac) : ses commandes, et celles que Clark propose.
+const terminal = new Terminal({ cwd: join(homedir(), "Developer"), onChange: () => hub.touch() });
+store.terminal.expireStale(); // celles d'avant le redémarrage : plus personne pour cliquer
+const announced = new Set<number>();
+const terminalWatch = setInterval(() => {
+  for (const r of store.terminal.pending()) {
+    if (announced.has(r.id)) continue;
+    announced.add(r.id);
+    // Une note dans le fil (et sur Telegram, pour prévenir) ; le bouton Lancer n'existe que sur le Mac.
+    void hub.post(OWNER_CHAT, `Je propose de lancer dans ton Terminal : ${r.command}\nDossier : ${r.cwd}${r.reason ? `\nPourquoi : ${r.reason}` : ""}\nÀ valider dans Terminal, sur ton Mac.`, "system", "approval");
+  }
+}, 1000);
+terminalWatch.unref();
+
 const web = await startWeb(hub, {
+  terminal,
   port: config.webPort,
   browser,
   messages,
@@ -186,6 +203,8 @@ const shutdown = async (code = 0) => {
   stopScheduler();
   logins.close();
   codex?.close();
+  clearInterval(terminalWatch);
+  terminal.stopAll();
   await browser.close();
   await preview.stop();
   messages.stop();

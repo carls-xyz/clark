@@ -6,3 +6,4 @@ définie dans `08-dev.js` est utilisable dans `14-navigation.js`. Pas d'étape d
 
 Pour ajouter une zone : un nouveau fichier `NN-nom.js`, à la place qui convient dans l'ordre.
 Le code qui s'exécute au chargement (écouteurs, démarrage) doit venir après ce qu'il utilise.
+- `18-terminal.js` : le Terminal (tes commandes, celles que Clark propose), relu par `/api/terminal` pendant qu'une commande tourne.

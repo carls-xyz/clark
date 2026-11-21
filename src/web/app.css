@@ -5716,3 +5716,152 @@ ui-menu-separator {
     display: none;
   }
 }
+
+/* ── Terminal : tes commandes sur le Mac, et celles que Clark propose ─────── */
+
+.view-terminal {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.view-terminal .view-head {
+  gap: 12px;
+}
+
+.term-note {
+  font-size: var(--fs-meta);
+  color: var(--text-3);
+}
+
+.term-clear {
+  margin-left: auto;
+}
+
+.term-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 24px 8px;
+}
+
+.term-request {
+  margin-bottom: 12px;
+}
+
+.term-cmd,
+.term-out {
+  margin: 8px 0 0;
+  font: 400 13px / 1.5 var(--mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.term-cmd {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.term-empty {
+  max-width: 60ch;
+}
+
+.term-run {
+  padding: 10px 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.term-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-meta);
+  color: var(--text-3);
+}
+
+.term-where {
+  font-family: var(--mono);
+}
+
+.term-state {
+  margin-left: auto;
+  font-family: var(--mono);
+}
+
+.term-run.is-failed .term-state {
+  color: var(--danger-text, var(--warn-text));
+}
+
+.term-input-line {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  font: 500 13px / 1.5 var(--mono);
+  color: var(--text);
+}
+
+.term-sign {
+  color: var(--accent-text);
+}
+
+.term-out {
+  max-height: 480px;
+  overflow-y: auto;
+  color: var(--text-2);
+}
+
+.term-form {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 24px 16px;
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.term-prompt {
+  font: 500 13px / 1 var(--mono);
+  color: var(--accent-text);
+  white-space: nowrap;
+}
+
+.term-form input {
+  flex: 1;
+  min-width: 180px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: 400 13px / 1.4 var(--mono);
+}
+
+.term-form input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.term-error {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  .term-note {
+    display: none;
+  }
+
+  .term-body,
+  .term-form {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+
+.term-form .btn[hidden],
+.view-terminal [hidden] {
+  display: none;
+}

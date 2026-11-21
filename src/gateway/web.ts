@@ -1,4 +1,5 @@
 import type { LoginEngine, Logins } from "../engines/login.ts";
+import type { Terminal } from "../terminal/terminal.ts";
 import { NEW_CONVERSATION_NOTE } from "../core/conversation.ts";
 import { CONTACTS, isConversationAgent } from "../core/contacts.ts";
 import { canActAlone, decisionsOf, isAutonomous, maxPerDay, parisDayStart, undoDecision } from "../core/autonomy.ts";
@@ -198,7 +199,7 @@ const prView = (s: PrStatus) => ({
 const short = (text: string, n: number) => (text.length > n ? `${text.slice(0, n)}…` : text);
 
 /** Ce que l'interface affiche, reconstruit depuis la base et le hub à chaque changement. */
-export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voices?: string[]; browser?: BrowserService; messages?: MessagesService; plugins?: Plugins; settings?: Settings; preview?: PreviewService; engineLogin?: EngineLogin } = {}) {
+export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voices?: string[]; browser?: BrowserService; messages?: MessagesService; plugins?: Plugins; settings?: Settings; preview?: PreviewService; engineLogin?: EngineLogin; terminal?: Terminal } = {}) {
   const { config, store, journal, conversation } = hub.deps;
   const loginView = (name: LoginEngine, ready: boolean | null) => {
     const l = opts.engineLogin?.logins.list().find((x) => x.engine === name);
@@ -272,6 +273,14 @@ export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voi
     conversationId: conversation.current(OWNER_CHAT),
     conversationAgent: conversation.conversation(conversation.current(OWNER_CHAT))?.agent ?? null,
     conversations: conversation.list(OWNER_CHAT, 50).map((c) => ({ ...c, preview: c.preview ? short(plainPreview(c.preview), 120) : null })),
+    // Terminal (Mac seulement) : le dossier, s'il tourne, et les commandes que Clark propose.
+    terminal: opts.terminal
+      ? {
+          cwd: opts.terminal.cwd,
+          running: opts.terminal.running()?.id ?? null,
+          pending: store.terminal.pending().map((r) => ({ id: r.id, taskId: r.task_id, command: r.command, cwd: r.cwd, reason: r.reason, at: r.created_at })),
+        }
+      : null,
     // Ce que Clark a décidé seul, avec de quoi annuler, et ce qu'il peut encore décider aujourd'hui.
     decisions: decisionsOf(store.db).recent(30),
     autonomy: {
@@ -581,7 +590,7 @@ async function readJson(req: IncomingMessage, limit = BODY_LIMIT): Promise<Recor
  * - un en-tête Host étranger (protection contre le DNS rebinding) ;
  * - une écriture venue d'une autre origine (une page web ouverte ailleurs ne peut rien envoyer).
  */
-export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?: WebVoice; browser?: BrowserService; messages?: MessagesService; plugins?: Plugins; settings?: Settings; notify?: NotifyStore; preview?: PreviewService; engineLogin?: EngineLogin }) {
+export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?: WebVoice; browser?: BrowserService; messages?: MessagesService; plugins?: Plugins; settings?: Settings; notify?: NotifyStore; preview?: PreviewService; engineLogin?: EngineLogin; terminal?: Terminal }) {
   // L'aperçu (mode design) s'affiche dans un cadre : seule son origine est permise.
   if (opts.preview) {
     const o = opts.preview.origin;
@@ -599,7 +608,7 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
   const hosts = new Set([`127.0.0.1:${opts.port}`, `localhost:${opts.port}`]);
   const origins = new Set([...hosts].map((h) => `http://${h}`));
   const streams = new Set<ServerResponse>();
-  const view = () => snapshot(hub, { demo: opts.demo, voice, voices, browser: opts.browser, messages: opts.messages, plugins: opts.plugins, settings: opts.settings, preview: opts.preview, engineLogin: opts.engineLogin });
+  const view = () => snapshot(hub, { demo: opts.demo, voice, voices, browser: opts.browser, messages: opts.messages, plugins: opts.plugins, settings: opts.settings, preview: opts.preview, engineLogin: opts.engineLogin, terminal: opts.terminal });
   const state = () => JSON.stringify(view());
 
   // Plusieurs changements rapprochés (une étape, puis son résultat) partent en un seul envoi.
@@ -658,6 +667,11 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
         return;
       }
       if (path === "/api/state") return json(res, 200, view());
+      // La sortie du Terminal, relue pendant qu'il est affiché (hôte vérifié plus haut ; pas de CORS).
+      if (path === "/api/terminal") {
+        if (!opts.terminal) return json(res, 409, { error: "Terminal indisponible" });
+        return json(res, 200, { cwd: opts.terminal.cwd, runs: opts.terminal.list() });
+      }
       // Capture d'un élément choisi en mode design.
       const shot = path.match(/^\/api\/dev\/design\/(\d+)\/(\d{10,16}\.jpg)$/);
       if (shot) {
@@ -837,6 +851,7 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
 
     if (!origins.has(req.headers.origin ?? "")) throw new HttpError(403, "Origine non autorisée");
 
+
     // Dictée : l'enregistrement du micro est transcrit sur le Mac, et le texte revient dans le champ.
     if (path === "/api/voice/transcribe") {
       const type = (req.headers["content-type"] ?? "").split(";")[0].trim();
@@ -867,6 +882,51 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
 
     // Import de configuration : un fichier plus gros qu'un message (mémoire comprise).
     const body = await readJson(req, path.startsWith("/api/config/import") ? 5 * 1024 * 1024 : BODY_LIMIT);
+
+    // Terminal : seulement depuis cette interface (origine et hôte vérifiés), jamais par Telegram.
+    if (path.startsWith("/api/terminal/")) {
+      const term = opts.terminal;
+      if (!term) throw new HttpError(409, "Terminal indisponible");
+      if (path === "/api/terminal/run") {
+        const r = term.run(String(body.command ?? ""), { by: "charles", cwd: typeof body.cwd === "string" ? body.cwd : null });
+        if (typeof r === "string") throw new HttpError(409, r);
+        return json(res, 200, { ok: true, id: r.id });
+      }
+      if (path === "/api/terminal/stop") {
+        if (!term.stop(Number(body.id))) throw new HttpError(409, "Rien à arrêter");
+        return json(res, 200, { ok: true });
+      }
+      if (path === "/api/terminal/clear") {
+        term.clear();
+        return json(res, 200, { ok: true });
+      }
+      const decide = path.match(/^\/api\/terminal\/requests\/(\d+)$/);
+      if (decide) {
+        const id = Number(decide[1]);
+        const reqRow = store.terminal.get(id);
+        if (!reqRow || reqRow.status !== "pending") throw new HttpError(409, "Demande déjà traitée ou expirée");
+        if (body.ok !== true) {
+          store.terminal.move(id, "pending", "refused");
+          void hub.post(OWNER_CHAT, `Commande refusée : ${short(reqRow.command, 120)}`, "system");
+          return json(res, 200, { ok: true });
+        }
+        if (term.running()) throw new HttpError(409, "Une commande tourne déjà dans le Terminal : attends qu'elle finisse.");
+        if (!store.terminal.move(id, "pending", "running")) throw new HttpError(409, "Demande déjà traitée");
+        const r = term.run(reqRow.command, {
+          by: "clark",
+          cwd: reqRow.cwd,
+          taskId: reqRow.task_id,
+          onEnd: (run) => store.terminal.finish(id, run.status === "done" ? "done" : "failed", run.exitCode, run.output),
+        });
+        if (typeof r === "string") {
+          store.terminal.finish(id, "failed", null, r);
+          throw new HttpError(409, r);
+        }
+        hub.touch();
+        return json(res, 200, { ok: true, run: r.id });
+      }
+      throw new HttpError(404, "Introuvable");
+    }
 
     if (path === "/api/config/import/preview" || path === "/api/config/import") {
       const ctx = { hub, settings: opts.settings ?? null, notify: opts.notify ?? null };

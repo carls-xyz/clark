@@ -132,6 +132,7 @@ function render() {
   renderThread();
   renderThreads();
   renderFoot();
+  renderTermCount();
   renderView();
   if (view === "inbox") scheduleHistory();
   notifyNew();

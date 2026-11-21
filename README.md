@@ -132,6 +132,14 @@ Clark a son propre Chrome (ton Google Chrome, avec un profil à part dans `data/
 - Variables facultatives : `CLARK_BROWSER_EXECUTABLE` (autre Chrome), `CLARK_BROWSER_PROFILE`.
 - Démo : « Remplis le formulaire de contact sur le site de Studio Pixel » pilote le vrai Chrome (profil jetable) sur un site fictif local, jusqu'à ta validation.
 
+## Terminal
+
+Icône Terminal dans la colonne de gauche (`#terminal`), **sur le Mac seulement** : rien de tout ça ne passe par Telegram.
+- **Tes commandes** : tape et Entrée ; elles tournent dans ton shell (zsh, avec ton `.zprofile`), dans le dossier affiché (`~/Developer` au départ). `cd` change de dossier, ↑/↓ rappellent les commandes précédentes, **Arrêter** coupe la commande et tout ce qu'elle a lancé, `clear` ou **Effacer** vide l'écran.
+- **Celles de Clark** : avec l'outil `run_command`, il propose une commande exacte, son dossier et pourquoi. Une carte « Clark propose » s'affiche ici (pastille sur l'icône, note dans le fil et sur Telegram pour prévenir) ; elle ne tourne que si tu cliques **Lancer** dans l'interface du Mac. Clark lit ensuite le code de sortie et la fin de la sortie. 30 minutes pour décider, 10 minutes d'exécution au plus ; pas de `sudo`.
+- **Limites** : une commande à la fois, sans saisie au clavier (pas de vim, de mot de passe ni de programme interactif), sans couleurs. Le shell ne reçoit pas les secrets de Clark (`.env`).
+- **Sécurité** : les routes vérifient l'hôte et l'origine (une page web ne peut rien lancer) ; une demande d'avant un redémarrage expire.
+
 ## Mode objectif
 
 Sous le champ de la conversation, choisis **Objectif** (ou `/objectif …` sur Telegram) : Clark enchaîne les tours jusqu'à atteindre le but. L'idée vient de Spettro.
