@@ -37,6 +37,10 @@
             <svg viewBox="0 0 16 16" width="17" height="17" aria-hidden="true"><path d="M8 1.8a4.3 4.3 0 0 0-2.6 7.7c.5.4.8 1 .8 1.6v.4h3.6v-.4c0-.6.3-1.2.8-1.6A4.3 4.3 0 0 0 8 1.8zM6.3 13.5h3.4" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" fill="none" /></svg>
             <span class="rail-count" id="ideas-count" hidden></span>
           </a>
+          <a class="rail-btn" href="#calendrier" data-view="calendar" title="Calendrier des veilles" aria-label="Calendrier des veilles">
+            <svg viewBox="0 0 16 16" width="17" height="17" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="10" rx="1.5" stroke="currentColor" stroke-width="1.35" fill="none" /><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" fill="none" /></svg>
+            <span class="rail-count" id="calendar-count" hidden></span>
+          </a>
           <a class="rail-btn" href="#reglages/automatisations" data-rail="automatisations" title="Automatisations" aria-label="Automatisations">
             <svg viewBox="0 0 16 16" width="17" height="17" aria-hidden="true"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4" fill="none" /><path d="M8 5v3.2l2 1.3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none" /></svg>
           </a>
@@ -229,6 +233,18 @@
             <p class="inline-error" id="idea-error" hidden></p>
           </form>
           <div id="ideas"></div>
+        </div>
+      </main>
+
+      <main class="view page" id="view-calendar" aria-labelledby="t-calendar" hidden>
+        <header class="view-head">
+          <button type="button" class="menu-btn" data-drawer aria-label="Ouvrir la barre de gauche" aria-controls="sidebar">
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /></svg>
+          </button>
+          <h1 class="view-title" tabindex="-1" id="t-calendar">Calendrier</h1>
+        </header>
+        <div class="page-body">
+          <div id="calendar"></div>
         </div>
       </main>
 

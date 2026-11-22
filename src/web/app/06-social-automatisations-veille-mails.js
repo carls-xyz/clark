@@ -63,6 +63,7 @@ function renderAutomationForm() {
       <select id="af-thread" name="thread">
         <option value="main">Dans ta conversation</option>
         <option value="own">Dans son propre fil (le résultat t'est annoncé)</option>
+        <option value="calendar">Dans le calendrier (rien dans ta conversation)</option>
       </select>
     </div>
     <label for="af-engine">Moteur et modèle</label>
@@ -94,7 +95,7 @@ function renderAutomations(list) {
   const items = list
     .map(
       (a) => `<div class="card auto${a.enabled ? "" : " off"}" data-automation="${a.id}">
-        <p class="card-title">${esc(a.name)}${a.kind === "team" ? ` <span class="kind-line inline">équipe</span>` : a.kind === "dev" ? ` <span class="kind-line inline">tâche dev · ${esc(a.project ?? "?")}</span>` : ""}${a.thread === "own" ? ` <span class="kind-line inline">fil à part</span>` : ""}</p>
+        <p class="card-title">${esc(a.name)}${a.kind === "team" ? ` <span class="kind-line inline">équipe</span>` : a.kind === "dev" ? ` <span class="kind-line inline">tâche dev · ${esc(a.project ?? "?")}</span>` : ""}${a.thread === "own" ? ` <span class="kind-line inline">fil à part</span>` : a.thread === "calendar" ? ` <span class="kind-line inline">calendrier</span>` : ""}</p>
         <p class="auto-meta">${esc(a.schedule)} · prochaine : ${esc(a.next)}${a.engine ? ` · ${esc(ENGINE_NAMES[a.engine] ?? a.engine)}${a.model ? ` ${esc(a.model)}` : ""}${a.effort ? `, effort ${esc(EFFORT_LABELS[a.effort] ?? a.effort)}` : ""}` : ""}</p>
         ${a.precheck ? `<p class="auto-meta">Seulement si <code>${esc(a.precheck)}</code> réussit</p>` : ""}
         <p class="auto-prompt" title="${esc(a.prompt)}">${esc(a.prompt)}</p>
@@ -120,6 +121,7 @@ function renderAutomations(list) {
         }
         <div class="card-actions">
           <button type="button" class="btn secondary" data-auto="run">Lancer maintenant</button>
+          ${a.kind === "dev" ? "" : a.thread === "calendar" ? `<a class="btn ghost" href="#calendrier">Voir le calendrier</a><button type="button" class="btn ghost" data-auto="thread" data-thread="main">Remettre dans la conversation</button>` : `<button type="button" class="btn ghost" data-auto="thread" data-thread="calendar">Mettre dans le calendrier</button>`}
           <button type="button" class="btn ghost" data-auto="${a.enabled ? "disable" : "enable"}">${a.enabled ? "Couper" : "Réactiver"}</button>
           <button type="button" class="btn ghost" data-auto="delete">Supprimer</button>
         </div>
@@ -160,7 +162,7 @@ side.addEventListener("click", async (e) => {
   if (action === "delete" && !(await ask("Supprimer cette automatisation ?", "Elle ne se lancera plus. Les tâches déjà faites restent dans l'historique.", "Supprimer"))) return;
   button.disabled = true;
   try {
-    await post(`/api/automations/${card.dataset.automation}`, { action });
+    await post(`/api/automations/${card.dataset.automation}`, action === "thread" ? { action, thread: button.dataset.thread } : { action });
   } catch (err) {
     button.disabled = false;
     card.querySelector(".inline-error")?.remove();

@@ -3,6 +3,7 @@
 // à un redémarrage, pour tester la reprise et la mémoire.
 // Lancer : npm run demo — repartir de zéro : npm run demo -- --reset
 import { launchAutomation } from "../src/scheduler/automation-run.ts";
+import { automationChat } from "../src/scheduler/automations.ts";
 import { startPrWatch } from "../src/dev/pr.ts";
 import { execFileSync, spawn } from "node:child_process";
 import { createLogins } from "../src/engines/login.ts";
@@ -772,6 +773,31 @@ if (fresh) {
   journal.setStatus(cut, "running");
   journal.setSession(cut, "demo");
   journal.announceStep({ taskId: cut, toolUseId: "demo-cut", tool: "Write", input: { file_path: "/workspace/relances.md" }, tier: "workspace" });
+}
+
+// Calendrier des veilles : une veille du soir rangée dans le calendrier, avec quelques soirs passés.
+if (!store.automations.list().some((a) => a.thread === "calendar")) {
+  const id = store.automations.create({ name: "Veille du soir", prompt: "Fais la veille du soir : Show HN, GitHub Trending, Lobsters. Trois liens utiles au plus, avec une phrase chacun.", frequency: "daily", time: "21:00", thread: "calendar" });
+  const reports = [
+    "## Veille du soir\n\n- **Un agent qui demande avant de pousser** (Show HN) : il montre le diff et attend un oui. Utile pour Clark.\n- **Un petit serveur MCP pour SQLite** (GitHub Trending) : lecture seule, simple à brancher.\n- **Écrire des tests pour du code généré** (Lobsters) : bonne liste de pièges.",
+    null,
+    "## Veille du soir\n\n- **Typer les variables d'environnement en TypeScript** (dev.to) : une fonction de 20 lignes, rien à installer.\n- **Un comparatif des runners de tests Node** (Lobsters) : le runner intégré suffit pour un projet comme Clark.",
+    "## Veille du soir\n\n- **Mettre en cache les réponses d'un agent** (Show HN) : à garder pour le jour où le quota serre.",
+  ];
+  const now = Date.now();
+  reports.forEach((report, i) => {
+    const at = new Date(now - (i * 2 + 1) * 86_400_000);
+    at.setUTCHours(20, 0, 0, 0);
+    const stamp = at.toISOString().slice(0, 19).replace("T", " ");
+    const run = store.automations.startRun(id, null, false);
+    if (report) {
+      const task = journal.create(automationChat(id), "chat", "Fais la veille du soir");
+      journal.finish(task, "done", report, 0);
+      store.automations.updateRun(run, { task_id: task });
+      store.db.prepare("UPDATE tasks SET created_at = ?, updated_at = ? WHERE id = ?").run(stamp, stamp, task);
+    } else store.automations.updateRun(run, { status: "skipped", note: "Rien de neuf." });
+    store.db.prepare("UPDATE automation_runs SET created_at = ? WHERE id = ?").run(stamp, run);
+  });
 }
 
 hub.setEngine({ name: "demo", model: "faux agent", ready: true, account: null, problem: null });

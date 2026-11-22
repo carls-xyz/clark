@@ -6569,3 +6569,231 @@ ui-menu-separator {
     flex-wrap: wrap;
   }
 }
+
+/* ── Calendrier des veilles ─────────────────────────────────────────── */
+
+.cal-line {
+  margin: 0 0 16px;
+}
+
+.cal-empty {
+  margin-bottom: 20px;
+}
+
+.cal-candidates {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cal-candidates li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 10px;
+}
+
+.cal-month {
+  margin: 0;
+  font-size: var(--fs-title);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.cal-month::first-letter {
+  text-transform: uppercase;
+}
+
+.cal-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.cal-nav .btn {
+  height: 32px;
+  padding: 0 10px;
+  font-size: var(--fs-small);
+}
+
+.cal-nav .cal-arrow {
+  width: 32px;
+  padding: 0;
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--line);
+}
+
+.cal-wd {
+  padding: 6px 8px;
+  background: var(--surface);
+  color: var(--text-3);
+  font-size: var(--fs-meta);
+  text-transform: capitalize;
+}
+
+.cal-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+  min-height: 84px;
+  padding: 6px 8px;
+  border: 0;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cal-pad {
+  background: var(--bg);
+  cursor: default;
+}
+
+.cal-cell:hover {
+  background: var(--surface-2);
+}
+
+.cal-cell[aria-pressed="true"] {
+  background: var(--accent-tint);
+}
+
+.cal-cell:focus-visible {
+  z-index: 1;
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.cal-num {
+  font-size: var(--fs-small);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+
+.cal-cell.is-today .cal-num {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.cal-names {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cal-name {
+  overflow: hidden;
+  padding: 1px 5px;
+  border-radius: var(--r-tag);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: var(--fs-meta);
+  line-height: 1.45;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cal-cell[aria-pressed="true"] .cal-name {
+  background: var(--surface);
+}
+
+.cal-more {
+  color: var(--text-3);
+  font-size: var(--fs-meta);
+}
+
+.cal-dot {
+  display: none;
+}
+
+.cal-day {
+  margin-top: 24px;
+}
+
+.cal-day .block-title {
+  margin: 0 0 12px;
+}
+
+.cal-run {
+  margin-bottom: 12px;
+}
+
+.cal-run-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cal-report {
+  margin-top: 8px;
+}
+
+.cal-report summary {
+  color: var(--text-2);
+  font-size: var(--fs-small);
+  cursor: pointer;
+}
+
+.cal-report .prose {
+  margin-top: 8px;
+}
+
+.tag.cal-quiet,
+.tag.cal-running {
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.tag.cal-failed {
+  background: var(--warn-tint);
+  color: var(--warn-text);
+}
+
+/* Téléphone : la grille garde les numéros et un point, le détail est en dessous. */
+@media (max-width: 640px) {
+  .cal-cell {
+    align-items: center;
+    min-height: 48px;
+    padding: 6px 2px;
+  }
+
+  .cal-names {
+    display: none;
+  }
+
+  .cal-dot {
+    display: block;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+
+  .cal-wd {
+    padding: 6px 0;
+    text-align: center;
+  }
+}
