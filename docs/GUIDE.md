@@ -260,6 +260,8 @@ Pour voir l'interface sans clé API, lance `npm run demo` puis ouvre http://loca
 
 ## En service (Mac ou Linux)
 
+**Page Santé** (icône en forme de pouls dans la colonne, `#sante`) : en haut, « Tout va bien » ou la liste des points à regarder (avec un lien), puis la file (en cours, en attente), chaque moteur et son quota, la dernière sauvegarde, la version qui tourne (et la dernière qui a démarré), la place libre, les échecs des dernières 24 h et les erreurs du journal depuis le démarrage, regroupées. L'icône montre le nombre de points à regarder. Le rapport est relu toutes les 20 s au plus, ou avec « Actualiser ». Les secrets (jeton Telegram, clés d'API) sont masqués dans le journal et sur la page.
+
 `scripts/service.sh install` installe Clark comme service et le démarre : **launchd** sur le Mac (il démarre à chaque ouverture de session), **systemd** (unité utilisateur `clark`) sur Linux. Sur un serveur, `sudo loginctl enable-linger $USER` le fait tourner sans session ouverte. Ensuite : `restart`, `status`, `logs`, `uninstall`.
 
 **Filet de sécurité.** Après `install` ou `restart`, le script attend que Clark réponde (`/api/health`, 40 s au plus). S'il répond, la version est notée bonne (`data/last-good-commit`). S'il ne répond pas, le script revient tout seul à la dernière version qui marchait (`git switch --detach`), redémarre, et Clark te le dit au démarrage avec la commande pour revenir sur ta branche une fois corrigé. Pas de retour automatique si tu as des modifications non commitées, ni avec `CLARK_NO_ROLLBACK=1`. Le bouton « Redémarrer Clark » de l'interface ne passe pas par ce filet.

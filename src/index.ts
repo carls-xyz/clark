@@ -1,3 +1,4 @@
+import { installLogRedaction } from "./core/redact.ts";
 import { launchAutomation } from "./scheduler/automation-run.ts";
 import { startPrWatch } from "./dev/pr.ts";
 import { mkdirSync } from "node:fs";
@@ -46,6 +47,9 @@ import { TaskJournal } from "./tasks/journal.ts";
 import { Settings } from "./core/settings.ts";
 import { NotifyStore, setNotifyStore, startAwake, startQuietDigest } from "./core/notify.ts";
 import { takeRollbackNote } from "./core/platform.ts";
+
+// Le journal ne garde jamais un secret en clair (jeton Telegram dans une erreur réseau, clé d'API…).
+installLogRedaction();
 
 // La base d'abord : les réglages choisis dans l'interface passent devant .env.
 const store = new Store(paths.db);

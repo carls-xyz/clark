@@ -134,6 +134,7 @@ function render() {
   renderFoot();
   renderTermCount();
   renderIdeasCount();
+  renderHealthCount();
   renderMacOnly();
   renderCalendarCount();
   renderView();
