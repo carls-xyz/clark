@@ -98,7 +98,7 @@ test("autonomie : la nuit et au-delà du plafond, Clark redemande", () => {
   const day = setup();
   propose(day.store, "chat", "Relancer Studio Pixel");
   propose(day.store, "chat", "Relancer la Banque du Nord");
-  assert.equal(day.store.initiatives.pending().length, 1, "la deuxième attend Charles");
+  assert.equal(day.store.initiatives.pending().length, 1, "la deuxième t'attend");
   assert.deepEqual(canActAlone(decisionsOf(day.store.db), DAY), { ok: false, why: "j'ai déjà décidé seul 1 fois aujourd'hui (plafond 1)" });
   day.stop();
 });
@@ -118,7 +118,7 @@ test("autonomie : souvenir retenu seul, oublié si on annule ; une correction re
   const base = store.propose({ kind: "fact", content: "Studio Pixel : relance le 20 novembre", source: "note-1" });
   store.confirm((base as { id: number }).id);
   const fix = store.propose({ kind: "fact", content: "Studio Pixel : relance le 21 novembre", source: "mail", replacesId: (base as { id: number }).id });
-  assert.equal(store.get((fix as { id: number }).id)?.status, "proposed", "correction : à Charles de trancher");
+  assert.equal(store.get((fix as { id: number }).id)?.status, "proposed", "correction : à toi de trancher");
   stop();
 });
 

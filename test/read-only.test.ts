@@ -57,7 +57,7 @@ test("équipe : le Chercheur et le Relecteur tournent en lecture seule, le Réda
 
 // ── Moteur Claude : la politique refuse, sans rien demander ──────────────
 
-test("moteur Claude : en lecture seule, écriture, shell et mémoire sont refusés sans demander à Charles", async () => {
+test("moteur Claude : en lecture seule, écriture, shell et mémoire sont refusés sans rien demander", async () => {
   const { store, journal } = base();
   const id = journal.create(OWNER_CHAT, "chercheur", "x");
   const policy = createPolicy({
@@ -87,7 +87,7 @@ test("moteur Claude : en lecture seule, écriture, shell et mémoire sont refus�
 
 // ── Moteur Codex : bac à sable en lecture seule, élargissements refusés ──
 
-test("moteur Codex : en lecture seule, bac à sable read-only et demandes d'écriture refusées sans demander à Charles", async () => {
+test("moteur Codex : en lecture seule, bac à sable read-only et demandes d'écriture refusées sans rien demander", async () => {
   const sent: any[] = [];
   let toClark: (l: string) => void = () => {};
   const T = "t1";
@@ -215,7 +215,7 @@ test("constat « je ne peux pas déterminer » : pas de droit d'écrire, la tâc
   assert.equal(journal.get(id)!.status, "needs_check");
   assert.equal(journal.steps(id)[0].status, "running", "l'écriture reste incertaine");
   assert.match(journal.get(id)!.result!, /Vérification non concluante/);
-  assert.match(journal.get(id)!.result!, /Je ne peux pas déterminer/, "le constat brut est montré à Charles");
+  assert.match(journal.get(id)!.result!, /Je ne peux pas déterminer/, "le constat brut est montré à l'utilisateur");
 });
 
 test("constat INDÉTERMINÉ, ligne manquante ou contradictoire : rien n'est tranché pour ces écritures", async () => {

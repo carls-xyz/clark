@@ -4,7 +4,7 @@ import { OWNER_CHAT, type Hub } from "./hub.ts";
 /**
  * Rappels ponctuels créés depuis la conversation (« rappelle-moi demain à 9 h de… »).
  * Idée reprise d'OpenBot (rien de copié) : l'agent crée lui-même ses rappels et ses
- * automatisations, mais seulement quand c'est Charles qui le demande (jamais à cause d'un
+ * automatisations, mais seulement quand c'est l'utilisateur qui le demande (jamais à cause d'un
  * mail, d'une page web ou d'un tour planifié : ce texte-là vient de l'extérieur).
  */
 export type Reminder = { id: number; text: string; due_at: string; task_id: number | null; status: "pending" | "sent" | "cancelled"; created_at: string };
@@ -46,7 +46,7 @@ export function remindersOf(db: DatabaseSync): Reminders {
   return r;
 }
 
-/** Sources d'une demande écrite par Charles lui-même (pas un tour planifié, une proposition, un mail). */
+/** Sources d'une demande écrite par l'utilisateur lui-même (pas un tour planifié, une proposition, un mail). */
 export const CHARLES_SOURCES = new Set(["web", "telegram", "imessage", "cli"]);
 
 /** Vérifie chaque minute les rappels arrivés à échéance et les envoie (fil + Telegram). */

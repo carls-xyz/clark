@@ -164,7 +164,7 @@ test("navigateur : page rechargée pendant l'accord (fenêtre affichée) → rie
   await svc.act(1, "type", { ref: "e4", text: "Bonjour" });
   const pending = svc.act(1, "click", { ref: "e5" });
   await new Promise((r) => setTimeout(r, 10));
-  // Charles affiche la fenêtre pendant qu'il décide : le navigateur est libre, et il se relance.
+  // L'utilisateur affiche la fenêtre pendant qu'il décide : le navigateur est libre, et il se relance.
   await svc.setVisible(true);
   assert.equal(driver.launches, 2);
   release(true);
@@ -238,7 +238,7 @@ function call(port: number, path: string, headers: Record<string, string>, body?
   });
 }
 
-test("adresse interne (Codex) : jeton exigé, l'accord passe par les boutons de Charles ; contrôles de l'interface", async () => {
+test("adresse interne (Codex) : jeton exigé, l'accord passe par tes boutons ; contrôles de l'interface", async () => {
   const port = 20000 + Math.floor(Math.random() * 20000);
   const store = new Store(":memory:");
   const journal = new TaskJournal(store.db);
@@ -258,7 +258,7 @@ test("adresse interne (Codex) : jeton exigé, l'accord passe par les boutons de 
     const opened = await call(port, "/internal/browser", auth, { taskId, action: "open", args: { url: "https://studio.example" } });
     assert.match(opened.body.text, /Page : Contact/);
 
-    // Le clic sur Envoyer attend le bouton de Charles, comme toute autre demande d'accord.
+    // Le clic sur Envoyer attend le bouton de l'utilisateur, comme toute autre demande d'accord.
     const click = call(port, "/internal/browser", auth, { taskId, action: "click", args: { ref: "e5" } });
     await waitFor(() => hub.approvals(OWNER_CHAT).length === 1);
     const [approval] = hub.approvals(OWNER_CHAT);

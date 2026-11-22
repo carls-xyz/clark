@@ -27,7 +27,7 @@ test("obsidian : chaque souvenir confirmé devient une note, avec ses propriét�
   assert.deepEqual(sync.sync(), { written: 0, edited: 0, forgotten: 0, learned: 0 }, "rien de neuf : rien ne bouge");
 });
 
-test("obsidian : Charles corrige, supprime ou écrit une note, Clark suit", () => {
+test("obsidian : l'utilisateur corrige, supprime ou écrit une note, Clark suit", () => {
   const root = vault();
   const store = new Store(":memory:");
   const a = store.remember({ kind: "fact", content: "Le portfolio est en Next.js." });
@@ -41,7 +41,7 @@ test("obsidian : Charles corrige, supprime ou écrit une note, Clark suit", () =
   writeFileSync(fileA, readFileSync(fileA, "utf8").replace("Le portfolio est en Next.js.", "Le portfolio est en Next.js 16, déployé sur Vercel."));
   // Suppression : Clark oublie (archivé).
   unlinkSync(fileB);
-  // Nouvelle note de Charles dans le dossier : apprise.
+  // Nouvelle note de l'utilisateur dans le dossier : apprise.
   writeFileSync(join(root, MEMORY_DIR, "Mon alternance.md"), "---\ntype: projet\n---\nCharles cherche une alternance dev pour septembre.\n");
 
   const r = sync.sync();
@@ -53,7 +53,7 @@ test("obsidian : Charles corrige, supprime ou écrit une note, Clark suit", () =
   const learned = store.recall("alternance septembre")[0];
   assert.equal(learned.kind, "project");
   assert.match(learned.source ?? "", /Obsidian/);
-  // La note de Charles garde son nom, et reçoit son clark_id.
+  // La note de l'utilisateur garde son nom, et reçoit son clark_id.
   assert.equal(parseNote(readFileSync(join(root, MEMORY_DIR, "Mon alternance.md"), "utf8")).props.clark_id, String(learned.id));
   assert.deepEqual(sync.sync(), { written: 0, edited: 0, forgotten: 0, learned: 0 });
 });

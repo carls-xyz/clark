@@ -86,7 +86,7 @@ const realVoice: WebVoice = { status: voiceStatus, transcribe, speak, voices: fr
 /** Un enregistrement du micro : 10 Mo au plus (bien plus que 10 minutes en opus). */
 const AUDIO_LIMIT = 10 * 1024 * 1024;
 const AUDIO_TYPES: Record<string, string> = { "audio/webm": "webm", "audio/ogg": "ogg", "audio/mp4": "m4a", "audio/mpeg": "mp3", "audio/wav": "wav", "audio/x-m4a": "m4a" };
-const VOICE_SAMPLE = "Salut Charles, c'est Clark. Voilà ma voix.";
+const VOICE_SAMPLE = "Salut, c'est Clark. Voilà ma voix.";
 
 export { NEW_CONVERSATION_NOTE };
 export function sinceNewConversation<T extends { role: string; text: string }>(list: T[]): T[] {
@@ -113,7 +113,7 @@ export function historyTitle(t: Pick<Task, "label" | "prompt"> & { id?: number; 
   const src = t.source ?? "";
   if (src.startsWith("initiative:")) return src.slice(11);
   if (src.startsWith("automation:")) return src.slice(11);
-  // Une demande de Charles : ce qu'il a écrit (le fil le garde), pas le contexte ajouté pour l'agent.
+  // Une demande de l'utilisateur : ce qu'il a écrit (le fil le garde), pas le contexte ajouté pour l'agent.
   if (store && t.id !== undefined && (t.label === "chat" || t.label === TEAM_LABEL || t.label === "groupe")) {
     const said = store.db.prepare("SELECT text FROM messages WHERE task_id = ? AND role = 'user' ORDER BY id LIMIT 1").get(t.id) as { text: string } | undefined;
     if (said?.text.trim()) return said.text.replace(/\s+/g, " ").trim();
@@ -483,7 +483,7 @@ export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voi
     notify: { prefs: notifyPrefs(), kinds: NOTIFY_KINDS, awake: awakeActive(), held: heldCount() },
     // Plugins installés (la relecture d'un paquet passe par /api/plugins/review, hors du flux).
     plugins: opts.plugins?.list() ?? null,
-    // Personnalité (écrite par Charles) et voix (transcription locale, voix macOS).
+    // Personnalité (écrite par l'utilisateur) et voix (transcription locale, voix macOS).
     personality: { ...readPersonality(), limit: PERSONALITY_LIMIT },
     voice: (() => {
       const st = (opts.voice ?? realVoice).status();
@@ -1322,7 +1322,7 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
       }
       throw new HttpError(400, "Action inconnue");
     }
-    // Copie préparée d'avance pendant que Charles tape une tâche de code.
+    // Copie préparée d'avance pendant que l'utilisateur tape une tâche de code.
     if (path === "/api/dev/prewarm") {
       const r = await prewarmCopy(hub, Number(body.projectId));
       if (r === "missing") throw new HttpError(404, "Projet introuvable");
@@ -1357,7 +1357,7 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
       // « Binôme » : Claude et Codex, l'un écrit, l'autre relit (toujours découpé en sous-tâches).
       const grouped = body.binome === true || body.split === true;
       const r = body.binome === true ? startDevGroup(hub, { ...input, binome: true }) : body.split === true ? startDevGroup(hub, input) : startDevTask(hub, input);
-      // Pilote automatique, choisi par Charles au lancement : noté tout de suite, avant la première version.
+      // Pilote automatique, choisi par l'utilisateur au lancement : noté tout de suite, avant la première version.
       if (r.ok && body.autopilot === true) grouped ? store.dev.updateGroup(r.id, { autopilot: 1 }) : store.dev.update(r.id, { autopilot: 1 });
       return r.ok ? json(res, 201, r) : json(res, 400, { ...r, field: "instruction" });
     }

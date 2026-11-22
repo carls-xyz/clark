@@ -3,7 +3,7 @@
  * parfois à mi-chemin : « Veux-tu que je continue ? », ou une étape oubliée. Après un tour :
  *  1. une fin qui annonce la suite sans la faire → Clark continue (2 fois au plus) ;
  *  2. sinon, si le tour a agi, un juge rapide sans outils lit la demande, les étapes et la
- *     réponse, et dit « fini », « à continuer » (avec ce qui manque), « à Charles » ou « bloqué ».
+ *     réponse, et dit « fini », « à continuer » (avec ce qui manque), « à l'utilisateur » ou « bloqué ».
  *     À continuer → un tour de plus (3 fois au plus). Dans le doute, il dit « fini ».
  * Une suite automatique ne fait jamais d'envoi vers l'extérieur sans l'accord habituel.
  */

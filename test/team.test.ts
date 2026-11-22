@@ -103,7 +103,7 @@ test("équipe : le Chercheur cite les notes, le Relecteur signale le 25/26, le b
 
 // ── Scénario 2 : coupure pendant une écriture ─────────────────────────────
 
-test("équipe : coupure pendant l'écriture du Rédacteur → recherche conservée, écriture à vérifier, rien ne repart sans Charles", async () => {
+test("équipe : coupure pendant l'écriture du Rédacteur → recherche conservée, écriture à vérifier, rien ne repart sans toi", async () => {
   const { execute, calls } = agents();
   const { hub, journal, store } = setup(execute);
 
@@ -134,7 +134,7 @@ test("équipe : coupure pendant l'écriture du Rédacteur → recherche conserv�
   assert.deepEqual(view.checks[0].team!.agents.map((a) => a.status), ["done", "needs_check", "waiting"]);
   assert.match(view.checks[0].uncertain[0], /brouillon-v1\.md/);
 
-  // Charles reprend : le Chercheur n'est pas relancé. Le Rédacteur vérifie d'abord EN LECTURE SEULE
+  // L'utilisateur reprend : le Chercheur n'est pas relancé. Le Rédacteur vérifie d'abord EN LECTURE SEULE
   // (droit imposé au moteur), puis reprend avec le droit d'écrire.
   assert.equal(hub.resolveCheck(parent, "resume"), "resumed");
   await new Promise((r) => setTimeout(r, 20));

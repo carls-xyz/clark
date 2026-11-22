@@ -5,10 +5,10 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, resolve } from "node:path";
 
 /**
- * Terminal de Charles, dans l'interface web (sur le Mac seulement, jamais depuis Telegram).
+ * Terminal de l'utilisateur, dans l'interface web (sur le Mac seulement, jamais depuis Telegram).
  *
- * - Charles y tape ses commandes : elles tournent dans son shell (zsh), dans le dossier choisi.
- * - Clark peut y proposer une commande (outil run_command) : elle attend que Charles clique
+ * - l'utilisateur y tape ses commandes : elles tournent dans son shell (zsh), dans le dossier choisi.
+ * - Clark peut y proposer une commande (outil run_command) : elle attend que l'utilisateur clique
  *   « Lancer » dans l'interface, puis tourne sous ses yeux ; Clark lit le code de sortie et la fin.
  *
  * Une commande à la fois, sans saisie (pas de vim ni de mot de passe) : stdin est fermé.
@@ -34,9 +34,9 @@ export type TerminalRun = {
 export const OUTPUT_MAX = 200_000;
 /** Ce que Clark reçoit de la sortie : la fin, assez pour lire une erreur. */
 export const CLARK_OUTPUT_MAX = 6_000;
-/** Une commande de Clark est arrêtée au bout de 10 minutes ; celles de Charles, quand il le décide. */
+/** Une commande de Clark est arrêtée au bout de 10 minutes ; celles de l'utilisateur, quand il le décide. */
 export const CLARK_RUN_TIMEOUT_MS = 10 * 60_000;
-/** Délai pour que Charles décide d'une commande proposée par Clark. */
+/** Délai pour que l'utilisateur décide d'une commande proposée par Clark. */
 export const DECISION_TIMEOUT_MS = 30 * 60_000;
 
 const CWD_MARK = "\u001eCLARK_CWD:";
@@ -111,8 +111,8 @@ export class Terminal {
   }
 
   /**
-   * Lance une commande. Charles : son dossier courant suit les « cd ». Clark : le dossier proposé,
-   * sans changer celui de Charles, et arrêtée au bout de 10 minutes.
+   * Lance une commande. L'utilisateur : son dossier courant suit les « cd ». Clark : le dossier proposé,
+   * sans changer celui de l'utilisateur, et arrêtée au bout de 10 minutes.
    */
   run(command: string, opts: { by: RunBy; cwd?: string | null; taskId?: number | null; onEnd?: (run: TerminalRun) => void }): TerminalRun | string {
     const text = command.trim();
@@ -236,7 +236,7 @@ export type TerminalRequest = {
 
 /**
  * Les demandes passent par la base : l'outil de Clark peut tourner dans le processus de Codex,
- * et c'est l'interface (processus principal) qui lance la commande quand Charles clique.
+ * et c'est l'interface (processus principal) qui lance la commande quand l'utilisateur clique.
  */
 export class TerminalRequests {
   private readonly db: DatabaseSync;
@@ -278,7 +278,7 @@ export class TerminalRequests {
     this.db.prepare("UPDATE terminal_requests SET status = ?, exit_code = ?, output = ? WHERE id = ?").run(status, exitCode, output, id);
   }
 
-  /** Celles d'avant un redémarrage : Charles ne peut plus cliquer dessus, Clark ne les attend plus. */
+  /** Celles d'avant un redémarrage : l'utilisateur ne peut plus cliquer dessus, Clark ne les attend plus. */
   expireStale() {
     this.db.prepare("UPDATE terminal_requests SET status = 'expired' WHERE status IN ('pending','running')").run();
   }

@@ -6,10 +6,10 @@ import { OWNER_CHAT, type Hub } from "./hub.ts";
 /**
  * Relecture de mémoire en arrière-plan (idée reprise d'OpenBot, rien de copié). Clark ne retient
  * aujourd'hui que ce qu'il pense à proposer pendant un tour. Ici, toutes les 20 demandes de
- * Charles, ou après 15 min de calme, un modèle sans outils relit la conversation récente et
+ * l'utilisateur, ou après 15 min de calme, un modèle sans outils relit la conversation récente et
  * propose les faits durables et les leçons de méthode (« fais plutôt comme ça »).
- * Tout passe par le circuit habituel : proposé → confirmé par Charles, ou par Clark seul si
- * l'autonomie « Souvenirs » est activée ; une correction est toujours demandée à Charles.
+ * Tout passe par le circuit habituel : proposé → confirmé par l'utilisateur, ou par Clark seul si
+ * l'autonomie « Souvenirs » est activée ; une correction est toujours demandée à l'utilisateur.
  */
 export const REVIEW_EVERY = 20;
 export const REVIEW_IDLE_MIN = 15;

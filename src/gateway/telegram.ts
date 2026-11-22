@@ -132,7 +132,7 @@ export function createTelegram(hub: Hub, opts: { token: string; ownerId: number;
 
   hub.addChannel({
     name: "telegram",
-    // Les messages de Charles ne lui sont pas renvoyés ; le reste du fil, si.
+    // Les messages de l'utilisateur ne lui sont pas renvoyés ; le reste du fil, si.
     // Seule ta conversation part sur Telegram (pas le tour de veille, qui a la sienne).
     deliver: async (m) => {
       if (m.role === "user" || m.chat_id !== OWNER_CHAT) return;

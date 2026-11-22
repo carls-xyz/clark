@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { paths } from "../config.ts";
 
 /**
- * Brouillons de publication du module Réseaux sociaux. Clark prépare, Charles valide.
+ * Brouillons de publication du module Réseaux sociaux. Clark prépare, l'utilisateur valide.
  * Clark ne publie jamais : une fois validé, le brouillon est rangé dans
  * workspace/social/a-publier/ (vidéo + légende), prêt à être publié ou programmé
  * dans l'outil de la plateforme.

@@ -54,7 +54,7 @@ test("question : sans réponse dans le délai → null, et elle expire", async (
   assert.ok(!s.questions.answer(id, "mardi"), "trop tard");
 });
 
-test("outil ask_charles : refusé sans tâche, sinon renvoie la réponse de Charles", async () => {
+test("outil ask_charles : refusé sans tâche, sinon renvoie la réponse de l'utilisateur", async () => {
   const s = new Store(":memory:");
   const journal = new TaskJournal(s.db);
   const none = memoryTools(s, { taskId: () => undefined, writeRefusal: () => null });

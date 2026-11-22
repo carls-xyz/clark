@@ -6,7 +6,7 @@ import { NEAR_LIMIT_PERCENT, tightest } from "../engines/quota.ts";
 const short = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Décision après un tour : continuer, objectif atteint, ou attendre Charles (avec la raison). */
+/** Décision après un tour : continuer, objectif atteint, ou attendre l'utilisateur (avec la raison). */
 export type GoalDecision = { action: "continue" } | { action: "done"; summary: string } | { action: "wait"; reason: string };
 
 export function decideAfterTurn(s: {
@@ -118,21 +118,21 @@ async function wait(hub: Hub, g: Goal, reason: string) {
 export function createGoal(hub: Hub, objective: string, maxTurns?: number, source = "web"): number {
   const { store } = hub.deps;
   const id = store.goals.create(objective, maxTurns);
-  store.goals.addEvent({ goalId: id, turn: 0, kind: "system", text: source === "clark" ? "Objectif lancé par Clark, seul (autonomie)" : `Objectif donné par Charles (${source === "telegram" ? "Telegram" : "interface"})` });
+  store.goals.addEvent({ goalId: id, turn: 0, kind: "system", text: source === "clark" ? "Objectif lancé par Clark, seul (autonomie)" : `Objectif donné par toi (${source === "telegram" ? "Telegram" : "interface"})` });
   void hub.post(OWNER_CHAT, `Nouvel objectif #${id} : « ${short(objective.trim(), 200)} ». Clark enchaîne les tours ; tu suis dans Activité.`, "system");
   void driveGoal(hub, id);
   return id;
 }
 
-/** Pause, reprise (avec une réponse éventuelle de Charles) ou arrêt. */
+/** Pause, reprise (avec une réponse éventuelle de l'utilisateur) ou arrêt. */
 export function controlGoal(hub: Hub, id: number, action: "pause" | "resume" | "stop", note?: string): "done" | "already" | "missing" {
   const { store } = hub.deps;
   const g = store.goals.get(id);
   if (!g) return "missing";
-  if (action === "pause") return store.goals.setStatus(id, "paused", "mis en pause par Charles", ["active", "waiting"]) ? "done" : "already";
+  if (action === "pause") return store.goals.setStatus(id, "paused", "mis en pause à ta demande", ["active", "waiting"]) ? "done" : "already";
   if (action === "stop") {
-    if (!store.goals.setStatus(id, "stopped", "arrêté par Charles", ["active", "waiting", "paused"])) return "already";
-    store.goals.addEvent({ goalId: id, turn: g.turns, kind: "system", text: "Arrêté par Charles" });
+    if (!store.goals.setStatus(id, "stopped", "arrêté à ta demande", ["active", "waiting", "paused"])) return "already";
+    store.goals.addEvent({ goalId: id, turn: g.turns, kind: "system", text: "Arrêté à ta demande" });
     return "done";
   }
   if (g.status !== "paused" && g.status !== "waiting") return "already";
@@ -141,7 +141,7 @@ export function controlGoal(hub: Hub, id: number, action: "pause" | "resume" | "
   if (g.turns >= g.max_turns) store.goals.extend(id);
   store.goals.markEvaluated(id);
   store.goals.setStatus(id, "active", null, ["paused", "waiting"]);
-  store.goals.addEvent({ goalId: id, turn: g.turns, kind: "system", text: "Repris par Charles" });
+  store.goals.addEvent({ goalId: id, turn: g.turns, kind: "system", text: "Repris à ta demande" });
   void driveGoal(hub, id);
   return "done";
 }

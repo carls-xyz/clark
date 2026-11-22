@@ -308,12 +308,12 @@ export function createTeam(o: {
         if (out.status !== "fulfilled") return;
         results.set(batch[i].key, out.value);
         // Le rendu de chaque spécialiste est gardé dans un fichier : une équipe suivante (ou Clark)
-        // retrouve la relecture ou la recherche d'avant, au lieu de la redemander à Charles.
+        // retrouve la relecture ou la recherche d'avant, au lieu de la redemander à l'utilisateur.
         keepRendering(parent.id, batch[i], out.value);
       });
       const failures = outcomes.filter((x): x is PromiseRejectedResult => x.status === "rejected").map((x) => x.reason);
       if (failures.length) {
-        // Une vérification à faire passe avant un échec simple : c'est elle qui demande Charles.
+        // Une vérification à faire passe avant un échec simple : c'est elle qui demande l'utilisateur.
         throw failures.find((f) => f instanceof TeamStop && f.result.status === "needs_check") ?? failures[0];
       }
     }
@@ -353,7 +353,7 @@ export function createTeam(o: {
         const steps = journal.steps(err.child.id);
         const children = journal.children(parentId);
         const kept = [...new Set(children.filter((c) => c.status === "done").map(displayName))];
-        // Vérification non concluante : on le dit tel quel, l'équipe attend Charles.
+        // Vérification non concluante : on le dit tel quel, l'équipe attend l'utilisateur.
         const text = err.result.text.startsWith(INCONCLUSIVE)
           ? `L'équipe attend ta décision sur « ${parent.prompt.slice(0, 80)} ».${kept.length ? ` Déjà terminé, et conservé : ${kept.join(", ")}.` : ""}\n\n${who} — ${err.result.text}`
           : teamCheckText(parent, children, err.child, uncertainSteps(steps));

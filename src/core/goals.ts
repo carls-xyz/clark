@@ -1,13 +1,13 @@
 import type { DatabaseSync } from "node:sqlite";
 
 /**
- * Objectifs (mode objectif, idée reprise de Spettro) : Charles donne un but, Clark enchaîne
+ * Objectifs (mode objectif, idée reprise de Spettro) : l'utilisateur donne un but, Clark enchaîne
  * les tours jusqu'à l'atteindre. Chaque tour se termine par un compte rendu (report_goal) :
  * avancée, objectif atteint, ou blocage. Clark s'arrête seul s'il tourne en rond, s'il manque
- * de quota ou s'il atteint le nombre de tours permis, et attend alors Charles.
+ * de quota ou s'il atteint le nombre de tours permis, et attend alors l'utilisateur.
  *
  * Chaque objectif a sa propre conversation (GOAL_CHAT_BASE + id) : les tours se suivent
- * avec leur contexte, sans encombrer la conversation de Charles.
+ * avec leur contexte, sans encombrer la conversation de l'utilisateur.
  */
 export const GOAL_CHAT_BASE = 1000;
 export const goalChat = (id: number) => GOAL_CHAT_BASE + id;
@@ -19,9 +19,9 @@ export const goalOfLabel = (label: string) => (label.startsWith(GOAL_LABEL_PREFI
 
 /**
  * - active  : Clark enchaîne les tours.
- * - waiting : Clark attend Charles (blocage, tour qui tourne en rond, quota, limite de tours, échec).
- * - paused  : mis en pause par Charles.
- * - done    : objectif atteint.  - stopped : arrêté par Charles.
+ * - waiting : Clark attend l'utilisateur (blocage, tour qui tourne en rond, quota, limite de tours, échec).
+ * - paused  : mis en pause par l'utilisateur.
+ * - done    : objectif atteint.  - stopped : arrêté par l'utilisateur.
  */
 export type GoalStatus = "active" | "waiting" | "paused" | "done" | "stopped";
 export type GoalEventKind = "progress" | "done" | "blocked" | "note" | "system";
@@ -125,7 +125,7 @@ export class Goals {
     this.db.prepare("UPDATE goals SET evaluated = turns WHERE id = ?").run(id);
   }
 
-  /** Charles relève la limite pour continuer : au moins quelques tours de plus. */
+  /** L'utilisateur relève la limite pour continuer : au moins quelques tours de plus. */
   extend(id: number, extra = 5) {
     this.db.prepare("UPDATE goals SET max_turns = MIN(?, MAX(max_turns, turns + ?)), updated_at = datetime('now') WHERE id = ?").run(MAX_TURNS_LIMIT, extra, id);
     this.changed();

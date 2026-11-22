@@ -6,12 +6,12 @@ import type { DatabaseSync } from "node:sqlite";
 import { MEMORY_KINDS, type Memory, type MemoryKind, type Store } from "../memory/store.ts";
 
 /**
- * Le coffre Obsidian de Charles comme mémoire visible de Clark.
+ * Le coffre Obsidian de l'utilisateur comme mémoire visible de Clark.
  *
  * - Chaque souvenir confirmé devient une note dans « Clark/Mémoire » : propriétés (type, source,
  *   dates), le texte, et des liens (son type, et les souvenirs proches quand la recherche par le
  *   sens est là). Le graphe d'Obsidian montre ce que Clark sait.
- * - Charles corrige une note : Clark reprend le texte. Il la supprime : Clark oublie (archivé,
+ * - l'utilisateur corrige une note : Clark reprend le texte. Il la supprime : Clark oublie (archivé,
  *   jamais effacé). Il écrit une nouvelle note dans ce dossier : Clark l'apprend.
  * - Ailleurs dans le coffre, Clark lit (outils vault_*) ; il n'écrit que dans « Clark/ ».
  */
@@ -141,7 +141,7 @@ export class VaultSync {
       .run(m.memory_id, m.file, m.body_hash, m.content_hash);
   }
 
-  /** Les notes du dossier Mémoire (sous-dossiers compris : Charles peut ranger), par clark_id. */
+  /** Les notes du dossier Mémoire (sous-dossiers compris : l'utilisateur peut ranger), par clark_id. */
   private scan(): { byId: Map<number, string>; orphans: string[] } {
     const byId = new Map<number, string>();
     const orphans: string[] = [];
@@ -177,7 +177,7 @@ export class VaultSync {
   }
 
   /**
-   * Un tour de synchro. Ordre : ce que Charles a changé dans Obsidian d'abord (il a le dernier
+   * Un tour de synchro. Ordre : ce que l'utilisateur a changé dans Obsidian d'abord (il a le dernier
    * mot), puis ce qui a changé chez Clark. Renvoie ce qui a bougé, pour le journal.
    */
   sync(): { written: number; edited: number; forgotten: number; learned: number } {
@@ -187,7 +187,7 @@ export class VaultSync {
     const { byId, orphans } = this.scan();
     const active = new Map(this.active().map((m) => [m.id, m]));
 
-    // 1. Notes supprimées ou modifiées par Charles.
+    // 1. Notes supprimées ou modifiées par l'utilisateur.
     for (const [id, map] of maps) {
       const file = byId.get(id) ?? (existsSync(join(this.root, map.file)) ? map.file : null);
       const m = active.get(id);
@@ -202,7 +202,7 @@ export class VaultSync {
         maps.delete(id);
         continue;
       }
-      if (file !== map.file) this.save({ ...map, file }); // déplacée ou renommée par Charles
+      if (file !== map.file) this.save({ ...map, file }); // déplacée ou renommée par l'utilisateur
       const text = memoryText(parseNote(readFileSync(join(this.root, file), "utf8")).body);
       if (m && hash(text) !== map.body_hash && text && text !== m.content.trim()) {
         this.store.update(id, text);
@@ -212,7 +212,7 @@ export class VaultSync {
       }
     }
 
-    // 2. Nouvelles notes écrites par Charles dans le dossier : Clark les apprend.
+    // 2. Nouvelles notes écrites par l'utilisateur dans le dossier : Clark les apprend.
     for (const rel of orphans) {
       const note = parseNote(readFileSync(join(this.root, rel), "utf8"));
       const text = memoryText(note.body);
@@ -220,7 +220,7 @@ export class VaultSync {
       const id = this.store.remember({ kind: kindOfLabel(note.props.type), content: text, source: `Charles, dans Obsidian (${basename(rel, ".md")})` });
       const m = this.store.get(id)!;
       active.set(id, m);
-      // La note garde son nom : Charles l'a choisi. Clark y ajoute ses propriétés.
+      // La note garde son nom : l'utilisateur l'a choisi. Clark y ajoute ses propriétés.
       this.writeMemory(m, rel);
       out.learned++;
       this.opts.log?.(`souvenir #${id} appris depuis Obsidian`);

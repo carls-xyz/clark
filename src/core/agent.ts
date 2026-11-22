@@ -66,7 +66,7 @@ function firstMessage(prompt: string, images: string[] = []): SDKUserMessage {
 }
 
 /**
- * Entrée en flux : la consigne, puis les messages que Charles glisse pendant le tour
+ * Entrée en flux : la consigne, puis les messages que l'utilisateur glisse pendant le tour
  * (priorité « next » : lus entre deux actions). Fermée dès la réponse finale.
  */
 function inputChannel(first: SDKUserMessage) {
@@ -157,7 +157,7 @@ puis redémarre-moi. (Ou ajoute ANTHROPIC_API_KEY dans .env pour passer par l'AP
     const offStop = onStop(taskId, () => abort.abort());
     const effort = opts.effort ?? claudeChoice.effort;
     const input = inputChannel(firstMessage(opts.prompt, opts.images));
-    // Seule la tâche de premier niveau reçoit les messages de Charles (pas un agent d'équipe).
+    // Seule la tâche de premier niveau reçoit les messages de l'utilisateur (pas un agent d'équipe).
     const offSteer = task.parent_id === null ? onSteer(taskId, async (text) => input.push(text)) : () => {};
     try {
       const run = query({
@@ -173,7 +173,7 @@ puis redémarre-moi. (Ou ajoute ANTHROPIC_API_KEY dans .env pour passer par l'AP
           settingSources: [], // isolé : n'hérite pas de ta config Claude Code perso
           strictMcpConfig: true, // seulement les serveurs MCP de Clark, jamais ceux de ton compte claude.ai
           tools: ["Read", "Write", "Edit", "Glob", "Grep", "WebSearch", "WebFetch", "Bash", "TodoWrite"],
-          // Mémoire de Clark, puis les serveurs MCP ajoutés par Charles (lus à chaque tâche).
+          // Mémoire de Clark, puis les serveurs MCP ajoutés par l'utilisateur (lus à chaque tâche).
           mcpServers: {
             ...claudeMcpConfig(store.mcp.enabled()),
             memory: memoryServer(store, { taskId, readOnly: opts.access === "read", onProgress: () => journal.touch() }),

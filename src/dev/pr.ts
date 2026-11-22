@@ -26,7 +26,7 @@ export type PrStatus = {
   checks: PrCheck[];
   comments: PrComment[];
   readAt: number;
-  /** Commentaires déjà vus par Charles (ids) : les nouveaux sont signalés. */
+  /** Commentaires déjà vus par l'utilisateur (ids) : les nouveaux sont signalés. */
   seen: string[];
   error: string | null;
 };
@@ -79,7 +79,7 @@ export async function readPr(cwd: string, url: string, previous: PrStatus | null
 
 const failing = (s: PrStatus) => s.checks.filter((c) => c.state === "failure");
 
-/** Ce qui mérite de prévenir Charles entre deux lectures. */
+/** Ce qui mérite de prévenir l'utilisateur entre deux lectures. */
 export function prChanges(prev: PrStatus | null, next: PrStatus): string[] {
   const out: string[] = [];
   if (prev?.state !== next.state && next.state === "MERGED") out.push("mergée");
@@ -113,7 +113,7 @@ function save(hub: Hub, ref: Ref, status: PrStatus) {
   else store.dev.updateGroup(ref.id, { pr_status: JSON.stringify(status) });
 }
 
-/** Relit une PR, enregistre son état et prévient Charles de ce qui a changé. */
+/** Relit une PR, enregistre son état et prévient l'utilisateur de ce qui a changé. */
 export async function refreshPr(hub: Hub, ref: Ref, opts: { notify?: boolean } = {}): Promise<PrStatus | null> {
   const found = locate(hub, ref);
   if (!found) return null;
@@ -135,7 +135,7 @@ export async function refreshPr(hub: Hub, ref: Ref, opts: { notify?: boolean } =
   return next;
 }
 
-/** Charles a lu les commentaires : ils ne comptent plus comme nouveaux. */
+/** L'utilisateur a lu les commentaires : ils ne comptent plus comme nouveaux. */
 export function markPrSeen(hub: Hub, ref: Ref) {
   const found = locate(hub, ref);
   if (!found?.status) return;
@@ -162,7 +162,7 @@ export async function failedLogs(cwd: string, checks: PrCheck[], maxJobs = 3): P
 }
 
 /**
- * Sur le clic de Charles : une tâche de suivi sur la branche de la PR, pour corriger la CI ou
+ * Sur le clic de l'utilisateur : une tâche de suivi sur la branche de la PR, pour corriger la CI ou
  * traiter les commentaires de review. Accepter cette tâche met la PR à jour.
  */
 export function fixPr(hub: Hub, ref: Ref, what: "ci" | "review"): Promise<{ ok: true; id: number } | "missing" | { error: string }> {

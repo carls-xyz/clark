@@ -1,5 +1,5 @@
 // ── Les bonshommes pixelisés : un par agent, Clark en bleu ──────────────
-// Formes et couleurs reprises du portfolio de Charles (12 × 9 pixels : X corps, O ombre,
+// Formes et couleurs reprises du portfolio de l'utilisateur (12 × 9 pixels : X corps, O ombre,
 // A détail, W blanc de l'œil, P pupille), plus deux teintes pour Contenu et les temporaires.
 
 const SHAPES = {
@@ -82,7 +82,7 @@ function actor({ role, name, status, tool, tag = "" }) {
 
 function renderWorking(running) {
   if (!running.length || state.approvals.length || state.questions.length || state.posts.length || (state.mails ?? []).length) return "";
-  // La demande de Charles (pas une mission confiée à un agent), et les agents qui y travaillent.
+  // La demande de l'utilisateur (pas une mission confiée à un agent), et les agents qui y travaillent.
   const task = running.find((t) => !t.parentId) ?? running[0];
   const helpers = running.filter((t) => t.parentId === task.id && !task.team && ROLE_CREATURE[t.label]);
   if (helpers.length) {

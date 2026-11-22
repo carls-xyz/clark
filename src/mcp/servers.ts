@@ -1,15 +1,15 @@
 import type { DatabaseSync } from "node:sqlite";
 
 /**
- * Serveurs MCP ajoutés par Charles dans Plugins (Notion, Drive…). Donnés aux deux moteurs.
+ * Serveurs MCP ajoutés par l'utilisateur dans Plugins (Notion, Drive…). Donnés aux deux moteurs.
  *
  * Aucun secret n'est rangé ici : seulement les NOMS de variables d'environnement (lues
- * dans .env, que Charles remplit lui-même). Les valeurs ne passent ni par l'interface ni
+ * dans .env, que l'utilisateur remplit lui-même). Les valeurs ne passent ni par l'interface ni
  * par la base.
  *
  * Confiance :
- *  - « ask »  : chaque appel d'outil demande l'accord de Charles (par défaut) ; refusé en lecture seule.
- *  - « read » : Charles déclare que ses outils ne font que lire : sans demander, permis en lecture seule.
+ *  - « ask »  : chaque appel d'outil demande l'accord de l'utilisateur (par défaut) ; refusé en lecture seule.
+ *  - « read » : l'utilisateur déclare que ses outils ne font que lire : sans demander, permis en lecture seule.
  */
 export type McpTrust = "ask" | "read";
 export type McpTransport = "stdio" | "http";
@@ -227,7 +227,7 @@ export function claudeMcpConfig(servers: McpServer[]): Record<string, any> {
 /**
  * Configuration pour Codex, en surcharges par fil (aucun redémarrage de Codex). Les secrets
  * passent par leur nom (env_vars, bearer_token_env_var), lus par Codex dans son environnement.
- * « ask » : Codex demande l'accord à chaque appel, Clark le transmet à Charles.
+ * « ask » : Codex demande l'accord à chaque appel, Clark le transmet à l'utilisateur.
  */
 export function codexMcpConfig(servers: McpServer[]): Record<string, unknown> {
   const out: Record<string, unknown> = {};

@@ -1797,7 +1797,7 @@ kbd {
 }
 
 /* ── La scène : les agents au travail, dans la conversation ──────────── */
-/* Exception voulue par Charles (19/11) : des agents qu'on voit travailler. Mouvements en pas
+/* Exception voulue par l'utilisateur (19/11) : des agents qu'on voit travailler. Mouvements en pas
    entiers de pixel, coupés si l'utilisateur réduit les animations. */
 
 .stage {

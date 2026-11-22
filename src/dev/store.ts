@@ -58,7 +58,7 @@ export type DevGroup = {
   updated_at: string;
 };
 
-/** Un commentaire de Charles sur des lignes du diff d'une tâche ; envoyé à l'agent avec les autres, en un lot. */
+/** Un commentaire de l'utilisateur sur des lignes du diff d'une tâche ; envoyé à l'agent avec les autres, en un lot. */
 export type DevComment = {
   id: number;
   task_id: number;
@@ -98,13 +98,13 @@ export type Project = {
 
 /**
  * - preparing : copie en cours de création.   - working : l'agent travaille.
- * - review    : changements prêts à relire.    - accepted / discarded : décidé par Charles.
+ * - review    : changements prêts à relire.    - accepted / discarded : décidé par l'utilisateur.
  * - failed    : la copie ou l'agent a échoué (raison dans error).
  * - waiting   : sous-tâche d'un groupe qui attend d'autres sous-tâches (depends_on) ou une décision.
  */
 export type DevStatus = "waiting" | "preparing" | "working" | "review" | "accepted" | "discarded" | "failed";
 
-/** Une décision demandée à Charles par le plan, avant de lancer certaines sous-tâches. */
+/** Une décision demandée à l'utilisateur par le plan, avant de lancer certaines sous-tâches. */
 export type DevGate = {
   id: number;
   group_id: number;
@@ -154,9 +154,9 @@ export type DevTask = {
   review_notes: string | null;
   /** Relances automatiques faites après la limite d'étapes d'un tour (3 au plus par consigne). */
   auto_continues: number;
-  /** Corrections automatiques après des tests rouges, avant la relecture de Charles (2 au plus). */
+  /** Corrections automatiques après des tests rouges, avant la relecture de l'utilisateur (2 au plus). */
   test_fixes: number;
-  /** Pilote automatique : Clark accepte seul une version prête, aux tests verts (1), ou attend Charles (0). */
+  /** Pilote automatique : Clark accepte seul une version prête, aux tests verts (1), ou attend l'utilisateur (0). */
   autopilot: number;
   /** Tâche de suivi d'une PR : « task:5 » ou « group:2 ». Accepter pousse sur la PR. */
   pr_of: string | null;

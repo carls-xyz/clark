@@ -7,11 +7,11 @@ import { controlGoal, createGoal } from "../scheduler/goals.ts";
 import { parisParts } from "../scheduler/automations.ts";
 
 /**
- * Autonomie de Clark : ce qu'il peut décider seul, réglé par Charles type d'action par type
+ * Autonomie de Clark : ce qu'il peut décider seul, réglé par l'utilisateur type d'action par type
  * d'action (Réglages › Général › Autonomie). Par défaut, il demande.
  *
  * Quand il agit seul, il le note dans un journal (« j'ai fait X parce que Y »), le dit dans le
- * fil, et Charles peut annuler. Garde-fous fixes, quel que soit le réglage :
+ * fil, et l'utilisateur peut annuler. Garde-fous fixes, quel que soit le réglage :
  *  - pas la nuit (22 h – 8 h), et pas plus de N décisions seul par jour ;
  *  - tout ce qui sort (mail, message, formulaire, publication) passe toujours par son accord,
  *    l'argent, les mots de passe et les suppressions définitives restent interdits ;
@@ -130,7 +130,7 @@ export function parisDayStart(now = new Date()): string {
   return start.toISOString().slice(0, 19).replace("T", " ");
 }
 
-/** Clark peut-il décider seul maintenant ? Sinon, pourquoi (il redemande alors à Charles). */
+/** Clark peut-il décider seul maintenant ? Sinon, pourquoi (il redemande alors à l'utilisateur). */
 export function canActAlone(decisions: Decisions, now = new Date()): { ok: true } | { ok: false; why: string } {
   const hour = parisParts(now).hour;
   if (hour >= QUIET_HOURS.from || hour < QUIET_HOURS.to) return { ok: false, why: "la nuit, je te demande" };
@@ -142,7 +142,7 @@ export function canActAlone(decisions: Decisions, now = new Date()): { ok: true 
 
 const short = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
-/** Une proposition acceptée (par Charles ou par Clark) : ce qu'elle lance. */
+/** Une proposition acceptée (par l'utilisateur ou par Clark) : ce qu'elle lance. */
 export function launchInitiative(hub: Hub, i: Initiative, onLaunched?: (ref: { type: "task" | "goal"; id: number }) => void) {
   const source = `initiative:${i.title}`;
   if (i.mode === "goal") {
@@ -154,8 +154,8 @@ export function launchInitiative(hub: Hub, i: Initiative, onLaunched?: (ref: { t
 }
 
 /**
- * Branche l'autonomie sur Clark : les propositions et souvenirs que Charles lui a permis de
- * trancher seul le sont, dans les limites ; le reste suit le chemin habituel (accord de Charles).
+ * Branche l'autonomie sur Clark : les propositions et souvenirs que l'utilisateur lui a permis de
+ * trancher seul le sont, dans les limites ; le reste suit le chemin habituel (accord de l'utilisateur).
  */
 export function startAutonomy(hub: Hub, now: () => Date = () => new Date()): () => void {
   const { store } = hub.deps;
@@ -179,7 +179,7 @@ export function startAutonomy(hub: Hub, now: () => Date = () => new Date()): () 
       return true;
     },
     memory: (m) => {
-      // Une correction touche un fait déjà confirmé : toujours demandée à Charles.
+      // Une correction touche un fait déjà confirmé : toujours demandée à l'utilisateur.
       if (m.replaces_id !== null || !isAutonomous("souvenir")) return false;
       if (!canActAlone(decisions, now()).ok) return false;
       if (!store.confirm(m.id)) return false;

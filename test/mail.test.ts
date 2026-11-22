@@ -136,7 +136,7 @@ test("outils mail : lecture permise en lecture seule, envoi refusé ; contenu ma
   await assert.rejects(off.mail_search.run({ query: "x" }), /Google n'est pas/);
 });
 
-test("envoi : Charles voit le mail exact, Envoyer l'envoie une seule fois dans le fil d'origine", async () => {
+test("envoi : tu vois le mail exact, Envoyer l'envoie une seule fois dans le fil d'origine", async () => {
   const sent: OutgoingMail[] = [];
   const { hub, store, taskId, conversation } = setup(async (m) => void sent.push(m));
   const tools = memoryTools(store, { taskId: () => taskId, writeRefusal: () => null, google: fakeGoogle() });

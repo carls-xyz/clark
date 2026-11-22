@@ -2,7 +2,7 @@
 
 La présentation courte est dans le [README](../README.md). Ici, tout le détail.
 
-Agent personnel de Charles. On lui parle dans son interface web locale, ou sur Telegram depuis le téléphone : c'est la même conversation. Il garde une mémoire durable et il prend des initiatives. Pour l'instant, cela se limite à un brief chaque matin.
+Agent personnel. On lui parle dans son interface web locale, ou sur Telegram depuis le téléphone : c'est la même conversation. Il garde une mémoire durable et il prend des initiatives. Pour l'instant, cela se limite à un brief chaque matin.
 
 Deux moteurs au choix, avec le même journal, les mêmes validations et la même mémoire :
 - **Claude** : le Claude Agent SDK, sur ton **abonnement Claude**, sans clé API, ou sur une clé API Anthropic si tu en mets une.

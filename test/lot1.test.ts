@@ -24,7 +24,7 @@ test("fin de tâche : une réponse qui annonce la suite sans la faire est repér
   assert.ok(announcesNextStep("Les fichiers sont prêts. Je vais maintenant rédiger le mail."));
   assert.ok(announcesNextStep("Done with step 1. Shall I proceed?"));
   assert.ok(!announcesNextStep("Voici les trois relances, prêtes à envoyer."));
-  assert.ok(!announcesNextStep("Tu préfères le ton formel ou direct ?"), "une vraie question à Charles n'est pas une suite");
+  assert.ok(!announcesNextStep("Tu préfères le ton formel ou direct ?"), "une vraie question à l'utilisateur n'est pas une suite");
 });
 
 test("fin de tâche : verdict du juge lu prudemment (dans le doute, fini)", () => {

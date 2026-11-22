@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { paths } from "../config.ts";
 
 /**
- * La personnalité de Clark : un texte que Charles écrit (ton, humour, manières).
+ * La personnalité de Clark : un texte que l'utilisateur écrit (ton, humour, manières).
  * Elle règle le style, jamais les limites : le prompt la place sous les règles fixes.
  */
 export const PERSONALITY_LIMIT = 4000;

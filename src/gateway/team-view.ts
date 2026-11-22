@@ -2,7 +2,7 @@ import { MAX_REVIEWS, parseLabel, parseVerdict, ROLE_NAMES, ROLES } from "../cor
 import { MAX_PARALLEL, parsePlan, stepLabel } from "../core/plan.ts";
 import { describeStep, type Task, type TaskJournal } from "../tasks/journal.ts";
 
-/** Statut affiché d'un agent : coupé pendant une écriture, il reste « en cours » dans le journal mais attend Charles. */
+/** Statut affiché d'un agent : coupé pendant une écriture, il reste « en cours » dans le journal mais attend l'utilisateur. */
 function agentStatus(journal: TaskJournal, parent: Task, child: Task | undefined) {
   if (!child) return { status: "waiting", detail: null as string | null, checkpoint: null as string | null };
   const status = parent.status === "needs_check" && child.status === "running" ? "needs_check" : child.status;

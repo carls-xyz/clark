@@ -3,7 +3,7 @@ import type { CanUseTool } from "@anthropic-ai/claude-agent-sdk";
 import type { Store } from "../memory/store.ts";
 import type { TaskJournal } from "../tasks/journal.ts";
 
-/** Demande à Charles (bouton dans l'interface web ou sur Telegram). Résout true s'il valide, false sinon ou au délai dépassé. */
+/** Demande à l'utilisateur (bouton dans l'interface web ou sur Telegram). Résout true s'il valide, false sinon ou au délai dépassé. */
 export type Approver = (request: { tool: string; summary: string }) => Promise<boolean>;
 
 /**
@@ -24,7 +24,7 @@ const FILE_TOOLS = new Set(["Read", "Write", "Edit", "Glob", "Grep"]);
  * Tout outil inconnu est considéré comme une écriture.
  */
 export type Effect = "read" | "write";
-// Poser une question à Charles ou noter son avancement ne change rien au monde : ce sont des
+// Poser une question à l'utilisateur ou noter son avancement ne change rien au monde : ce sont des
 // lectures (rejouables, permises en lecture seule).
 const READ_ONLY = new Set([
   "Read",
@@ -36,7 +36,7 @@ const READ_ONLY = new Set([
   "mcp__memory__recall",
   "mcp__memory__ask_charles",
   "mcp__memory__report_progress",
-  // Une proposition n'agit sur rien : c'est Charles qui décide de la lancer.
+  // Une proposition n'agit sur rien : c'est l'utilisateur qui décide de la lancer.
   "mcp__memory__propose_initiative",
   // Un compte rendu d'objectif ne change rien au monde.
   "mcp__memory__report_goal",
@@ -46,7 +46,7 @@ const READ_ONLY = new Set([
   "mcp__memory__mail_read",
   "mcp__memory__calendar_events",
   // Lire le web dans le navigateur ne change rien ; cliquer, écrire, choisir sont des écritures
-  // (et le navigateur demande l'accord de Charles pour ce qui engage).
+  // (et le navigateur demande l'accord de l'utilisateur pour ce qui engage).
   "mcp__memory__browser_open",
   "mcp__memory__browser_read",
   "mcp__memory__browser_scroll",
@@ -64,7 +64,7 @@ const READ_ONLY = new Set([
 ]);
 
 /**
- * Serveurs MCP ajoutés par Charles et déclarés « en lecture seule » : leurs outils passent
+ * Serveurs MCP ajoutés par l'utilisateur et déclarés « en lecture seule » : leurs outils passent
  * sans demander et restent permis aux agents en lecture seule. Les autres sont des écritures
  * qui demandent son accord à chaque appel. Tenu à jour par le hub depuis la base.
  */
