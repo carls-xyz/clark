@@ -1,4 +1,4 @@
-import { lastWeekForPrompt, recentJournalForPrompt } from "./daily-journal.ts";
+import { lastMonthForPrompt, lastWeekForPrompt, recentJournalForPrompt } from "./daily-journal.ts";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Store } from "../memory/store.ts";
@@ -81,7 +81,8 @@ export function buildSystemPrompt(store: Store, coreDir: string): string {
   const skills = skillsForPrompt();
   const recent = recentJournalForPrompt(store.db);
   const lastWeek = lastWeekForPrompt(store.db);
-  const journal = [recent, lastWeek].filter(Boolean).join("\n\n");
+  const lastMonth = lastMonthForPrompt(store.db);
+  const journal = [recent, lastWeek, lastMonth].filter(Boolean).join("\n\n");
   return [
     IDENTITY,
     personalityForPrompt(),
