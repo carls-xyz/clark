@@ -88,9 +88,12 @@ test("idées : avis, recherche interrompue, sites parcourus", () => {
   s.ideas.report(id, "go", "Nouvel avis");
   assert.equal(s.ideas.get(id)!.status, "kept", "un nouvel avis ne défait pas « gardée »");
 
-  assert.deepEqual(s.ideas.sources(), DEFAULT_SOURCES);
-  assert.deepEqual(s.ideas.setSources([" https://a.dev/x ", "pas un lien", "https://a.dev/x", "http://b.dev"]), ["https://a.dev/x", "http://b.dev"]);
+  assert.deepEqual(s.ideas.sources(), DEFAULT_SOURCES.projet);
+  assert.deepEqual(s.ideas.sources("design"), DEFAULT_SOURCES.design);
+  assert.ok(DEFAULT_SOURCES.projet.length >= 12 && DEFAULT_SOURCES.design.length >= 10, "de quoi tourner plusieurs jours");
+  assert.deepEqual(s.ideas.setSources("projet", [" https://a.dev/x ", "pas un lien", "https://a.dev/x", "http://b.dev"]), ["https://a.dev/x", "http://b.dev"]);
   assert.deepEqual(s.ideas.sources(), ["https://a.dev/x", "http://b.dev"]);
+  assert.deepEqual(s.ideas.sources("design"), DEFAULT_SOURCES.design, "chaque sorte a sa liste");
 });
 
 test("outils : note_idea (scroll pendant le tour, sinon Clark), permis en lecture seule ; idea_report", () => {
@@ -121,11 +124,15 @@ test("outils : note_idea (scroll pendant le tour, sinon Clark), permis en lectur
 });
 
 test("consignes : le tour donne les sites, les idées déjà vues et les gardées ; la recherche donne l'idée", () => {
-  const p = ideasTourPrompt(["https://news.ycombinator.com/show"], ["Vieille idée"], [{ title: "Idée gardée" } as any], new Date("2026-11-22T14:00:00Z"));
+  const p = ideasTourPrompt({ projet: ["https://news.ycombinator.com/show"], design: ["https://godly.website/"] }, ["Vieille idée"], [{ title: "Idée gardée", kind: "projet" } as any, { title: "Grille de Linear", kind: "design" } as any], new Date("2026-11-22T14:00:00Z"));
   assert.match(p, /\[Tour d'idées\]/);
   assert.match(p, /news\.ycombinator\.com\/show/);
   assert.match(p, /- Vieille idée/);
-  assert.match(p, /- Idée gardée/);
+  assert.match(p, /Projets que Charles a gardés[^\n]*\n- Idée gardée/);
+  assert.match(p, /Références design qu'il a gardées[^\n]*\n- Grille de Linear/);
+  assert.match(p, /Pour le design :\n- https:\/\/godly\.website\//);
+  assert.match(p, /kind « projet » ou « design »/);
+  assert.match(p, /verre dépoli, grain, lueurs/, "son goût sobre est donné");
   assert.match(p, /ne te connecte jamais/);
   assert.match(p, /nothing_new/);
 
@@ -243,9 +250,59 @@ test("idée lancée en vrac : le lien devient la source, et Clark la creuse", as
 
 test("note d'une idée : nom de fichier propre, rien sans coffre", () => {
   const i = { id: 1, title: 'Un "titre" / bizarre : ok', pitch: "P", why: null, status: "kept", verdict: null, report: null, source_url: null } as any;
-  assert.match(ideaNote(i), /^---\ntype: idee\nstatut: gardée/);
+  assert.match(ideaNote(i), /^---\ntype: idee\nsorte: projet\nstatut: gardée/);
   const root = mkdtempSync(join(tmpdir(), "clark-vault-"));
   mkdirSync(join(root, "Clark"), { recursive: true });
   assert.equal(writeIdeaNote(i, root), "Clark/Idées/Un titre bizarre ok.md");
   assert.equal(writeIdeaNote(i, null), null);
+});
+
+test("sites : quelques-uns par tour, à tour de rôle, sans en sauter", () => {
+  const s = new Store(":memory:");
+  s.ideas.setSources("projet", ["https://a.dev", "https://b.dev", "https://c.dev", "https://d.dev", "https://e.dev", "https://f.dev"]);
+  s.ideas.setSources("design", ["https://x.dev", "https://y.dev", "https://z.dev"]);
+  assert.deepEqual(s.ideas.nextSites(), s.ideas.nextSites(), "regarder n'avance pas");
+  const first = s.ideas.nextSites(true);
+  assert.deepEqual(first, { projet: ["https://a.dev", "https://b.dev", "https://c.dev", "https://d.dev"], design: ["https://x.dev", "https://y.dev"] });
+  assert.deepEqual(s.ideas.nextSites(true), { projet: ["https://e.dev", "https://f.dev", "https://a.dev", "https://b.dev"], design: ["https://z.dev", "https://x.dev"] });
+  s.ideas.setSources("design", []);
+  assert.deepEqual(s.ideas.nextSites().design, [], "liste vide : rien pour cette sorte");
+});
+
+test("design : sorte notée par l'outil et par « design : … », recherche et note adaptées", async () => {
+  const { store, hub, calls } = setup();
+  const journal = new TaskJournal(store.db);
+  const tour = journal.create(IDEAS_CHAT, IDEAS_TOUR_LABEL, "tour");
+  const t = memoryTools(store, { taskId: () => tour, writeRefusal: () => "lecture seule" });
+  t.note_idea.run({ kind: "design", title: "Grille éditoriale de Stripe Press", pitch: "Une grille à deux colonnes, des titres serrés, beaucoup d'air.", why: "Pour la page projets du portfolio", source_url: "https://press.stripe.com" });
+  const d = store.ideas.get(1)!;
+  assert.equal(d.kind, "design");
+  assert.match(ideaDigPrompt(d), /référence design[\s\S]*Ce qui marche : Une grille[\s\S]*Où le réutiliser : Pour la page[\s\S]*« Comment le refaire »/);
+  assert.doesNotMatch(ideaDigPrompt({ ...d, kind: "projet" }), /Comment le refaire/);
+  assert.match(ideaNote({ ...d, status: "kept" }), /sorte: design[\s\S]*clark\/idee\/design[\s\S]*\*\*Où le réutiliser :\*\*/);
+
+  const r = addIdeaFromOwner(hub, "Design : le menu de linear.app https://linear.app", false);
+  const mine = store.ideas.get((r as { id: number }).id)!;
+  assert.equal(mine.kind, "design");
+  assert.equal(mine.title, "le menu de linear.app");
+  const forced = addIdeaFromOwner(hub, "Une page de prix très claire", false, "design");
+  assert.equal(store.ideas.get((forced as { id: number }).id)!.kind, "design");
+  assert.equal(store.ideas.get((addIdeaFromOwner(hub, "Un projet tout simple", false) as { id: number }).id)!.kind, "projet");
+
+  decideIdea(hub, 1, "start");
+  await until(() => calls.length === 1);
+  assert.match(calls[0].opts.prompt, /Je lance l'idée design #1[\s\S]*où tu l'appliquerais/);
+});
+
+test("idées d'avant la sorte design : la colonne est ajoutée, elles deviennent des projets", () => {
+  const dir = mkdtempSync(join(tmpdir(), "clark-idees-migr-"));
+  const path = join(dir, "clark.db");
+  const first = new Store(path);
+  first.db.exec("DROP TABLE ideas");
+  first.db.exec("CREATE TABLE ideas (id INTEGER PRIMARY KEY, title TEXT NOT NULL, title_key TEXT NOT NULL, pitch TEXT NOT NULL, why TEXT, origin TEXT NOT NULL, source_url TEXT, source_label TEXT, status TEXT NOT NULL DEFAULT 'new', verdict TEXT, report TEXT, drop_reason TEXT, task_id INTEGER, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')))");
+  first.db.exec("INSERT INTO ideas (title, title_key, pitch, origin) VALUES ('Vieille', 'vieille', 'Une vieille idée', 'scroll')");
+  first.db.close();
+  const again = new Store(path);
+  assert.equal(again.ideas.get(1)!.kind, "projet");
+  again.db.close();
 });

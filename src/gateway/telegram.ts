@@ -210,7 +210,7 @@ export function createTelegram(hub: Hub, opts: { token: string; ownerId: number;
 
   bot.command("start", (ctx) =>
     ctx.reply(
-      "Salut, c'est Clark. Écris-moi normalement, ou envoie-moi un vocal.\n\n/nouveau : nouvelle conversation\n/memoire : ce que je retiens\n/budget : dépense du jour\n/taches : avancement et tâches à vérifier\n/equipe : confier une demande à l'équipe\n/objectif : donner un objectif que je poursuis sur plusieurs tours\n/idee : me lancer une idée de projet, je la creuse",
+      "Salut, c'est Clark. Écris-moi normalement, ou envoie-moi un vocal.\n\n/nouveau : nouvelle conversation\n/memoire : ce que je retiens\n/budget : dépense du jour\n/taches : avancement et tâches à vérifier\n/equipe : confier une demande à l'équipe\n/objectif : donner un objectif que je poursuis sur plusieurs tours\n/idee : me lancer une idée de projet (ou « /idee design : … »), je la creuse",
     ),
   );
 

@@ -32,7 +32,7 @@ import { describeStep, uncertainSteps } from "../tasks/journal.ts";
 import { teamView } from "./team-view.ts";
 import { HEARTBEAT_LABEL } from "../scheduler/heartbeat.ts";
 import { addIdeaFromOwner, decideIdea, ideasHour, ideasTourStatus, runIdeasTourNow, type IdeaAction } from "../scheduler/ideas.ts";
-import { IDEA_DIG_LABEL, IDEAS_TOUR_LABEL } from "../core/ideas.ts";
+import { IDEA_DIG_LABEL, IDEAS_TOUR_LABEL, SITES_PER_TOUR } from "../core/ideas.ts";
 import type { Task } from "../tasks/journal.ts";
 import { hasVar, type McpInput } from "../mcp/servers.ts";
 import { sandboxEnabled } from "../engines/sandbox.ts";
@@ -525,6 +525,7 @@ export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voi
     ideas: store.ideas.list().map((i) => ({
       id: i.id,
       title: i.title,
+      kind: i.kind,
       pitch: i.pitch,
       why: i.why,
       origin: i.origin,
@@ -539,7 +540,7 @@ export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voi
     })),
     ideasTour: (() => {
       const s = ideasTourStatus(hub);
-      return { hour: ideasHour(), why: s.why, running: hub.deps.journal.unfinished().some((t) => t.label === IDEAS_TOUR_LABEL), sources: store.ideas.sources() };
+      return { hour: ideasHour(), why: s.why, running: hub.deps.journal.unfinished().some((t) => t.label === IDEAS_TOUR_LABEL), sources: { projet: store.ideas.sources("projet"), design: store.ideas.sources("design") }, next: store.ideas.nextSites(), perTour: SITES_PER_TOUR };
     })(),
     // Réseaux sociaux : brouillons à valider, avec leurs vérifications, et derniers contenus validés.
     posts: hub.posts().map((p) => ({
@@ -1541,7 +1542,7 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
     // Idées : en ajouter une (en vrac), lancer le tour, régler les sites, trier.
     if (path === "/api/ideas") {
       const text = typeof body.text === "string" ? body.text.slice(0, 2000) : "";
-      const r = addIdeaFromOwner(hub, text, body.dig !== false);
+      const r = addIdeaFromOwner(hub, text, body.dig !== false, body.kind === "design" ? "design" : body.kind === "projet" ? "projet" : undefined);
       return "error" in r ? json(res, r.status, { error: r.error }) : json(res, 200, { ok: true, id: r.id });
     }
     if (path === "/api/ideas/tour") {
@@ -1549,8 +1550,9 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
       return json(res, r.ok ? 202 : 409, r.ok ? { ok: true } : { error: `Pas de tour maintenant : ${r.why}` });
     }
     if (path === "/api/ideas/sources") {
+      const kind = body.kind === "design" ? "design" : "projet";
       const list = Array.isArray(body.sources) ? body.sources.filter((x): x is string => typeof x === "string") : [];
-      return json(res, 200, { ok: true, sources: store.ideas.setSources(list) });
+      return json(res, 200, { ok: true, sources: store.ideas.setSources(kind, list) });
     }
     const idea = path.match(/^\/api\/ideas\/(\d+)$/);
     if (idea) {

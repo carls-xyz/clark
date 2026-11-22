@@ -1,6 +1,12 @@
 // ── Idées : le tour d'idées (Clark scrolle), tes idées en vrac, ses avis ──
 
 let ideasFilter = "sort"; // sort | kept | started | dropped
+let ideasKind = "all"; // all | projet | design
+const IDEA_KIND_FILTERS = [
+  ["all", "Tout"],
+  ["projet", "Projets"],
+  ["design", "Design"],
+];
 const IDEA_FILTERS = [
   ["sort", "À trier", (i) => i.status === "new" || i.status === "digging" || i.status === "dug"],
   ["kept", "Gardées", (i) => i.status === "kept"],
@@ -51,6 +57,7 @@ function ideaCard(i) {
   const open = ideaOpen.has(i.id) || (i.status === "dug" && !ideaOpen.has(-i.id));
   return `<article class="card idea" data-idea="${i.id}" data-status="${i.status}">
     <div class="idea-tags">
+      ${i.kind === "design" ? `<span class="tag idea-design">Design</span>` : ""}
       <span class="tag idea-origin">${esc(IDEA_ORIGIN[i.origin] ?? i.origin)}</span>
       ${verdict ? `<span class="tag ${verdict[1]}">${verdict[0]}</span>` : ""}
       ${i.status === "started" ? `<span class="tag idea-go">Lancée</span>` : ""}
@@ -64,16 +71,42 @@ function ideaCard(i) {
   </article>`;
 }
 
+/** Un site en clair : « r/SideProject », « GitHub Trending typescript », « godly.website ». */
+function siteLabel(url) {
+  try {
+    const u = new URL(url);
+    const host = u.host.replace(/^(www|old)\./, "");
+    const parts = u.pathname.split("/").filter(Boolean);
+    if (host === "reddit.com" && parts[0] === "r" && parts[1]) return `r/${parts[1]}`;
+    if (host === "github.com" && parts[0] === "trending") return `GitHub Trending${parts[1] ? ` ${parts[1]}` : ""}`;
+    if (host === "news.ycombinator.com") return parts[0] === "show" ? "Show HN" : "Hacker News";
+    return host;
+  } catch {
+    return url;
+  }
+}
+
+function ideaSourcesField(t, kind, label) {
+  const list = t.sources[kind] ?? [];
+  return `<div class="idea-sources-field">
+    <label for="idea-sources-${kind}">${label} <span class="block-count">${list.length} sites, ${t.perTour?.[kind] ?? 0} par tour</span></label>
+    <textarea id="idea-sources-${kind}" data-sources-kind="${kind}" rows="${Math.min(12, Math.max(4, list.length + 1))}" spellcheck="false">${esc(list.join("\n"))}</textarea>
+  </div>`;
+}
+
 function ideasTourLine(t) {
   if (!t) return "";
   const when = t.running ? "tour en cours" : t.hour === null ? "coupé" : `chaque jour à ${t.hour} h : ${t.why}`;
+  const total = (t.sources.projet?.length ?? 0) + (t.sources.design?.length ?? 0);
+  const next = [...(t.next?.projet ?? []), ...(t.next?.design ?? [])].map(siteLabel);
   return `<div class="idea-tour">
     <p class="quiet">Tour d'idées, ${esc(when)}. ${t.running ? "" : `<button type="button" class="link" data-ideas-tour>Faire un tour maintenant</button>`}</p>
     <details class="idea-sources">
-      <summary>Sites parcourus (${t.sources.length})</summary>
+      <summary>Sites parcourus (${total})</summary>
       <form id="idea-sources-form">
-        <label class="visually-hidden" for="idea-sources">Un site par ligne</label>
-        <textarea id="idea-sources" rows="${Math.min(10, Math.max(4, t.sources.length + 1))}" spellcheck="false">${esc(t.sources.join("\n"))}</textarea>
+        <p class="quiet">Clark en visite quelques-uns à chaque tour, à tour de rôle : tout est couvert en quelques jours.${next.length ? ` Prochain tour : ${esc(next.join(", "))}.` : ""}</p>
+        ${ideaSourcesField(t, "projet", "Projets")}
+        ${ideaSourcesField(t, "design", "Design")}
         <p class="quiet">Un lien par ligne. Une page qui demande de se connecter est sautée : connecte-toi toi-même dans le navigateur de Clark pour qu'il la voie.</p>
         <button type="submit" class="btn secondary">Enregistrer</button>
       </form>
@@ -85,8 +118,10 @@ function renderIdeas() {
   const box = $("#ideas");
   if (!box || !state) return;
   // Pendant qu'on modifie la liste des sites, on ne redessine pas sous les doigts.
-  if (box.contains(document.activeElement) && document.activeElement.id === "idea-sources") return;
-  const all = state.ideas ?? [];
+  if (box.contains(document.activeElement) && document.activeElement.dataset.sourcesKind) return;
+  const every = state.ideas ?? [];
+  const all = ideasKind === "all" ? every : every.filter((i) => (i.kind ?? "projet") === ideasKind);
+  const kinds = IDEA_KIND_FILTERS.map(([key, label]) => `<button type="button" class="idea-filter" data-idea-kind="${key}" aria-pressed="${key === ideasKind}">${label}</button>`).join("");
   const filter = IDEA_FILTERS.find((f) => f[0] === ideasFilter) ?? IDEA_FILTERS[0];
   const shown = all.filter(filter[2]);
   const tabs = IDEA_FILTERS.map(([key, label, test]) => {
@@ -101,7 +136,10 @@ function renderIdeas() {
         : "Pas encore d'idée. Lance la tienne au-dessus, ou fais faire un tour à Clark."
       : "Aucune pour l'instant.";
   box.innerHTML = `${ideasTourLine(state.ideasTour)}
-    <div class="idea-filters" role="group" aria-label="Filtrer les idées">${tabs}</div>
+    <div class="idea-filter-bar">
+      <div class="idea-filters" role="group" aria-label="Filtrer par état">${tabs}</div>
+      <div class="idea-filters" role="group" aria-label="Filtrer par sorte">${kinds}</div>
+    </div>
     ${shown.length ? shown.map(ideaCard).join("") : `<p class="quiet">${empty}</p>`}`;
   if (sourcesOpen) box.querySelector(".idea-sources").open = true;
 }
@@ -119,7 +157,7 @@ $("#idea-add").addEventListener("submit", async (e) => {
   const btn = e.target.querySelector("button[type=submit]");
   btn.disabled = true;
   try {
-    await post("/api/ideas", { text, dig: $("#idea-dig").checked });
+    await post("/api/ideas", { text, dig: $("#idea-dig").checked, kind: $("#idea-kind").value });
     $("#idea-text").value = "";
     ideasFilter = "sort";
     renderIdeas();
@@ -152,12 +190,14 @@ $("#ideas").addEventListener("toggle", (e) => {
 $("#ideas").addEventListener("submit", async (e) => {
   if (e.target.id !== "idea-sources-form") return;
   e.preventDefault();
-  const sources = $("#idea-sources").value.split("\n").map((s) => s.trim()).filter(Boolean);
   const btn = e.target.querySelector("button[type=submit]");
   btn.disabled = true;
   try {
-    await post("/api/ideas/sources", { sources });
-    $("#idea-sources").blur();
+    for (const area of e.target.querySelectorAll("[data-sources-kind]")) {
+      const sources = area.value.split("\n").map((s) => s.trim()).filter(Boolean);
+      await post("/api/ideas/sources", { kind: area.dataset.sourcesKind, sources });
+    }
+    document.activeElement?.blur();
   } catch (error) {
     e.target.insertAdjacentHTML("beforeend", `<p class="inline-error" role="alert">${esc(error.message)}</p>`);
   } finally {
@@ -169,6 +209,11 @@ $("#ideas").addEventListener("click", async (e) => {
   const tab = e.target.closest("[data-idea-filter]");
   if (tab) {
     ideasFilter = tab.dataset.ideaFilter;
+    return renderIdeas();
+  }
+  const kindTab = e.target.closest("[data-idea-kind]");
+  if (kindTab) {
+    ideasKind = kindTab.dataset.ideaKind;
     return renderIdeas();
   }
   if (e.target.closest("[data-ideas-tour]")) {

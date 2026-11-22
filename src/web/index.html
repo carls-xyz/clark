@@ -214,9 +214,16 @@
         <div class="page-body">
           <form class="idea-add" id="idea-add" autocomplete="off">
             <label class="visually-hidden" for="idea-text">Une idée de projet</label>
-            <textarea id="idea-text" name="text" rows="2" maxlength="2000" placeholder="Lance une idée : une phrase, un lien. Clark la creuse et te donne son avis."></textarea>
+            <textarea id="idea-text" name="text" rows="2" maxlength="2000" placeholder="Lance une idée : une phrase, un lien (un projet, ou un site dont le design te plaît). Clark la creuse et te donne son avis."></textarea>
             <div class="idea-add-row">
-              <label class="idea-dig"><input type="checkbox" id="idea-dig" checked /> Clark la creuse tout de suite</label>
+              <div class="idea-add-opts">
+                <label class="visually-hidden" for="idea-kind">Sorte d'idée</label>
+                <select id="idea-kind" class="chip-select">
+                  <option value="projet">Projet</option>
+                  <option value="design">Design</option>
+                </select>
+                <label class="idea-dig"><input type="checkbox" id="idea-dig" checked /> Clark la creuse tout de suite</label>
+              </div>
               <button type="submit" class="btn primary">Ajouter</button>
             </div>
             <p class="inline-error" id="idea-error" hidden></p>

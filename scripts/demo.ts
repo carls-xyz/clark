@@ -464,6 +464,7 @@ async function fakeIdeasTour(deps: Parameters<typeof executeTask>[0], taskId: nu
   await step("mcp__memory__browser_open", { url: "https://news.ycombinator.com/show" }, "Show HN : 30 projets.");
   await step("mcp__memory__browser_scroll", { direction: "down" }, "Suite de la liste.");
   await step("mcp__memory__browser_open", { url: "https://github.com/trending?since=daily" }, "GitHub Trending : 25 dépôts.");
+  await step("mcp__memory__browser_open", { url: "https://www.siteinspire.com/" }, "Siteinspire : 40 sites.");
   const tools = memoryTools(deps.store, { taskId: () => taskId, writeRefusal: () => null });
   const ideas = [
     {
@@ -479,6 +480,14 @@ async function fakeIdeasTour(deps: Parameters<typeof executeTask>[0], taskId: nu
       why: "Tu fusionnes toi-même chaque PR de Clark : savoir lesquelles sont prêtes t'évite d'aller voir.",
       source_url: "https://github.com/trending?since=daily",
       source_label: "GitHub Trending",
+    },
+    {
+      kind: "design" as const,
+      title: "Liste de projets en tableau, façon index éditorial",
+      pitch: "Une seule colonne de lignes : année, nom, rôle, en typo mono serrée ; l'aperçu de l'image n'apparaît qu'à l'ouverture de la ligne. Très lisible, rien de décoratif.",
+      why: "La page projets de ton portfolio : elle remplacerait la grille de cartes.",
+      source_url: "https://www.siteinspire.com/",
+      source_label: "Siteinspire",
     },
   ];
   const lines: string[] = [];
