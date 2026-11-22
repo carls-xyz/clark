@@ -14,6 +14,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { speak, transcribe, voiceStatus } from "../voice/voice.ts";
+import { addIdeaFromOwner } from "../scheduler/ideas.ts";
 
 /** Ce dont le canal a besoin pour la voix (remplaçable dans les tests). */
 export type TelegramVoice = {
@@ -209,7 +210,7 @@ export function createTelegram(hub: Hub, opts: { token: string; ownerId: number;
 
   bot.command("start", (ctx) =>
     ctx.reply(
-      "Salut, c'est Clark. Écris-moi normalement, ou envoie-moi un vocal.\n\n/nouveau : nouvelle conversation\n/memoire : ce que je retiens\n/budget : dépense du jour\n/taches : avancement et tâches à vérifier\n/equipe : confier une demande à l'équipe\n/objectif : donner un objectif que je poursuis sur plusieurs tours",
+      "Salut, c'est Clark. Écris-moi normalement, ou envoie-moi un vocal.\n\n/nouveau : nouvelle conversation\n/memoire : ce que je retiens\n/budget : dépense du jour\n/taches : avancement et tâches à vérifier\n/equipe : confier une demande à l'équipe\n/objectif : donner un objectif que je poursuis sur plusieurs tours\n/idee : me lancer une idée de projet, je la creuse",
     ),
   );
 
@@ -249,6 +250,14 @@ export function createTelegram(hub: Hub, opts: { token: string; ownerId: number;
     if (text.length < 10) return void (await ctx.reply("Écris l'objectif après la commande, par exemple : /objectif Préparer les relances de toutes mes candidatures"));
     const id = createGoal(hub, text, DEFAULT_MAX_TURNS, "telegram");
     await ctx.reply(`Objectif #${id} lancé. Je te préviens quand il est atteint ou si j'ai besoin de toi.`);
+  });
+
+  // « /idee ton idée » : rangée dans la page Idées, puis creusée par Clark.
+  bot.command("idee", async (ctx) => {
+    const text = ctx.match?.toString().trim() ?? "";
+    if (text.length < 5) return void (await ctx.reply("Écris l'idée après la commande, par exemple : /idee une extension qui résume mes PR GitHub"));
+    const r = addIdeaFromOwner(hub, text);
+    await ctx.reply("error" in r ? r.error : `Idée #${r.id} notée. Je la creuse et je te dis ce que j'en pense.`);
   });
 
   // « /equipe ta demande » : Chercheur, Rédacteur puis Relecteur.

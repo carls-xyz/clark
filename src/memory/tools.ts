@@ -17,6 +17,7 @@ import { googleStatus, notConnectedText } from "../google/auth.ts";
 import { MAIL_DATA_NOTE, parseAddresses, readMail, searchMail, type MailFull, type MailSummary } from "../google/gmail.ts";
 import { formatEvents, listEvents, type CalendarEvent } from "../google/calendar.ts";
 import { goalOfLabel } from "../core/goals.ts";
+import { IDEAS_TOUR_LABEL } from "../core/ideas.ts";
 import { listSkills, readSkill } from "../skills/library.ts";
 import { BROWSER_WRITES, localBrowser, type BrowserAction } from "../browser/service.ts";
 import { localMessages } from "../imessage/service.ts";
@@ -351,6 +352,41 @@ export function memoryTools(store: Store, ctx: { taskId: () => number | undefine
         if (r.outcome === "declined_before") return `Charles a déjà refusé cette proposition récemment (#${r.id}) : ne la refais pas.`;
         if (r.outcome === "full") return "Charles a déjà plusieurs propositions en attente : n'en ajoute pas.";
         return `Proposition #${r.id} envoyée à Charles. Ne fais rien tant qu'il n'a pas accepté.`;
+      },
+    },
+    note_idea: {
+      description:
+        "Note une idée de projet pour Charles dans sa page Idées (il la trie ensuite : creuser, garder, écarter, lancer). Une idée = un projet qu'il pourrait construire, pas juste un lien : dis ce qu'on construirait et pourquoi c'est pour lui (ses projets, sa stack, ce qu'il aime). Donne la source. Rien n'est lancé.",
+      shape: {
+        title: z.string().min(5).max(90).describe("Le projet en quelques mots : « Tableau de bord de ses PR GitHub dans Clark »"),
+        pitch: z.string().min(20).max(800).describe("Ce qu'on construirait, en deux ou trois phrases"),
+        why: z.string().min(5).max(400).describe("Pourquoi c'est pour Charles"),
+        source_url: z.string().url().max(500).optional().describe("La page où tu l'as vue"),
+        source_label: z.string().min(2).max(80).optional().describe("D'où ça vient, lisible : « Show HN », « r/selfhosted », « GitHub Trending »"),
+      },
+      run(args: { title: string; pitch: string; why: string; source_url?: string; source_label?: string }) {
+        const taskId = ctx.taskId();
+        if (taskId === undefined) return "Refusé : je ne retrouve pas la tâche qui note cette idée.";
+        const row = store.db.prepare("SELECT label FROM tasks WHERE id = ?").get(taskId) as { label: string } | undefined;
+        const r = store.ideas.add({ title: args.title, pitch: args.pitch, why: args.why, origin: row?.label === IDEAS_TOUR_LABEL ? "scroll" : "clark", sourceUrl: args.source_url ?? null, sourceLabel: args.source_label ?? null, taskId });
+        if (r.outcome === "duplicate") return `Déjà notée (idée #${r.id}) : n'en refais pas une variante.`;
+        if (r.outcome === "dropped_before") return `Charles a déjà écarté cette idée (#${r.id}) : ne la repropose pas.`;
+        if (r.outcome === "full") return "Charles a déjà beaucoup d'idées à trier : n'en ajoute plus pour l'instant.";
+        return `Idée #${r.id} notée dans sa page Idées.`;
+      },
+    },
+    idea_report: {
+      description:
+        "Quand on te demande de creuser une idée de la page Idées : rends ton compte rendu et ton avis. verdict : go (à faire maintenant), later (bonne idée, pas maintenant), skip (à laisser). Le compte rendu est en Markdown court : ce que c'est, ce qui existe déjà, si ça colle à ses projets et à sa stack, l'effort, un premier pas concret, les risques.",
+      shape: {
+        id: z.number().int().positive().describe("Le numéro de l'idée"),
+        verdict: z.enum(["go", "later", "skip"]),
+        report: z.string().min(50).max(6000).describe("Le compte rendu, en Markdown"),
+      },
+      run(args: { id: number; verdict: "go" | "later" | "skip"; report: string }) {
+        if (!store.ideas.get(args.id)) return `Idée #${args.id} introuvable.`;
+        store.ideas.report(args.id, args.verdict, args.report);
+        return `Compte rendu de l'idée #${args.id} enregistré. Réponds en une ligne.`;
       },
     },
     delegate: {
@@ -768,6 +804,8 @@ export function memoryServer(store: Store, opts: { taskId?: number; readOnly?: b
       tool("forget", t.forget.description, t.forget.shape, async (a) => text(t.forget.run(a))),
       tool("ask_charles", t.ask_charles.description, t.ask_charles.shape, async (a) => text(await t.ask_charles.run(a))),
       tool("propose_initiative", t.propose_initiative.description, t.propose_initiative.shape, async (a) => text(t.propose_initiative.run(a))),
+      tool("note_idea", t.note_idea.description, t.note_idea.shape, async (a) => text(t.note_idea.run(a))),
+      tool("idea_report", t.idea_report.description, t.idea_report.shape, async (a) => text(t.idea_report.run(a))),
       tool("prepare_social_post", t.prepare_social_post.description, t.prepare_social_post.shape, async (a) => text(await t.prepare_social_post.run(a))),
       tool("use_skill", t.use_skill.description, t.use_skill.shape, async (a) => text(t.use_skill.run(a))),
       tool("delegate", t.delegate.description, t.delegate.shape, async (a) => text(await t.delegate.run(a))),

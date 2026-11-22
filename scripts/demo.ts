@@ -19,6 +19,9 @@ process.env.CLARK_PERSONALITY_FILE ??= join(tmpdir(), "clark-demo-personnalite.m
 process.env.CLARK_BROWSER_PROFILE ??= join(tmpdir(), "clark-demo-browser");
 // Ni tes plugins : ceux de la démo vivent à part.
 process.env.CLARK_PLUGINS_DIR ??= join(tmpdir(), "clark-demo-plugins");
+// Ni ton coffre Obsidian : la démo écrit dans un coffre jetable.
+process.env.CLARK_OBSIDIAN_VAULT ??= join(tmpdir(), "clark-demo-vault");
+mkdirSync(process.env.CLARK_OBSIDIAN_VAULT, { recursive: true });
 // Démo : un faux GitHub (aucun appel réseau), et des PR relues toutes les minutes.
 process.env.CLARK_GH_BIN ??= join(paths.root, "scripts/fake-gh.mjs");
 process.env.FAKE_GH_STATE ??= join(tmpdir(), "clark-demo-gh.json");
@@ -125,6 +128,9 @@ const fakeExecute: typeof executeTask = async (deps, taskId, opts) => {
 
   // Tour de veille : Clark cherche dans sa mémoire et fait deux propositions.
   if (opts.prompt.startsWith("[Tour de veille de Clark]")) return fakeHeartbeat(deps, taskId, step);
+  // Tour d'idées et recherche sur une idée : le navigateur, puis des idées notées ou un avis.
+  if (opts.prompt.startsWith("[Tour d'idées]")) return fakeIdeasTour(deps, taskId, step);
+  if (/^\[Idée #\d+ à creuser\]/.test(opts.prompt)) return fakeIdeaDig(deps, taskId, opts.prompt, step);
 
   // Réseaux sociaux : une vidéo de démo produit, montée pour de vrai avec ffmpeg.
   if (/vid[ée]o|tiktok/i.test(opts.prompt) && !opts.prompt.includes("[Équipe de Clark")) return fakeVideo(deps, taskId, opts.prompt, step);
@@ -448,6 +454,75 @@ async function fakeHeartbeat(
     outcomes.push(r);
   }
   const text = `Tour de veille fini. ${outcomes.join(" ")}`;
+  journal.finish(taskId, "done", text, 0);
+  return { text, costUsd: 0, status: "done" as const };
+}
+
+async function fakeIdeasTour(deps: Parameters<typeof executeTask>[0], taskId: number, step: (tool: string, input: Record<string, unknown>, output: string) => Promise<void>) {
+  const { journal } = deps;
+  await step("mcp__memory__recall", { query: "projets stack" }, "Clark (TypeScript, Node), portfolio Next.js, boutique Shopify.");
+  await step("mcp__memory__browser_open", { url: "https://news.ycombinator.com/show" }, "Show HN : 30 projets.");
+  await step("mcp__memory__browser_scroll", { direction: "down" }, "Suite de la liste.");
+  await step("mcp__memory__browser_open", { url: "https://github.com/trending?since=daily" }, "GitHub Trending : 25 dépôts.");
+  const tools = memoryTools(deps.store, { taskId: () => taskId, writeRefusal: () => null });
+  const ideas = [
+    {
+      title: "Clark joignable depuis le téléphone via Tailscale",
+      pitch: "Faire tourner Clark sur un petit VPS et l'ouvrir au téléphone par Tailscale, sans rien exposer sur Internet.",
+      why: "Clark s'arrête quand le Mac dort ; plusieurs projets Show HN font pareil avec un serveur à 5 € par mois.",
+      source_url: "https://news.ycombinator.com/show",
+      source_label: "Show HN",
+    },
+    {
+      title: "Résumé du matin de tes PR GitHub",
+      pitch: "Chaque matin, une carte avec les PR ouvertes de tes dépôts : CI, reviews en attente, conflits.",
+      why: "Tu fusionnes toi-même chaque PR de Clark : savoir lesquelles sont prêtes t'évite d'aller voir.",
+      source_url: "https://github.com/trending?since=daily",
+      source_label: "GitHub Trending",
+    },
+  ];
+  const lines: string[] = [];
+  for (const [i, idea] of ideas.entries()) {
+    const id = `demo-${taskId}-idea-${i}`;
+    journal.announceStep({ taskId, toolUseId: id, tool: "mcp__memory__note_idea", input: { title: idea.title }, tier: "auto" });
+    const r = tools.note_idea.run(idea);
+    journal.completeStep(id, r, false);
+    lines.push(`- ${idea.title}`);
+  }
+  const text = lines.join("\n");
+  journal.finish(taskId, "done", text, 0);
+  return { text, costUsd: 0, status: "done" as const };
+}
+
+async function fakeIdeaDig(deps: Parameters<typeof executeTask>[0], taskId: number, prompt: string, step: (tool: string, input: Record<string, unknown>, output: string) => Promise<void>) {
+  const id = Number(prompt.match(/\[Idée #(\d+)/)?.[1]);
+  const title = prompt.match(/\nTitre : (.*)/)?.[1] ?? "l'idée";
+  await step("WebSearch", { query: title }, "Deux projets proches, aucun en français ni branché sur un agent perso.");
+  await step("mcp__memory__recall", { query: "projets en cours" }, "Clark, portfolio, boutique Shopify.");
+  const tools = memoryTools(deps.store, { taskId: () => taskId, writeRefusal: () => null });
+  const report = [
+    "## Ce que c'est",
+    `${title}, en version simple et branchée sur Clark.`,
+    "",
+    "## Ce qui existe",
+    "- Deux projets proches sur GitHub, en anglais, sans mémoire ni validation par bouton.",
+    "",
+    "## Pour toi",
+    "Ça s'ajoute à Clark sans nouveau dépôt, avec ta stack (TypeScript, Node, SQLite).",
+    "",
+    "## Effort",
+    "Une à deux soirées.",
+    "",
+    "## Premier pas",
+    "Une tâche de code sur Clark : le module et sa page, sans interface d'abord.",
+    "",
+    "## Risques",
+    "- Le quota du moteur si ça tourne trop souvent.",
+  ].join("\n");
+  journal.announceStep({ taskId, toolUseId: `demo-${taskId}-report`, tool: "mcp__memory__idea_report", input: { id }, tier: "auto" });
+  const r = tools.idea_report.run({ id, verdict: "go", report });
+  journal.completeStep(`demo-${taskId}-report`, r, false);
+  const text = "À faire : petit, utile tout de suite, et ça s'ajoute à Clark.";
   journal.finish(taskId, "done", text, 0);
   return { text, costUsd: 0, status: "done" as const };
 }

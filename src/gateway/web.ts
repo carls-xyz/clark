@@ -31,6 +31,8 @@ import { TEAM_LABEL } from "../core/team.ts";
 import { describeStep, uncertainSteps } from "../tasks/journal.ts";
 import { teamView } from "./team-view.ts";
 import { HEARTBEAT_LABEL } from "../scheduler/heartbeat.ts";
+import { addIdeaFromOwner, decideIdea, ideasHour, ideasTourStatus, runIdeasTourNow, type IdeaAction } from "../scheduler/ideas.ts";
+import { IDEA_DIG_LABEL, IDEAS_TOUR_LABEL } from "../core/ideas.ts";
 import type { Task } from "../tasks/journal.ts";
 import { hasVar, type McpInput } from "../mcp/servers.ts";
 import { sandboxEnabled } from "../engines/sandbox.ts";
@@ -109,6 +111,8 @@ export function matchesQuery(text: string, query: string): boolean {
 
 export function historyTitle(t: Pick<Task, "label" | "prompt"> & { id?: number; source?: string | null }, store?: Store): string {
   if (t.label === HEARTBEAT_LABEL) return "Tour de veille";
+  if (t.label === IDEAS_TOUR_LABEL) return "Tour d'idées";
+  if (t.label === IDEA_DIG_LABEL) return `Idée à creuser : ${t.prompt.match(/\nTitre : (.*)/)?.[1] ?? ""}`.trim();
   // Une proposition acceptée, une automatisation : leur nom, pas la consigne envoyée à l'agent.
   const src = t.source ?? "";
   if (src.startsWith("initiative:")) return src.slice(11);
@@ -149,6 +153,7 @@ export function originOf(t: Pick<Task, "label" | "chat_id"> & { source?: string 
   if (dev) return `Dev · ${store?.dev.project(store.dev.get(dev)?.project_id ?? 0)?.name ?? "projet"}`;
   if (devPlanOfLabel(t.label)) return "Dev · plan";
   if (t.label === HEARTBEAT_LABEL) return "Tour de veille";
+  if (t.label === IDEAS_TOUR_LABEL || t.label === IDEA_DIG_LABEL) return "Idées";
   if (t.label === "brief") return "Brief du matin";
   const src = t.source ?? "";
   if (src.startsWith("automation:")) return `Automatisation « ${src.slice(11)} »`;
@@ -515,6 +520,26 @@ export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voi
     heartbeat: (() => {
       const s = heartbeatStatus(hub);
       return { minutes: config.heartbeatMinutes, why: s.why, next: s.next };
+    })(),
+    // Idées : la page Idées (tour d'idées, idées lancées par Charles, recherches de Clark).
+    ideas: store.ideas.list().map((i) => ({
+      id: i.id,
+      title: i.title,
+      pitch: i.pitch,
+      why: i.why,
+      origin: i.origin,
+      sourceUrl: i.source_url,
+      sourceLabel: i.source_label,
+      status: i.status,
+      verdict: i.verdict,
+      report: i.report,
+      dropReason: i.drop_reason,
+      at: i.created_at,
+      updated: i.updated_at,
+    })),
+    ideasTour: (() => {
+      const s = ideasTourStatus(hub);
+      return { hour: ideasHour(), why: s.why, running: hub.deps.journal.unfinished().some((t) => t.label === IDEAS_TOUR_LABEL), sources: store.ideas.sources() };
     })(),
     // Réseaux sociaux : brouillons à valider, avec leurs vérifications, et derniers contenus validés.
     posts: hub.posts().map((p) => ({
@@ -1511,6 +1536,29 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
       if (outcome === "already") return json(res, 409, { error: "Ce mail a déjà été traité." });
       if (outcome === "failed") return json(res, 502, { error: "L'envoi a échoué : le détail est dans le fil." });
       return json(res, 200, { ok: true, outcome });
+    }
+
+    // Idées : en ajouter une (en vrac), lancer le tour, régler les sites, trier.
+    if (path === "/api/ideas") {
+      const text = typeof body.text === "string" ? body.text.slice(0, 2000) : "";
+      const r = addIdeaFromOwner(hub, text, body.dig !== false);
+      return "error" in r ? json(res, r.status, { error: r.error }) : json(res, 200, { ok: true, id: r.id });
+    }
+    if (path === "/api/ideas/tour") {
+      const r = runIdeasTourNow(hub);
+      return json(res, r.ok ? 202 : 409, r.ok ? { ok: true } : { error: `Pas de tour maintenant : ${r.why}` });
+    }
+    if (path === "/api/ideas/sources") {
+      const list = Array.isArray(body.sources) ? body.sources.filter((x): x is string => typeof x === "string") : [];
+      return json(res, 200, { ok: true, sources: store.ideas.setSources(list) });
+    }
+    const idea = path.match(/^\/api\/ideas\/(\d+)$/);
+    if (idea) {
+      const actions: IdeaAction[] = ["dig", "keep", "drop", "start", "reopen", "delete"];
+      if (!actions.includes(body.action as IdeaAction)) throw new HttpError(400, "Action inconnue");
+      const reason = typeof body.reason === "string" ? body.reason.slice(0, 300) : undefined;
+      const r = decideIdea(hub, Number(idea[1]), body.action as IdeaAction, reason);
+      return "error" in r ? json(res, r.status, { error: r.error }) : json(res, 200, { ok: true });
     }
 
     if (path === "/api/heartbeat/run") {

@@ -21,6 +21,7 @@ import { platformName } from "../social/platforms.ts";
 import type { Initiative } from "./initiatives.ts";
 import type { Memory } from "../memory/store.ts";
 import { HEARTBEAT_LABEL } from "../scheduler/heartbeat.ts";
+import { isIdeaLabel } from "./ideas.ts";
 import { formatReset, isStale, NEAR_LIMIT_PERCENT, tightest, type Quota } from "../engines/quota.ts";
 import { ENGINE_ROLES, type EngineName, type EngineRole } from "../config.ts";
 import { canStop, stopRunning } from "./stops.ts";
@@ -175,6 +176,8 @@ export function createHub(
     }
     changed();
   });
+  // Idées : la page se met à jour (le tour d'idées s'annonce à la fin, en une fois).
+  store.ideas.onEvent(() => changed());
   // Brouillons du module Réseaux sociaux : annoncés dans le fil et poussés sur les canaux.
   store.posts.onEvent((event, p) => {
     if (event === "proposed" && p) {
@@ -198,6 +201,7 @@ export function createHub(
     store.questions.sync();
     store.posts.sync();
     store.initiatives.sync();
+    store.ideas.sync();
     store.outbox.sync();
     journal.pollCheckpoints();
   }, 1000);
@@ -470,8 +474,8 @@ export function createHub(
       // Suite automatique (vérification de fin) : une note, pas un message de l'utilisateur.
       conversation.add({ chatId, role: "system", text: opts.display ?? "Je continue.", taskId });
     }
-    else if (label === HEARTBEAT_LABEL || label.startsWith("avis:")) {
-      // Tour de veille, avis d'un membre du groupe : rien dans le fil avant la réponse.
+    else if (label === HEARTBEAT_LABEL || isIdeaLabel(label) || label.startsWith("avis:")) {
+      // Tour de veille, tour d'idées, avis d'un membre du groupe : rien dans le fil avant la réponse.
     }
     else if (label === "chat" || label === TEAM_LABEL) conversation.add({ chatId, role: "user", text: opts.display ?? prompt, taskId, source });
     else conversation.add({ chatId, role: "system", text: label === "brief" ? "Brief du matin" : `Tâche planifiée : ${label}`, taskId });
@@ -486,7 +490,7 @@ export function createHub(
           ...(devOfLabel(label) ? { codeTask: true } : {}),
           // Le tour de veille repart toujours de zéro : il ne reprend pas ta conversation.
           // Le tour de veille et les avis du groupe repartent de zéro : ils ne reprennent pas ta conversation.
-          resume: label === HEARTBEAT_LABEL || opts.parentId !== undefined ? undefined : (store.getSession(chatId) ?? undefined), // lu au moment d'exécuter
+          resume: label === HEARTBEAT_LABEL || isIdeaLabel(label) || opts.parentId !== undefined ? undefined : (store.getSession(chatId) ?? undefined), // lu au moment d'exécuter
           approve: approverFor(chatId, taskId),
           mode: "new",
           ...(opts.access ? { access: opts.access } : {}),
@@ -611,6 +615,9 @@ export function createHub(
   const recover = async () => {
     // Un tour de veille coupé n'est pas repris : le suivant arrivera à son heure.
     for (const t of journal.unfinished()) if (t.label === HEARTBEAT_LABEL) journal.setStatus(t.id, "abandoned");
+    // Pareil pour le tour d'idées et les recherches sur une idée : l'idée revient à trier.
+    for (const t of journal.unfinished()) if (isIdeaLabel(t.label)) journal.setStatus(t.id, "abandoned");
+    for (const i of store.ideas.byStatus("digging")) store.ideas.unstick(i.id);
     // Questions d'avant la coupure : plus personne ne les attend. L'agent repris redemandera.
     store.questions.expireAll();
     // Mails d'avant la coupure : plus personne n'attend la réponse, rien ne part. Un envoi coupé

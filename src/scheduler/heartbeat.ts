@@ -15,7 +15,7 @@ export const HEARTBEAT_LABEL = "heartbeat";
 export const HEARTBEAT_CHAT = 0;
 export const HEARTBEAT_HOURS = { from: 8, to: 21 } as const;
 
-export function heartbeatPrompt(pending: Initiative[], decisions: Initiative[], now = new Date(), auto: { veille: boolean; lancer: boolean } = { veille: false, lancer: false }): string {
+export function heartbeatPrompt(pending: Initiative[], decisions: Initiative[], now = new Date(), auto: { veille: boolean; lancer: boolean } = { veille: false, lancer: false }, keptIdeas: string[] = []): string {
   const day = now.toLocaleDateString("fr-FR", { timeZone: "Europe/Paris", weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const list = (items: string[]) => (items.length ? items.join("\n") : "(aucune)");
   return `[Tour de veille de Clark] Nous sommes le ${day}. Charles n'a rien demandé : tu regardes s'il y a quelque chose d'utile à lui proposer maintenant.
@@ -39,7 +39,14 @@ Propositions déjà en attente (ne les refais pas) :
 ${list(pending.map((i) => `- ${i.title}`))}
 
 Dernières décisions de Charles (ne refais pas ce qu'il a refusé, inspire-toi de ce qu'il a accepté) :
-${list(decisions.map((i) => `- ${i.title} : ${i.status === "accepted" ? "accepté" : `refusé${i.decline_reason ? ` (${i.decline_reason})` : ""}`}`))}`;
+${list(decisions.map((i) => `- ${i.title} : ${i.status === "accepted" ? "accepté" : `refusé${i.decline_reason ? ` (${i.decline_reason})` : ""}`}`))}${
+    keptIdeas.length
+      ? `
+
+Idées de projets que Charles a gardées (page Idées) : si l'une d'elles a un prochain pas évident et utile maintenant, tu peux le proposer.
+${keptIdeas.map((t) => `- ${t}`).join("\n")}`
+      : ""
+  }`;
 }
 
 export type HeartbeatState = {
@@ -87,7 +94,8 @@ export function heartbeatStatus(hub: Hub, now = new Date()) {
 export function runHeartbeat(hub: Hub) {
   const { store } = hub.deps;
   const auto = { veille: isAutonomous("veille"), lancer: isAutonomous("lancer") };
-  return hub.enqueue(HEARTBEAT_CHAT, heartbeatPrompt(store.initiatives.pending(), store.initiatives.recentDecisions(), new Date(), auto), HEARTBEAT_LABEL, "clark", { access: "read" });
+  const kept = store.ideas.byStatus("kept").slice(0, 5).map((i) => i.title);
+  return hub.enqueue(HEARTBEAT_CHAT, heartbeatPrompt(store.initiatives.pending(), store.initiatives.recentDecisions(), new Date(), auto, kept), HEARTBEAT_LABEL, "clark", { access: "read" });
 }
 
 /**

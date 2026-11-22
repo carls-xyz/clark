@@ -133,6 +133,7 @@ function render() {
   renderThreads();
   renderFoot();
   renderTermCount();
+  renderIdeasCount();
   renderView();
   if (view === "inbox") scheduleHistory();
   notifyNew();

@@ -3,6 +3,7 @@ import { Questions } from "../core/questions.ts";
 import { Automations } from "../scheduler/automations.ts";
 import { Posts } from "../social/posts.ts";
 import { Initiatives } from "../core/initiatives.ts";
+import { Ideas } from "../core/ideas.ts";
 import { Outbox } from "../core/outbox.ts";
 import { EngineChoices } from "../engines/choices.ts";
 import { TerminalRequests } from "../terminal/terminal.ts";
@@ -78,6 +79,8 @@ export class Store {
   readonly posts: Posts;
   /** Propositions du tour de veille (heartbeat), en attente de l'utilisateur. */
   readonly initiatives: Initiatives;
+  /** Idées de projets (page Idées) : tour d'idées, idées lancées en vrac, recherches de Clark. */
+  readonly ideas: Ideas;
   /** Mails que Clark veut envoyer, en attente de ton accord. */
   readonly outbox: Outbox;
   /** Modèle et niveau de puissance choisis pour chaque moteur. */
@@ -102,6 +105,7 @@ export class Store {
     this.automations = new Automations(this.db);
     this.posts = new Posts(this.db);
     this.initiatives = new Initiatives(this.db);
+    this.ideas = new Ideas(this.db);
     this.outbox = new Outbox(this.db);
     this.choices = new EngineChoices(this.db);
     this.mcp = new McpServers(this.db);

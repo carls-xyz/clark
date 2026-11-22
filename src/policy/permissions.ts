@@ -38,6 +38,9 @@ const READ_ONLY = new Set([
   "mcp__memory__report_progress",
   // Une proposition n'agit sur rien : c'est l'utilisateur qui décide de la lancer.
   "mcp__memory__propose_initiative",
+  // Noter une idée ou rendre l'avis sur une idée : rien ne change dehors, Charles trie ensuite.
+  "mcp__memory__note_idea",
+  "mcp__memory__idea_report",
   // Un compte rendu d'objectif ne change rien au monde.
   "mcp__memory__report_goal",
   "mcp__memory__use_skill",

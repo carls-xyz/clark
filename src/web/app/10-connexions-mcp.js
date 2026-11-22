@@ -13,6 +13,7 @@ const TOOLS = [
   ["Mémoire", "recall, propose_memory, propose_correction, forget"],
   ["Questions et avancement", "ask_charles, report_progress"],
   ["Propositions", "propose_initiative"],
+  ["Idées", "note_idea, idea_report"],
   ["Vidéos", "prepare_social_post"],
   ["Mail et agenda", "mail_search, mail_read, send_mail, calendar_events"],
   ["iMessage", "messages_recent, messages_read, send_imessage"],
