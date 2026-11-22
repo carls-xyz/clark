@@ -257,7 +257,7 @@ const terminalWatch = setInterval(() => {
 terminalWatch.unref();
 
 // Le journal du jour : même consigne pour le bouton de Réglages › Connexions et pour celui du soir.
-const JOURNAL_SYSTEM = "Tu écris le journal du jour d'un assistant personnel, en Markdown, uniquement à partir des faits donnés.";
+const JOURNAL_SYSTEM = "Tu écris le journal (du jour ou de la semaine) d'un assistant personnel, en Markdown, uniquement à partir des faits donnés.";
 // Défini avant startWeb : le bouton « Écrire le journal du jour » s'en sert.
 const journalThink = (p: string) => claudeThink(p, JOURNAL_SYSTEM);
 
