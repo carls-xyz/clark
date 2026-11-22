@@ -73,6 +73,12 @@ export class Conversation {
         conversation_id INTEGER NOT NULL
       );
     `);
+    // Colonne du titre automatique ajoutée tôt : le découpage des très vieilles bases (plus bas) écrit déjà des titres.
+    const needsTitleAuto = !(db.prepare("PRAGMA table_info(conversations)").all() as { name: string }[]).some((c) => c.name === "title_auto");
+    if (needsTitleAuto) db.exec("ALTER TABLE conversations ADD COLUMN title_auto INTEGER NOT NULL DEFAULT 0");
+    // Quand la conversation ouverte l'a été : une conversation rouverte n'est pas « inactive depuis longtemps ».
+    const curCols = db.prepare("PRAGMA table_info(conversation_current)").all() as { name: string }[];
+    if (!curCols.some((c) => c.name === "opened_at")) db.exec("ALTER TABLE conversation_current ADD COLUMN opened_at TEXT");
     // L'agent qui a écrit ce message (conversation « Toute l'équipe » : chacun signe sa réponse).
     if (!cols.some((c) => c.name === "agent")) db.exec("ALTER TABLE messages ADD COLUMN agent TEXT");
     if (!cols.some((c) => c.name === "conversation_id")) {
@@ -85,6 +91,13 @@ export class Conversation {
     if (!convCols.some((c) => c.name === "agent")) db.exec("ALTER TABLE conversations ADD COLUMN agent TEXT");
     // Épinglée par l'utilisateur : en tête de la liste, quoi qu'il arrive.
     if (!convCols.some((c) => c.name === "pinned")) db.exec("ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");
+    // Titre automatique : 1 = tiré de ton premier message (à remplacer par un vrai titre), 2 = titre trouvé par Clark,
+    // 0 = donné par toi (ne bouge plus).
+    if (needsTitleAuto) {
+      // Les titres existants qui sont le début du premier message : à retitrer à la prochaine réponse.
+      db.exec(`UPDATE conversations SET title_auto = 1 WHERE title IS NOT NULL AND title = substr(trim(replace(replace(
+        (SELECT m.text FROM messages m WHERE m.conversation_id = conversations.id AND m.role = 'user' ORDER BY m.id LIMIT 1), char(10), ' '), char(13), ' ')), 1, 80)`);
+    }
     if (!convCols.some((c) => c.name === "seen_id")) {
       db.exec("ALTER TABLE conversations ADD COLUMN seen_id INTEGER NOT NULL DEFAULT 0");
       // Tout ce qui existait déjà est considéré comme lu.
@@ -128,8 +141,37 @@ export class Conversation {
 
   private setCurrent(chatId: number, conversationId: number) {
     this.db
-      .prepare("INSERT INTO conversation_current (chat_id, conversation_id) VALUES (?, ?) ON CONFLICT(chat_id) DO UPDATE SET conversation_id = excluded.conversation_id")
+      .prepare(
+        "INSERT INTO conversation_current (chat_id, conversation_id, opened_at) VALUES (?, ?, datetime('now')) ON CONFLICT(chat_id) DO UPDATE SET conversation_id = excluded.conversation_id, opened_at = excluded.opened_at",
+      )
       .run(chatId, conversationId);
+  }
+
+  /**
+   * Depuis combien d'heures la conversation ouverte est calme : son dernier message de toi ou
+   * d'un agent, ou le moment où tu l'as ouverte s'il est plus récent. null : elle est vide.
+   */
+  idleHours(chatId: number, now = new Date()): number | null {
+    const id = this.current(chatId);
+    const used = this.db.prepare("SELECT 1 FROM messages WHERE conversation_id = ? AND role != 'system' LIMIT 1").get(id);
+    if (!used) return null;
+    const row = this.db
+      .prepare("SELECT max(c.updated_at, COALESCE(cc.opened_at, c.updated_at)) AS at FROM conversations c JOIN conversation_current cc ON cc.conversation_id = c.id WHERE c.id = ? AND cc.chat_id = ?")
+      .get(id, chatId) as { at: string } | undefined;
+    if (!row?.at) return null;
+    return (now.getTime() - Date.parse(`${row.at.replace(" ", "T")}Z`)) / 3_600_000;
+  }
+
+  /** Titre trouvé par Clark : seulement à la place d'un titre automatique (jamais d'un titre que tu as donné). */
+  setAutoTitle(id: number, title: string): boolean {
+    const t = title.replace(/\s+/g, " ").trim().slice(0, 80);
+    if (!t) return false;
+    return this.db.prepare("UPDATE conversations SET title = ?, title_auto = 2 WHERE id = ? AND title_auto = 1").run(t, id).changes > 0;
+  }
+
+  /** La conversation attend-elle un vrai titre (le sien est le début de ton premier message) ? */
+  wantsTitle(id: number): boolean {
+    return Boolean(this.db.prepare("SELECT 1 FROM conversations WHERE id = ? AND title_auto = 1").get(id));
   }
 
   /**
@@ -140,8 +182,8 @@ export class Conversation {
     if (role === "system") return;
     const title = role === "user" ? text.replace(/\s+/g, " ").trim().slice(0, 80) || null : null;
     this.db
-      .prepare("UPDATE conversations SET updated_at = COALESCE(?, datetime('now')), title = COALESCE(title, ?) WHERE id = ?")
-      .run(at ?? null, title, id);
+      .prepare("UPDATE conversations SET updated_at = COALESCE(?, datetime('now')), title_auto = CASE WHEN title IS NULL AND ? IS NOT NULL THEN 1 ELSE title_auto END, title = COALESCE(title, ?) WHERE id = ?")
+      .run(at ?? null, title, title, id);
   }
 
   /** La conversation ouverte sur ce canal (créée au besoin). */
@@ -258,7 +300,7 @@ export class Conversation {
   rename(id: number, title: string): boolean {
     const t = title.replace(/\s+/g, " ").trim().slice(0, 80);
     if (!t) return false;
-    return this.db.prepare("UPDATE conversations SET title = ? WHERE id = ?").run(t, id).changes > 0;
+    return this.db.prepare("UPDATE conversations SET title = ?, title_auto = 0 WHERE id = ?").run(t, id).changes > 0;
   }
 
   setPinned(id: number, pinned: boolean): boolean {
@@ -369,4 +411,33 @@ export class Conversation {
       this.db.prepare("SELECT * FROM messages WHERE chat_id = ? ORDER BY id DESC LIMIT ?").all(chatId, limit) as Message[]
     ).reverse();
   }
+}
+
+/** Heures de calme avant qu'un message ouvre une nouvelle conversation (Réglages › Conversations). 0 : jamais. */
+export function newConversationHours(): number {
+  const n = Number(process.env.CLARK_NEW_CONVERSATION_HOURS?.trim() || "4");
+  return Number.isFinite(n) && n >= 0 ? n : 4;
+}
+
+/** Le titre rendu par le modèle, nettoyé : une ligne, sans guillemets ni point final, 60 caractères au plus. */
+export function cleanTitle(raw: string): string | null {
+  const line = raw.split("\n").map((l) => l.trim()).find(Boolean) ?? "";
+  const t = line
+    .replace(/^(titre\s*:\s*)/i, "")
+    .replace(/^[«"'`*\s]+|[»"'`*\s.]+$/g, "")
+    .trim();
+  if (t.length < 2 || t.length > 60) return null;
+  return t;
+}
+
+/** La consigne pour titrer une conversation, à partir de son début. */
+export function titlePrompt(first: string, reply: string): string {
+  const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
+  return `Donne un titre à cette conversation, pour la retrouver dans une liste : 2 à 6 mots, en français, le sujet concret (pas « Question » ni « Demande »), sans guillemets, sans point final. Réponds par le titre seul.
+
+Message de l'utilisateur :
+${clip(first, 1200)}
+
+Réponse :
+${clip(reply, 1200)}`;
 }
