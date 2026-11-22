@@ -16,7 +16,7 @@ import { googleStatus, type GoogleStatus } from "../google/auth.ts";
 import { checkChoice, type Catalog, type EngineChoice } from "../engines/choices.ts";
 import { setReadOnlyMcp } from "../policy/permissions.ts";
 import { goalOfChat, isGoalChat } from "./goals.ts";
-import { devCritiqueOfLabel, devOfLabel, devPlanOfLabel, devReviewOfLabel, isDevChat } from "../dev/store.ts";
+import { devCritiqueOfLabel, devOfLabel, devPlanOfLabel, devReviewOfLabel, isDevChat, moveCritiqueChats } from "../dev/store.ts";
 import { platformName } from "../social/platforms.ts";
 import type { Initiative } from "./initiatives.ts";
 import type { Memory } from "../memory/store.ts";
@@ -117,6 +117,9 @@ export function createHub(
   } = {},
 ) {
   const { store, journal, conversation } = deps;
+  // Anciennes critiques du binôme rangées par erreur dans la plage des automatisations.
+  const moved = moveCritiqueChats(store.db);
+  if (moved) console.log(`[clark] ${moved} fil(s) de critique déplacé(s) hors de la plage des automatisations`);
   const execute = opts.execute ?? executeTask;
   const channels: Channel[] = [];
   const pending = new Map<string, Approval & { settle: (ok: boolean, how: "ok" | "no" | "expired") => void }>();

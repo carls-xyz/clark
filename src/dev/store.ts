@@ -22,7 +22,64 @@ export const DEV_REVIEW_CHAT_BASE = 4_000_000;
 export const devReviewChat = (id: number) => DEV_REVIEW_CHAT_BASE + id;
 export const DEV_REVIEW_PREFIX = "devrev:";
 export const devReviewOfLabel = (label: string) => (label.startsWith(DEV_REVIEW_PREFIX) ? Number(label.slice(DEV_REVIEW_PREFIX.length)) || null : null);
-export const DEV_CRITIQUE_CHAT_BASE = 5_000_000;
+/**
+ * 8 000 000 : en dehors des fils des automatisations (5 000 000 + id). Les deux plages
+ * se chevauchaient : une automatisation reprenait la session de la critique du même numéro.
+ */
+export const DEV_CRITIQUE_CHAT_BASE = 8_000_000;
+/** Ancienne plage des fils de critique, partagée par erreur avec les automatisations. */
+const OLD_CRITIQUE_CHAT_BASE = 5_000_000;
+
+/**
+ * Remet les anciennes critiques (5 000 000 + id) dans leur nouvelle plage : leurs tâches et
+ * leurs messages suivent. Leur session suit aussi, sauf si une automatisation du même numéro
+ * existe : on ne sait plus à qui elle est, elle part (les deux repartent de zéro). Sans effet
+ * une fois fait. Renvoie le nombre de fils déplacés.
+ */
+export function moveCritiqueChats(db: DatabaseSync): number {
+  let chats: { chat_id: number }[];
+  try {
+    chats = db
+      .prepare("SELECT DISTINCT chat_id FROM tasks WHERE label LIKE ? AND chat_id >= ? AND chat_id < ?")
+      .all(`${DEV_CRITIQUE_PREFIX}%`, OLD_CRITIQUE_CHAT_BASE, OLD_CRITIQUE_CHAT_BASE + 1_000_000) as { chat_id: number }[];
+  } catch {
+    return 0; // table des tâches absente (base de test réduite)
+  }
+  const automationExists = (id: number) => {
+    try {
+      return db.prepare("SELECT 1 FROM automations WHERE id = ?").get(id) !== undefined;
+    } catch {
+      return false;
+    }
+  };
+  for (const { chat_id: old } of chats) {
+    const id = old - OLD_CRITIQUE_CHAT_BASE;
+    const next = devCritiqueChat(id);
+    db.exec("BEGIN");
+    try {
+      const tasks = (db.prepare("SELECT id FROM tasks WHERE chat_id = ? AND label LIKE ?").all(old, `${DEV_CRITIQUE_PREFIX}%`) as { id: number }[]).map((t) => t.id);
+      for (const t of tasks) {
+        db.prepare("UPDATE tasks SET chat_id = ? WHERE id = ?").run(next, t);
+        try {
+          db.prepare("UPDATE messages SET chat_id = ? WHERE task_id = ? AND chat_id = ?").run(next, t, old);
+        } catch {
+          // pas de table des messages
+        }
+      }
+      try {
+        if (automationExists(id)) db.prepare("DELETE FROM sessions WHERE chat_id = ?").run(old);
+        else db.prepare("UPDATE OR REPLACE sessions SET chat_id = ? WHERE chat_id = ?").run(next, old);
+      } catch {
+        // pas de table des sessions
+      }
+      db.exec("COMMIT");
+    } catch (err) {
+      db.exec("ROLLBACK");
+      throw err;
+    }
+  }
+  return chats.length;
+}
 export const devCritiqueChat = (id: number) => DEV_CRITIQUE_CHAT_BASE + id;
 export const DEV_CRITIQUE_PREFIX = "devcrit:";
 export const devCritiqueOfLabel = (label: string) => (label.startsWith(DEV_CRITIQUE_PREFIX) ? Number(label.slice(DEV_CRITIQUE_PREFIX.length)) || null : null);
