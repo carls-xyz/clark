@@ -28,6 +28,7 @@ function renderPalette() {
   const dev = state.dev ?? { tasks: [], groups: [] };
   const waiting = waitingCount();
   const threads = [
+    paletteItem("go:#idees", "Idées", "", "idées projets scroll tour inspiration creuser"),
     paletteItem("go:#activite", "Activité", waiting ? `${waiting} t'attendent` : "", "à toi inbox accords questions historique relire"),
     paletteItem("go:#conversation", "Conversation", "", "chat message"),
   ];

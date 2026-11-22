@@ -8,3 +8,4 @@ Pour ajouter une zone : un nouveau fichier `NN-nom.js`, à la place qui convient
 Le code qui s'exécute au chargement (écouteurs, démarrage) doit venir après ce qu'il utilise.
 - `18-terminal.js` : le Terminal (tes commandes, celles que Clark propose), relu par `/api/terminal` pendant qu'une commande tourne.
 - `19-gestion-conversations.js` : le menu ⋯ d'une conversation (renommer, épingler, supprimer) et le tri de la liste.
+- `20-idees.js` : la page Idées (tour d'idées, idées lancées en vrac, avis de Clark, tri).

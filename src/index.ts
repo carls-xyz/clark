@@ -38,6 +38,7 @@ import { startWeb } from "./gateway/web.ts";
 import { Store } from "./memory/store.ts";
 import { startScheduler } from "./scheduler/cron.ts";
 import { startHeartbeat } from "./scheduler/heartbeat.ts";
+import { startIdeasTour } from "./scheduler/ideas.ts";
 import { startGoals } from "./scheduler/goals.ts";
 import { startDev } from "./dev/runner.ts";
 import { startDevGroups } from "./dev/groups.ts";
@@ -335,6 +336,7 @@ await hub.recover();
 const stopAutomations = startScheduler({ config, store, enqueue: hub.enqueue, automations: store.automations, launch: (a, slot) => launchAutomation(hub, a, { slot }) });
 // Tour de veille : propositions proactives, de jour, quand un moteur est connecté.
 const stopHeartbeat = startHeartbeat(hub);
+const stopIdeasTour = startIdeasTour(hub);
 // Autonomie : ce que l'utilisateur a permis à Clark de décider seul (Réglages › Général › Autonomie).
 const stopAutonomy = startAutonomy(hub);
 // Rappels créés depuis la conversation (« rappelle-moi demain à 9 h… »).
@@ -365,6 +367,7 @@ startPrWatch(hub);
 stopScheduler = () => {
   stopAutomations();
   stopHeartbeat();
+  stopIdeasTour();
   stopAutonomy();
   stopReminders();
   stopDelegations();

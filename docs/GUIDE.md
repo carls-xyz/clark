@@ -508,6 +508,19 @@ Le tour se fait **en lecture seule**, dans une conversation à part : rien n'app
 
 Il ne tourne pas sans moteur connecté, la nuit, pendant une autre tâche, avec un quota à 90 % ou plus, ou s'il a déjà 3 propositions en attente de toi. La raison s'affiche sous le bloc, avec un lien « Faire un tour maintenant ». Un tour coupé par un redémarrage est abandonné, pas repris.
 
+## Idées
+
+La page **Idées** (icône ampoule) rassemble des idées de projets de dev. Elles arrivent de trois façons :
+- **Le tour d'idées** : chaque jour à 15 h (`CLARK_IDEAS_HOUR`, réglable dans Réglages › Général, vide pour couper), Clark parcourt quelques sites avec son navigateur (Show HN, GitHub Trending, Reddit, Product Hunt, X…), fait défiler, ouvre ce qui a l'air prometteur, et note au plus 5 idées qui collent à tes projets avec `note_idea`. Il tourne en lecture seule, dans une conversation à part, et ne se connecte jamais à un site : pour qu'il voie ton fil X, connecte-toi toi-même dans son navigateur. La liste des sites se règle sur la page. Il ne tourne pas sans moteur, pendant une autre tâche, avec un quota à 90 % ou plus, ou avec 15 idées encore à trier. À la fin, une seule note dans ton fil : combien d'idées, et leurs titres.
+- **Toi** : tape une idée en vrac sur la page (une phrase, un lien), ou `/idee …` sur Telegram. Clark la creuse tout de suite (case à décocher sur la page).
+- **Clark** : une idée qu'il a eue en conversation ou pendant une autre tâche.
+
+Pour chaque idée, tu choisis :
+- **Creuser** : Clark cherche ce qui existe déjà, regarde si ça colle à tes projets et à ta stack, estime l'effort et propose un premier pas. Son avis (à faire, pour plus tard, à laisser) et son compte rendu s'affichent sur la carte. En lecture seule ; une recherche coupée remet l'idée à trier.
+- **Garder** : l'idée passe dans « Gardées » et une note est écrite dans ton coffre Obsidian (`Clark/Idées/`). Le tour de veille voit tes idées gardées et peut proposer un prochain pas.
+- **Lancer** : l'idée part comme un message à Clark dans ta conversation : il propose un plan, et lance une tâche de code si le projet existe dans Dev.
+- **Écarter** : Clark ne la repropose plus. « Remettre » la fait revenir, « Supprimer » l'efface.
+
 ## Mémoire confirmée
 
 Clark ne retient rien seul : il **propose** un souvenir, avec sa source et parfois une date d'expiration. Tu choisis dans **À toi** :

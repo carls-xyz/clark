@@ -25,6 +25,7 @@ export type SettingDef = {
 
 export const SETTINGS: SettingDef[] = [
   { key: "heartbeat", env: "CLARK_HEARTBEAT_MINUTES", label: "Tour de veille", hint: "Toutes les N minutes, de 8 h à 21 h. 0 : coupé.", section: "Veille et brief", type: "int", min: 0, max: 1440, fallback: "120", apply: "now" },
+  { key: "ideas", env: "CLARK_IDEAS_HOUR", label: "Tour d'idées", hint: "Heure du tour d'idées (0 à 23) : Clark parcourt quelques sites et note des idées de projets. Vide : coupé.", section: "Veille et brief", type: "hour", fallback: "15", apply: "now" },
   { key: "brief", env: "CLARK_BRIEF_HOUR", label: "Brief du matin", hint: "Heure du brief (0 à 23). Vide : pas de brief.", section: "Veille et brief", type: "hour", fallback: "", apply: "now" },
   { key: "devParallel", env: "CLARK_DEV_PARALLEL", label: "Agents de code en même temps", hint: "Au-delà, les autres attendent un agent libre. Le quota s'épuise vite.", section: "Dev", type: "int", min: 1, max: 6, fallback: "2", apply: "now" },
   { key: "stall", env: "CLARK_STALL_MINUTES", label: "Agent silencieux après", hint: "Minutes sans activité avant de te prévenir.", section: "Dev", type: "int", min: 1, max: 240, fallback: "10", apply: "now" },

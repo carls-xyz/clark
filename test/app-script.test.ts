@@ -18,3 +18,13 @@ test("interface : les zones de src/web/app/ s'assemblent dans l'ordre, en un scr
   writeFileSync(file, s);
   execFileSync(process.execPath, ["--check", file]);
 });
+
+test("interface : un titre Markdown collé au texte qui suit reste un titre", () => {
+  const s = appScript();
+  const start = s.indexOf("const esc = ");
+  const md = s.slice(s.indexOf("function md("), s.indexOf("// Confirmations"));
+  const run = new Function(`${s.slice(start, s.indexOf(";", s.indexOf("[c])", start)) + 1)}\n${md}\nreturn md;`)() as (src: string) => string;
+  assert.equal(run("## Effort\nDeux soirées"), '<p class="h">Effort</p><p>Deux soirées</p>');
+  assert.equal(run("Avant\n## Après\nfin"), '<p>Avant</p><p class="h">Après</p><p>fin</p>');
+  assert.equal(run("```\n## pas un titre\n```"), "<pre><code>## pas un titre</code></pre>");
+});

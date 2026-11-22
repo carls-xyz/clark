@@ -54,7 +54,9 @@ function md(src) {
       .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer noopener">$1</a>');
 
   const out = [];
-  for (const para of text.split(/\n{2,}/)) {
+  // Un titre est un paragraphe à lui seul, même collé au texte qui le suit (« ## Effort\nDeux soirées »).
+  const spaced = text.replace(/^(#{1,4} [^\n]*)\n(?!\n)/gm, "$1\n\n").replace(/([^\n])\n(#{1,4} )/g, "$1\n\n$2");
+  for (const para of spaced.split(/\n{2,}/)) {
     const lines = para.split("\n");
     const token = para.match(/^\u0000(\d+)\u0000$/);
     if (token) out.push(blocks[Number(token[1])]);
