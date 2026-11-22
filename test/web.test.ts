@@ -183,3 +183,29 @@ test("activité : la recherche parcourt tout l'historique, sans accents, mots da
     await web.close();
   }
 });
+
+test("web : écrire le journal du jour, refusé sans la bonne origine, sans coffre ou sans moteur", async () => {
+  const { port, web } = await setup();
+  try {
+    const foreign = await call(port, "/api/obsidian/journal", { method: "POST", headers: { "Content-Type": "application/json", Origin: "https://evil.example" }, body: {} });
+    assert.equal(foreign.status, 403);
+    const noVault = await call(port, "/api/obsidian/journal", { method: "POST", headers: json(port), body: {} });
+    assert.equal(noVault.status, 409);
+    assert.equal(noVault.body.error, "Pas de coffre Obsidian branché");
+  } finally {
+    await web.close();
+  }
+  // Un coffre, mais pas de writeJournal (pas de moteur Claude).
+  const p2 = await freePort();
+  const store = new Store(":memory:");
+  const journal = new TaskJournal(store.db);
+  const hub = createHub({ config: config(p2), store, journal, conversation: new Conversation(store.db) }, { execute: askingAgent });
+  const web2 = await startWeb(hub, { port: p2, obsidian: { status: () => ({ vault: "/coffre", lastSync: null, error: null, notes: 0 }), syncNow: () => {} } });
+  try {
+    const noEngine = await call(p2, "/api/obsidian/journal", { method: "POST", headers: json(p2), body: {} });
+    assert.equal(noEngine.status, 409);
+    assert.equal(noEngine.body.error, "Pas de moteur Claude pour écrire le journal");
+  } finally {
+    await web2.close();
+  }
+});

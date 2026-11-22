@@ -3,8 +3,16 @@ import type { Terminal } from "../terminal/terminal.ts";
 import { attachmentContext, pickPath } from "../core/attachments.ts";
 import { reviewNotes } from "../dev/binome.ts";
 
-/** Le coffre Obsidian branché à la mémoire : son état pour Réglages › Connexions, et « Synchroniser ». */
-export type ObsidianLink = { status: () => { vault: string | null; lastSync: string | null; error: string | null; notes: number }; syncNow: () => void };
+/**
+ * Le coffre Obsidian branché à la mémoire : son état pour Réglages › Connexions, « Synchroniser »,
+ * et « Écrire le journal du jour » (absent sans moteur Claude).
+ */
+export type ObsidianLink = {
+  status: () => { vault: string | null; lastSync: string | null; error: string | null; notes: number };
+  syncNow: () => void;
+  writeJournal?: () => Promise<{ day: string } | { empty: true }>;
+};
+import { JournalError } from "../core/daily-journal.ts";
 import { NEW_CONVERSATION_NOTE } from "../core/conversation.ts";
 import { CONTACTS, isConversationAgent } from "../core/contacts.ts";
 import { canActAlone, decisionsOf, isAutonomous, maxPerDay, parisDayStart, undoDecision } from "../core/autonomy.ts";
@@ -1082,6 +1090,21 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
       opts.obsidian.syncNow();
       hub.touch();
       return json(res, 200, { ok: true, ...opts.obsidian.status() });
+    }
+
+    // Le journal du jour, écrit tout de suite (il remplace celui qui existe).
+    if (path === "/api/obsidian/journal") {
+      if (!opts.obsidian || !opts.obsidian.status().vault) throw new HttpError(409, "Pas de coffre Obsidian branché");
+      if (!opts.obsidian.writeJournal) throw new HttpError(409, "Pas de moteur Claude pour écrire le journal");
+      let r: { day: string } | { empty: true };
+      try {
+        r = await opts.obsidian.writeJournal();
+      } catch (err) {
+        if (err instanceof JournalError) throw new HttpError(err.code === "busy" ? 409 : 502, err.message);
+        throw err;
+      }
+      hub.touch();
+      return json(res, 200, "day" in r ? { ok: true, day: r.day } : { ok: true, day: null, empty: true });
     }
 
     // La fenêtre de choix du Finder, sur ce Mac : un fichier ou un dossier pour Clark (ou un projet).
