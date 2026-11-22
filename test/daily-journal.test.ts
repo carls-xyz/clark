@@ -7,7 +7,7 @@ import type { Config } from "../src/config.ts";
 import type { executeTask } from "../src/core/agent.ts";
 import { Conversation } from "../src/core/conversation.ts";
 import { createHub, OWNER_CHAT } from "../src/core/hub.ts";
-import { addDays, catchUpMonth, catchUpWeek, cleanJournal, dayBounds, isoMonth, isoWeek, journalOf, JOURNAL_BUSY, JOURNAL_DIR, JOURNAL_UNUSABLE, lastMonthForPrompt, lastWeekForPrompt, mayTryJournal, MONTH_HOUR, MONTH_MINUTE, monthlyDue, needsRewrite, quietDay, recentJournalForPrompt, RETRY_DELAY_MS, startDailyJournal, writeJournal, writeJournalNow, writeMonthSummary, writeWeekSummary } from "../src/core/daily-journal.ts";
+import { addDays, catchUpMonth, catchUpWeek, cleanJournal, dayBounds, isoMonth, isoWeek, journalOf, JOURNAL_BUSY, JOURNAL_DIR, JOURNAL_UNUSABLE, lastMonthForPrompt, lastWeekForPrompt, monthsBefore, mayTryJournal, MONTH_HOUR, MONTH_MINUTE, monthlyDue, needsRewrite, quietDay, recentJournalForPrompt, RETRY_DELAY_MS, startDailyJournal, writeJournal, writeJournalNow, writeMonthSummary, writeWeekSummary } from "../src/core/daily-journal.ts";
 import { buildSystemPrompt } from "../src/core/prompt.ts";
 import { Store } from "../src/memory/store.ts";
 import { TaskJournal } from "../src/tasks/journal.ts";
@@ -140,8 +140,11 @@ test("semaine : relue au début d'une conversation", async () => {
   twoJournals(store.db);
   await writeWeekSummary(hub, "2026-S47", fakeModel().think, null);
   const brief = journalOf(store.db).getWeek("2026-S47")!.brief;
-  assert.equal(lastWeekForPrompt(store.db), `La semaine dernière : ${brief}`);
-  const sys = buildSystemPrompt(store, join(tmpdir(), "rien"));
+  const monday = new Date("2026-11-23T10:00:00Z");
+  assert.equal(lastWeekForPrompt(store.db, monday), `La semaine dernière : ${brief}`);
+  // Trois semaines plus tard, ce n'est plus « la semaine dernière » : rien.
+  assert.equal(lastWeekForPrompt(store.db, new Date("2026-12-14T10:00:00Z")), "");
+  const sys = buildSystemPrompt(store, join(tmpdir(), "rien"), monday);
   assert.match(sys, /## Ces derniers jours \(ton journal\)/);
   assert.ok(sys.includes(`La semaine dernière : ${brief}`));
 });
@@ -361,8 +364,12 @@ test("mois : nomme le mois réel (non trompeur) et apparaît dans le prompt syst
   monthJournals(store.db, "2026-10", 5);
   await writeMonthSummary(hub, "2026-10", fakeModel(MONTH_TEXT).think, null);
   const brief = journalOf(store.db).getMonth("2026-10")!.brief;
-  assert.equal(lastMonthForPrompt(store.db), `En octobre 2026 : ${brief}`);
-  const sys = buildSystemPrompt(store, join(tmpdir(), "rien"));
+  const nov = new Date("2026-11-02T10:00:00Z");
+  assert.equal(lastMonthForPrompt(store.db, nov), `En octobre 2026 : ${brief}`);
+  assert.equal(lastMonthForPrompt(store.db, new Date("2026-12-05T10:00:00Z")), `En octobre 2026 : ${brief}`, "début décembre : novembre pas encore écrit, octobre reste");
+  assert.equal(lastMonthForPrompt(store.db, new Date("2027-01-05T10:00:00Z")), "", "trois mois plus tard : plus montré");
+  assert.equal(monthsBefore("2027-01", 2), "2026-11");
+  const sys = buildSystemPrompt(store, join(tmpdir(), "rien"), nov);
   assert.ok(sys.includes(`En octobre 2026 : ${brief}`));
 });
 

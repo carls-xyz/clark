@@ -79,6 +79,13 @@ export function isoMonth(day: string): IsoMonth {
   return { month, start: `${month}-01`, end };
 }
 
+/** Le mois « AAAA-MM », n mois plus tôt. */
+export function monthsBefore(month: string, n: number): string {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1 - n, 1, 12));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
 export class DailyJournal {
   private readonly db: DatabaseSync;
   constructor(db: DatabaseSync) {
@@ -490,20 +497,27 @@ export async function writeMonthSummary(hub: Hub, monthOrDay: string, think: (pr
   return m.month;
 }
 
-/** La semaine dernière, pour le début de chaque conversation (une ligne : son « En bref »). */
-export function lastWeekForPrompt(db: DatabaseSync): string {
+/**
+ * La semaine dernière, pour le début de chaque conversation (une ligne : son « En bref »).
+ * Seulement si elle s'est finie il y a moins de deux semaines : un vieux résumé (Clark
+ * arrêté, semaines trop calmes) ne passe pas pour « la semaine dernière ».
+ */
+export function lastWeekForPrompt(db: DatabaseSync, now: Date = new Date()): string {
   const w = journalOf(db).latestWeek();
-  return w ? `La semaine dernière : ${w.brief.replace(/\s+/g, " ")}` : "";
+  if (!w || w.end < addDays(parisDay(now), -14)) return "";
+  return `La semaine dernière : ${w.brief.replace(/\s+/g, " ")}`;
 }
 
 /**
  * Le dernier mois résumé, pour le début de chaque conversation (une ligne : son « En bref »).
  * On nomme le mois réel de la ligne (dérivé du champ `month`), pas « le mois dernier » en dur :
  * si le mois précédent a eu trop peu de journaux, latestMonth peut renvoyer un mois plus ancien.
+ * Au-delà de deux mois, il n'est plus montré : il deviendrait du bruit dans chaque conversation.
  */
-export function lastMonthForPrompt(db: DatabaseSync): string {
+export function lastMonthForPrompt(db: DatabaseSync, now: Date = new Date()): string {
   const m = journalOf(db).latestMonth();
-  if (!m) return "";
+  // Le mois précédent, ou celui d'avant (début de mois, avant que le précédent soit écrit) : pas plus vieux.
+  if (!m || m.month < monthsBefore(parisDay(now).slice(0, 7), 2)) return "";
   const label = new Date(`${m.month}-01T12:00:00Z`).toLocaleDateString("fr-FR", { month: "long", year: "numeric", timeZone: "Europe/Paris" });
   return `En ${label} : ${m.brief.replace(/\s+/g, " ")}`;
 }

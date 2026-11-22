@@ -79,13 +79,13 @@ function coreFiles(dir: string): string {
 }
 
 /** Prompt système : identité fixe, puis mémoire cœur, puis souvenirs les plus importants. */
-export function buildSystemPrompt(store: Store, coreDir: string): string {
-  const now = new Date().toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "full", timeStyle: "short" });
+export function buildSystemPrompt(store: Store, coreDir: string, at: Date = new Date()): string {
+  const now = at.toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "full", timeStyle: "short" });
   const top = store.top(15);
   const skills = skillsForPrompt();
   const recent = recentJournalForPrompt(store.db);
-  const lastWeek = lastWeekForPrompt(store.db);
-  const lastMonth = lastMonthForPrompt(store.db);
+  const lastWeek = lastWeekForPrompt(store.db, at);
+  const lastMonth = lastMonthForPrompt(store.db, at);
   const journal = [recent, lastWeek, lastMonth].filter(Boolean).join("\n\n");
   return [
     IDENTITY,

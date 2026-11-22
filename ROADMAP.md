@@ -39,7 +39,7 @@ Mis à jour le 21 novembre 2026. Ce qui est fait est décrit dans le [mode d'emp
 - [ ] VPS + Tailscale : Clark allumé 24 h/24, même Mac éteint, accessible depuis l'iPhone. Prérequis de WhatsApp (voie officielle).
 - [x] Mémoire en couches : conversations du jour, journal du jour dans Obsidian (relu au début de chaque conversation), souvenirs confirmés (21/11).
 - [x] Notes par sujet dans `Clark/Sujets`, reliées aux souvenirs et aux jours du journal (21/11).
-- [ ] Consolidation plus longue : un résumé par semaine et par mois à partir des journaux.
+- [x] Consolidation plus longue : un résumé par semaine et par mois à partir des journaux.
 - [x] Veille du soir écrite aussi dans Obsidian (`Clark/Veille/`), reliée au journal (21/11).
 - [x] Tâches longues : 150 étapes et reprise, tests par l'agent sans clic, tests avant relecture ; pilote automatique jusqu'à la PR (21/11).
 - [x] Page Idées : tour d'idées quotidien dans le navigateur (Show HN, GitHub, Reddit, X…), idées lancées en vrac (page ou `/idee`), avis de Clark, notes Obsidian des idées gardées (22/11).
