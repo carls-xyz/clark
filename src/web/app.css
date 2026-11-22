@@ -6805,3 +6805,68 @@ ui-menu-separator {
   padding-left: 18px;
   font-size: var(--fs-small);
 }
+
+/* ── Activité › Ce qui s'est passé ──────────────────────────────────── */
+
+.note-filters {
+  margin: 0 0 8px;
+}
+
+.note-list {
+  display: grid;
+  gap: 0;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.note-item {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 4px 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-small);
+}
+
+.note-item:first-child {
+  border-top: 0;
+}
+
+.note-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+
+.tag.note-cat {
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.note-item.is-new .note-cat {
+  background: var(--accent-tint);
+  color: var(--accent-text);
+}
+
+.note-text {
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+.thread-notes {
+  margin: 8px 0 0;
+  font-size: var(--fs-small);
+  text-align: center;
+}
+
+.thread-notes a {
+  color: var(--text-2);
+}
+
+@media (max-width: 640px) {
+  .note-item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

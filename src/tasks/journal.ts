@@ -398,9 +398,20 @@ export function describeStep(s: Step): string {
   return path ? `${s.tool} ${String(path).slice(0, 200)}` : s.tool;
 }
 
+/**
+ * Ce que l'utilisateur a demandé, sans les notes ajoutées devant pour l'agent (« [Affiché à …] …
+ * Message de Charles : … ») : c'est ce texte qu'on lui cite, jamais la consigne interne.
+ */
+export const MESSAGE_MARK = "\n\nMessage de Charles : ";
+export function askedText(prompt: string): string {
+  const at = prompt.startsWith("[Affiché à ") ? prompt.lastIndexOf(MESSAGE_MARK) : -1;
+  return at >= 0 ? prompt.slice(at + MESSAGE_MARK.length) : prompt;
+}
+
 /** Texte de l'alerte « à vérifier », affiché avec les boutons Reprendre / Abandonner. */
 export function checkAlertText(task: Task, uncertain: Step[]): string {
-  const what = task.prompt.length > 80 ? `${task.prompt.slice(0, 80)}…` : task.prompt;
+  const asked = askedText(task.prompt);
+  const what = asked.length > 80 ? `${asked.slice(0, 80)}…` : asked;
   const list = uncertain.map((s) => `- ${describeStep(s)}`).join("\n") || "- (la conversation de cette tâche est introuvable)";
   return `J'ai été coupé pendant « ${what} ».\n\nCette écriture a peut-être déjà eu lieu :\n${list}\n\nJe ne la refais pas sans toi. Si tu reprends, je vérifie d'abord son effet.`;
 }

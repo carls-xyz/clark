@@ -139,13 +139,11 @@ function listRow({ href, agent, title, badge, preview, previewRole, at, unread, 
 
 const matchesList = (...texts) => !listQuery.trim() || texts.some((t) => t && matchesQuery(t, listQuery));
 
-/** Les conversations : non lues d'abord, puis l'équipe (un contact par agent), puis toutes les autres. */
+/** Les conversations : épinglées, non lues, puis toutes les autres. */
 function renderConversationList() {
   const list = state.conversations ?? [];
-  const byId = new Map(list.map((c) => [c.id, c]));
   // Affichée en ce moment (l'ouverte, ou une passée qu'on relit) : sa ligne est mise en avant, sans non-lus.
   const isCurrent = (c) => view === "chat" && (pastId ? pastId === c.id : c.id === state.conversationId);
-  const viewing = (id) => view === "chat" && (pastId ? pastId === id : id === state.conversationId);
   const row = (c) =>
     listRow({
       href: c.id === state.conversationId ? "#conversation" : `#conversation/${c.id}`,
@@ -166,39 +164,14 @@ function renderConversationList() {
   const pinnedIds = new Set(pinned.map((c) => c.id));
   const unread = list.filter((c) => !pinnedIds.has(c.id) && (c.unread || (isCurrent(c) && keptUnread.has(c.id))) && matchesList(c.title, c.preview));
   keptUnread = new Set(unread.map((c) => c.id));
-  const team = (state.contacts ?? [])
-    .filter((ct) => matchesList(ct.name, ct.badge))
-    .map((ct) => {
-      const latest = ct.latest ? byId.get(ct.latest) : null;
-      const open = ct.latest !== null && viewing(ct.latest);
-      return listRow({
-        href: `#agent/${ct.role ?? "clark"}`,
-        agent: ct.role,
-        title: ct.name,
-        badge: ct.badge,
-        preview: latest?.preview ?? null,
-        previewRole: latest?.preview_role ?? null,
-        at: latest?.at ?? null,
-        unread: open ? 0 : (latest?.unread ?? 0),
-        // L'agent dont la conversation est affichée : sa ligne est mise en avant.
-        current: open,
-        // Sa conversation la plus récente se gère d'ici (si elle a du contenu).
-        convId: latest ? latest.id : null,
-        pinned: false,
-        convTitle: latest?.title ?? ct.name,
-      });
-    })
-    .join("");
   const unreadIds = new Set(unread.map((c) => c.id));
-  // La conversation la plus récente de chaque agent est déjà sa ligne dans « Équipe » : pas deux fois.
-  const shownByTeam = new Set((state.contacts ?? []).map((ct) => ct.latest).filter(Boolean));
-  const rest = sortConvs(list.filter((c) => !unreadIds.has(c.id) && !pinnedIds.has(c.id) && (listQuery.trim() || !shownByTeam.has(c.id)) && matchesList(c.title, c.preview, contactOf(c.agent).name)));
+  // Plus de section « Équipe » : les conversations avec un agent sont rangées avec les autres (son nom en badge).
+  const rest = sortConvs(list.filter((c) => !unreadIds.has(c.id) && !pinnedIds.has(c.id) && matchesList(c.title, c.preview, contactOf(c.agent).name)));
   const sorter = `<label class="visually-hidden" for="conv-sort">Trier les conversations</label><select class="conv-sort" id="conv-sort">${Object.entries(SORTS)
     .map(([k, v]) => `<option value="${k}"${k === convSort ? " selected" : ""}>${v}</option>`)
     .join("")}</select>`;
   return `${pinned.length ? `<p class="threads-title">Épinglées</p>${pinned.map(row).join("")}` : ""}
     ${unread.length ? `<p class="threads-title">Non lues <span class="threads-count">${unread.length}</span></p>${unread.map(row).join("")}` : ""}
-    ${team ? `<p class="threads-title">Équipe</p>${team}` : ""}
     ${rest.length ? `<div class="threads-title threads-title-row"><span>Plus anciennes</span>${sorter}</div>${rest.map(row).join("")}` : listQuery.trim() ? `<p class="threads-empty">Rien ne correspond.</p>` : ""}`;
 }
 
@@ -338,6 +311,9 @@ function showView() {
   if (state) renderThreads();
   renderView();
   if (view === "inbox" && state) void loadHistory();
+  if (view !== "inbox") leaveNotes();
+  // « N notes dans Activité » (au bas de la conversation) : on descend droit aux notes.
+  if (view === "inbox" && location.hash === "#activite/notes") requestAnimationFrame(() => $("#h-notes")?.scrollIntoView({ block: "start" }));
   // Passer d'une conversation à l'autre redessine le fil.
   if (view === "chat" && state) {
     pastScrolled = null;

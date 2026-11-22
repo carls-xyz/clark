@@ -393,6 +393,7 @@ function renderInbox() {
   html += `<h2 class="activity-group" id="h-live">En cours${live.length ? ` <span class="block-count">${live.length}</span>` : ""}</h2>${
     live.length ? `<ul class="link-list">${live.map((r) => `<li><a href="${r.href}"><span class="dot" data-s="${r.s}"></span><span class="ll-label">${esc(r.label)}</span><span class="quiet">${esc(r.meta)}</span></a></li>`).join("")}</ul>` : `<p class="quiet">${allLive.length ? `Rien ne correspond à « ${esc(activityFilter)} ».` : "Aucun agent ne travaille."}</p>`
   }`;
+  html += renderNotes();
   html += renderDecisions();
   html += `<h2 class="activity-group" id="h-history">Historique</h2>${renderHistory()}`;
   // Sommaire en tête : où en est chaque partie, d'un coup d'œil (et un clic pour y aller).
@@ -400,6 +401,7 @@ function renderInbox() {
   html = `<nav class="activity-summary" aria-label="Parties de l'activité">
     <a href="#h-waiting" data-jump class="${shown ? "is-hot" : ""}"><strong>${shown}</strong> à traiter</a>
     <a href="#h-live" data-jump><strong>${live.length}</strong> en cours</a>
+    <a href="#h-notes" data-jump class="${newNotesCount() ? "is-hot" : ""}"><strong>${newNotesCount()}</strong> nouvelle${newNotesCount() > 1 ? "s" : ""} note${newNotesCount() > 1 ? "s" : ""}</a>
     <a href="#h-decisions" data-jump><strong>${todayDecisions}</strong> décision${todayDecisions > 1 ? "s" : ""} aujourd'hui</a>
     <a href="#h-history" data-jump>Historique</a>
   </nav>${html}`;

@@ -26,6 +26,8 @@ import { hashtagsOf } from "../social/posts.ts";
 import { PLATFORMS, platformName } from "../social/platforms.ts";
 import { heartbeatStatus, runHeartbeatNow } from "../scheduler/heartbeat.ts";
 import { nextRunText, scheduleText, type AutomationInput } from "../scheduler/automations.ts";
+import { inThread, noteCategory } from "../core/thread.ts";
+import type { Message } from "../core/conversation.ts";
 import { launchAutomation } from "../scheduler/automation-run.ts";
 import { TEAM_LABEL } from "../core/team.ts";
 import { describeStep, uncertainSteps } from "../tasks/journal.ts";
@@ -330,7 +332,8 @@ export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voi
     },
     // L'équipe comme contacts : chacun avec sa conversation la plus récente.
     contacts: CONTACTS.map((c) => ({ role: c.role, name: c.name, badge: c.badge, mission: c.mission, access: c.access, latest: conversation.latestWith(OWNER_CHAT, c.role) })),
-    messages: conversation.messagesOf(conversation.current(OWNER_CHAT), 200).filter((m) => !(m.role === "system" && m.text === NEW_CONVERSATION_NOTE)).map((m) => ({
+    // Ta conversation : toi, Clark, et les notes de vos échanges. Le reste est dans « notes » (Activité).
+    messages: threadMessages(hub, conversation.messagesOf(conversation.current(OWNER_CHAT), 200)).map((m) => ({
       id: m.id,
       role: m.role,
       text: m.text,
@@ -340,6 +343,7 @@ export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voi
       agent: m.agent ?? null,
       at: m.created_at,
     })),
+    notes: activityNotes(hub),
     running: mine(journal.unfinished()).map((t) => ({
       id: t.id,
       parentId: t.parent_id,
@@ -686,6 +690,32 @@ export function calendarRecent(hub: Hub, limit = 20): string[] {
   ).map((r) => r.at);
 }
 
+/** La conversation d'une tâche (null si inconnue), lue une fois par tâche. */
+function taskChats(hub: Hub) {
+  const seen = new Map<number, number | undefined>();
+  return (id: number) => {
+    if (!seen.has(id)) seen.set(id, hub.deps.journal.get(id)?.chat_id);
+    return seen.get(id);
+  };
+}
+
+/** Les messages qui ont leur place dans ta conversation (voir src/core/thread.ts). */
+export function threadMessages(hub: Hub, list: Message[]): Message[] {
+  const chatOf = taskChats(hub);
+  return list.filter((m) => !(m.role === "system" && m.text === NEW_CONVERSATION_NOTE) && inThread(m, OWNER_CHAT, chatOf));
+}
+
+/** Activité › « Ce qui s'est passé » : les dernières notes sorties de ta conversation, rangées par sorte. */
+export function activityNotes(hub: Hub, limit = 80) {
+  const chatOf = taskChats(hub);
+  return hub.deps.conversation
+    .recent(OWNER_CHAT, 400)
+    .filter((m) => m.role === "system" && m.text !== NEW_CONVERSATION_NOTE && !inThread(m, OWNER_CHAT, chatOf))
+    .slice(-limit)
+    .reverse()
+    .map((m) => ({ id: m.id, text: m.text, kind: m.kind, category: noteCategory(m), taskId: m.task_id, at: m.created_at }));
+}
+
 function sendVideo(req: IncomingMessage, res: ServerResponse, post: { media_path: string } | undefined) {
   if (!post || !existsSync(post.media_path)) throw new HttpError(404, "Vidéo introuvable");
   const size = statSync(post.media_path).size;
@@ -800,9 +830,7 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
       if (past) {
         const c = hub.deps.conversation.conversation(Number(past[1]));
         if (!c || c.chat_id !== OWNER_CHAT || !hub.deps.conversation.hasContent(c.id)) return json(res, 404, { error: "Conversation introuvable" });
-        const messages = hub.deps.conversation
-          .messagesOf(c.id, 200)
-          .filter((m) => !(m.role === "system" && m.text === NEW_CONVERSATION_NOTE))
+        const messages = threadMessages(hub, hub.deps.conversation.messagesOf(c.id, 200))
           .map((m) => ({ id: m.id, role: m.role, text: m.text, taskId: m.task_id, source: m.source, kind: m.kind, agent: m.agent ?? null, at: m.created_at }));
         const title = c.title ?? hub.deps.conversation.list(OWNER_CHAT, 500).find((x) => x.id === c.id)?.title ?? "Conversation";
         return json(res, 200, { id: c.id, title, agent: c.agent, at: c.updated_at, messages });
