@@ -29,6 +29,13 @@ const hostOf = (url) => {
   }
 };
 
+// « Écrire le journal du jour » : gardés ici, car render() reconstruit la page à chaque hub.touch().
+let journalBusy = false;
+let journalMsg = null; // { text, error }
+
+/** Le jour (AAAA-MM-JJ) en toutes lettres : « 21 novembre ». */
+const journalDayLabel = (day) => new Date(`${day}T12:00:00Z`).toLocaleDateString("fr-FR", { day: "numeric", month: "long", timeZone: "Europe/Paris" });
+
 /** Obsidian : la mémoire de Clark en notes liées dans ton coffre, et sa recherche par le sens. */
 function renderObsidianPlugin() {
   const o = state.obsidian ?? {};
@@ -46,7 +53,11 @@ function renderObsidianPlugin() {
     "La mémoire de Clark en notes liées dans ton coffre, dossier « Clark/Mémoire » : corrige une note, il reprend ton texte ; supprime-la, il oublie ; écris-en une, il l'apprend. Il cherche aussi dans tes notes, par mots et par le sens, et n'écrit que dans « Clark/ ».",
     `<p class="quiet">${esc(o.vault)} · ${o.notes} souvenir${o.notes > 1 ? "s" : ""} en notes${when ? ` · synchro à ${when}` : ""}</p>
      ${o.error ? `<p class="inline-error" role="alert">${esc(o.error)}</p>` : ""}
-     <div class="card-actions"><button type="button" class="btn secondary" data-obsidian-sync>Synchroniser maintenant</button></div>`,
+     <div class="card-actions">
+       <button type="button" class="btn secondary" data-obsidian-sync>Synchroniser maintenant</button>
+       <button type="button" class="btn secondary" data-obsidian-journal${journalBusy ? " disabled" : ""}>${journalBusy ? "Écriture…" : "Écrire le journal du jour"}</button>
+     </div>
+     ${journalMsg ? (journalMsg.error ? `<p class="inline-error" role="alert">${esc(journalMsg.text)}</p>` : `<p class="quiet" role="status">${esc(journalMsg.text)}</p>`) : ""}`,
   );
 }
 
@@ -62,6 +73,23 @@ side.addEventListener("click", async (e) => {
   } finally {
     btn.disabled = false;
     btn.textContent = "Synchroniser maintenant";
+  }
+});
+
+side.addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-obsidian-journal]");
+  if (!btn || journalBusy) return;
+  journalBusy = true;
+  journalMsg = null;
+  renderSettings();
+  try {
+    const r = await post("/api/obsidian/journal", {});
+    journalMsg = r.empty ? { text: "Rien à écrire aujourd'hui : la journée est presque vide." } : { text: `Journal du ${journalDayLabel(r.day)} écrit` };
+  } catch (err) {
+    journalMsg = { text: err.message, error: true };
+  } finally {
+    journalBusy = false;
+    renderSettings();
   }
 });
 
