@@ -356,19 +356,20 @@ export function memoryTools(store: Store, ctx: { taskId: () => number | undefine
     },
     note_idea: {
       description:
-        "Note une idée de projet pour Charles dans sa page Idées (il la trie ensuite : creuser, garder, écarter, lancer). Une idée = un projet qu'il pourrait construire, pas juste un lien : dis ce qu'on construirait et pourquoi c'est pour lui (ses projets, sa stack, ce qu'il aime). Donne la source. Rien n'est lancé.",
+        "Note une idée pour Charles dans sa page Idées (il la trie ensuite : creuser, garder, écarter, lancer). kind « projet » : quelque chose qu'il pourrait construire, pas juste un lien ; dis ce qu'on construirait et pourquoi c'est pour lui (ses projets, sa stack). kind « design » : une référence d'interface ; dis précisément ce qui marche (mise en page, typo, composant, interaction) et où il pourrait le réutiliser. Donne la source. Rien n'est lancé.",
       shape: {
-        title: z.string().min(5).max(90).describe("Le projet en quelques mots : « Tableau de bord de ses PR GitHub dans Clark »"),
-        pitch: z.string().min(20).max(800).describe("Ce qu'on construirait, en deux ou trois phrases"),
-        why: z.string().min(5).max(400).describe("Pourquoi c'est pour Charles"),
+        kind: z.enum(["projet", "design"]).optional().describe("projet (défaut) ou design"),
+        title: z.string().min(5).max(90).describe("En quelques mots : « Tableau de bord de ses PR GitHub dans Clark », « Grille éditoriale de Stripe Press »"),
+        pitch: z.string().min(20).max(800).describe("Projet : ce qu'on construirait. Design : ce qui marche dans la référence. Deux ou trois phrases"),
+        why: z.string().min(5).max(400).describe("Projet : pourquoi c'est pour Charles. Design : où il pourrait le réutiliser"),
         source_url: z.string().url().max(500).optional().describe("La page où tu l'as vue"),
         source_label: z.string().min(2).max(80).optional().describe("D'où ça vient, lisible : « Show HN », « r/selfhosted », « GitHub Trending »"),
       },
-      run(args: { title: string; pitch: string; why: string; source_url?: string; source_label?: string }) {
+      run(args: { kind?: "projet" | "design"; title: string; pitch: string; why: string; source_url?: string; source_label?: string }) {
         const taskId = ctx.taskId();
         if (taskId === undefined) return "Refusé : je ne retrouve pas la tâche qui note cette idée.";
         const row = store.db.prepare("SELECT label FROM tasks WHERE id = ?").get(taskId) as { label: string } | undefined;
-        const r = store.ideas.add({ title: args.title, pitch: args.pitch, why: args.why, origin: row?.label === IDEAS_TOUR_LABEL ? "scroll" : "clark", sourceUrl: args.source_url ?? null, sourceLabel: args.source_label ?? null, taskId });
+        const r = store.ideas.add({ title: args.title, pitch: args.pitch, kind: args.kind ?? "projet", why: args.why, origin: row?.label === IDEAS_TOUR_LABEL ? "scroll" : "clark", sourceUrl: args.source_url ?? null, sourceLabel: args.source_label ?? null, taskId });
         if (r.outcome === "duplicate") return `Déjà notée (idée #${r.id}) : n'en refais pas une variante.`;
         if (r.outcome === "dropped_before") return `Charles a déjà écarté cette idée (#${r.id}) : ne la repropose pas.`;
         if (r.outcome === "full") return "Charles a déjà beaucoup d'idées à trier : n'en ajoute plus pour l'instant.";

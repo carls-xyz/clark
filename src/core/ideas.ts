@@ -1,7 +1,11 @@
 import type { DatabaseSync } from "node:sqlite";
 
 /**
- * Idées de projets (page Idées). Elles arrivent de trois façons :
+ * Idées de projets et de design (page Idées). Deux sortes :
+ * - « projet » : quelque chose à construire, ou à ajouter à un projet existant ;
+ * - « design » : une référence d'interface (un site, un détail) à réutiliser dans ses projets.
+ *
+ * Elles arrivent de trois façons :
  * - « scroll » : pendant le tour d'idées, Clark parcourt des sites avec son navigateur et note
  *   ce qui pourrait devenir un projet pour l'utilisateur ;
  * - « toi » : l'utilisateur lui lance une idée en vrac (une phrase, un lien) ;
@@ -11,6 +15,8 @@ import type { DatabaseSync } from "node:sqlite";
  * ou lancer (Clark en fait un plan ou une tâche de code). Rien n'est lancé sans lui.
  */
 export type IdeaOrigin = "scroll" | "toi" | "clark";
+export type IdeaKind = "projet" | "design";
+export const IDEA_KINDS: IdeaKind[] = ["projet", "design"];
 /**
  * - new     : à trier ;
  * - digging : Clark est en train de la creuser ;
@@ -26,7 +32,8 @@ export type Idea = {
   id: number;
   title: string;
   title_key: string;
-  /** Ce qu'on construirait, en deux ou trois phrases. */
+  kind: IdeaKind;
+  /** Projet : ce qu'on construirait. Design : ce qui marche dans la référence. Deux ou trois phrases. */
   pitch: string;
   /** Pourquoi c'est pour l'utilisateur (ses projets, sa stack, ce qu'il aime). */
   why: string | null;
@@ -52,19 +59,48 @@ export const isIdeaLabel = (label: string) => label === IDEAS_TOUR_LABEL || labe
 
 export const VERDICT_LABEL: Record<IdeaVerdict, string> = { go: "À faire", later: "Pour plus tard", skip: "À laisser" };
 /** Pas plus de nouvelles idées à trier que ça : au-delà, le tour d'idées attend que l'utilisateur trie. */
-export const MAX_NEW = 15;
-/** Idées notées au plus par tour d'idées. */
-export const MAX_PER_TOUR = 5;
+export const MAX_NEW = 20;
+/** Idées notées au plus par tour d'idées, par sorte. */
+export const MAX_PER_TOUR: Record<IdeaKind, number> = { projet: 4, design: 3 };
+/**
+ * Sites visités par tour, par sorte. La liste peut être longue : chaque tour en prend quelques-uns,
+ * à tour de rôle, pour ne pas épuiser le quota (tout est couvert en quelques jours).
+ */
+export const SITES_PER_TOUR: Record<IdeaKind, number> = { projet: 4, design: 2 };
 
-export const DEFAULT_SOURCES = [
-  "https://news.ycombinator.com/show",
-  "https://github.com/trending?since=daily",
-  "https://old.reddit.com/r/SideProject/top/?t=day",
-  "https://old.reddit.com/r/selfhosted/top/?t=day",
-  "https://old.reddit.com/r/LocalLLaMA/top/?t=day",
-  "https://www.producthunt.com/",
-  "https://x.com/home",
-];
+export const DEFAULT_SOURCES: Record<IdeaKind, string[]> = {
+  projet: [
+    "https://news.ycombinator.com/show",
+    "https://github.com/trending?since=daily",
+    "https://github.com/trending/typescript?since=daily",
+    "https://old.reddit.com/r/SideProject/top/?t=day",
+    "https://old.reddit.com/r/selfhosted/top/?t=day",
+    "https://old.reddit.com/r/LocalLLaMA/top/?t=day",
+    "https://old.reddit.com/r/webdev/top/?t=day",
+    "https://old.reddit.com/r/ClaudeAI/top/?t=day",
+    "https://www.producthunt.com/",
+    "https://lobste.rs/",
+    "https://dev.to/top/week",
+    "https://huggingface.co/papers",
+    "https://simonwillison.net/",
+    "https://www.indiehackers.com/",
+    "https://x.com/home",
+  ],
+  design: [
+    "https://godly.website/",
+    "https://www.siteinspire.com/",
+    "https://minimal.gallery/",
+    "https://land-book.com/",
+    "https://www.lapa.ninja/",
+    "https://onepagelove.com/",
+    "https://www.awwwards.com/websites/",
+    "https://dribbble.com/shots/popular/web-design",
+    "https://www.behance.net/galleries/ui-ux",
+    "https://www.curated.design/",
+    "https://saaslandingpage.com/",
+    "https://tympanus.net/codrops/",
+  ],
+};
 
 export const ideaKey = (s: string) =>
   s
@@ -88,6 +124,7 @@ export class Ideas {
         id           INTEGER PRIMARY KEY,
         title        TEXT NOT NULL,
         title_key    TEXT NOT NULL,
+        kind         TEXT NOT NULL DEFAULT 'projet' CHECK (kind IN ('projet','design')),
         pitch        TEXT NOT NULL,
         why          TEXT,
         origin       TEXT NOT NULL CHECK (origin IN ('scroll','toi','clark')),
@@ -104,6 +141,8 @@ export class Ideas {
       CREATE INDEX IF NOT EXISTS ideas_key ON ideas (title_key);
       CREATE TABLE IF NOT EXISTS idea_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     `);
+    const cols = db.prepare("PRAGMA table_info(ideas)").all() as { name: string }[];
+    if (!cols.some((c) => c.name === "kind")) db.exec("ALTER TABLE ideas ADD COLUMN kind TEXT NOT NULL DEFAULT 'projet' CHECK (kind IN ('projet','design'))");
     this.seen = this.stamp();
   }
 
@@ -152,14 +191,14 @@ export class Ideas {
     return (this.db.prepare("SELECT title FROM ideas ORDER BY id DESC LIMIT ?").all(limit) as { title: string }[]).map((r) => r.title);
   }
 
-  add(i: { title: string; pitch: string; why?: string | null; origin: IdeaOrigin; sourceUrl?: string | null; sourceLabel?: string | null; taskId?: number | null }): AddOutcome {
+  add(i: { title: string; pitch: string; kind?: IdeaKind; why?: string | null; origin: IdeaOrigin; sourceUrl?: string | null; sourceLabel?: string | null; taskId?: number | null }): AddOutcome {
     const key = ideaKey(i.title);
     const same = this.db.prepare("SELECT id, status FROM ideas WHERE title_key = ? ORDER BY id DESC LIMIT 1").get(key) as { id: number; status: IdeaStatus } | undefined;
     if (same) return { outcome: same.status === "dropped" ? "dropped_before" : "duplicate", id: same.id };
     if (i.origin !== "toi" && this.byStatus("new").length >= MAX_NEW) return { outcome: "full" };
     const r = this.db
-      .prepare("INSERT INTO ideas (title, title_key, pitch, why, origin, source_url, source_label, task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(i.title.trim(), key, i.pitch.trim(), i.why?.trim() || null, i.origin, i.sourceUrl?.trim() || null, i.sourceLabel?.trim() || null, i.taskId ?? null);
+      .prepare("INSERT INTO ideas (title, title_key, kind, pitch, why, origin, source_url, source_label, task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(i.title.trim(), key, i.kind ?? "projet", i.pitch.trim(), i.why?.trim() || null, i.origin, i.sourceUrl?.trim() || null, i.sourceLabel?.trim() || null, i.taskId ?? null);
     const id = Number(r.lastInsertRowid);
     this.emit("added", this.get(id));
     return { outcome: "added", id };
@@ -200,22 +239,48 @@ export class Ideas {
     return ok;
   }
 
-  /** Les sites parcourus pendant le tour d'idées (réglables sur la page). */
-  sources(): string[] {
-    const row = this.db.prepare("SELECT value FROM idea_settings WHERE key = 'sources'").get() as { value: string } | undefined;
-    if (!row) return [...DEFAULT_SOURCES];
+  private setting(key: string): string | undefined {
+    return (this.db.prepare("SELECT value FROM idea_settings WHERE key = ?").get(key) as { value: string } | undefined)?.value;
+  }
+
+  private saveSetting(key: string, value: string) {
+    this.db.prepare("INSERT INTO idea_settings (key, value) VALUES (?, ?) ON CONFLICT DO UPDATE SET value = excluded.value").run(key, value);
+  }
+
+  /** Les sites parcourus pendant le tour d'idées, par sorte (réglables sur la page). */
+  sources(kind: IdeaKind = "projet"): string[] {
+    // « sources » : la liste des projets d'avant la sorte design, gardée telle quelle.
+    const raw = this.setting(kind === "projet" ? "sources" : `sources_${kind}`);
+    if (raw === undefined) return [...DEFAULT_SOURCES[kind]];
     try {
-      const list = JSON.parse(row.value);
-      return Array.isArray(list) ? list.filter((s): s is string => typeof s === "string") : [...DEFAULT_SOURCES];
+      const list = JSON.parse(raw);
+      return Array.isArray(list) ? list.filter((x): x is string => typeof x === "string") : [...DEFAULT_SOURCES[kind]];
     } catch {
-      return [...DEFAULT_SOURCES];
+      return [...DEFAULT_SOURCES[kind]];
     }
   }
 
-  setSources(list: string[]): string[] {
-    const clean = [...new Set(list.map((s) => s.trim()).filter((s) => /^https?:\/\/\S+$/i.test(s)))].slice(0, 20);
-    this.db.prepare("INSERT INTO idea_settings (key, value) VALUES ('sources', ?) ON CONFLICT DO UPDATE SET value = excluded.value").run(JSON.stringify(clean));
+  setSources(kind: IdeaKind, list: string[]): string[] {
+    const clean = [...new Set(list.map((x) => x.trim()).filter((x) => /^https?:\/\/\S+$/i.test(x)))].slice(0, 60);
+    this.saveSetting(kind === "projet" ? "sources" : `sources_${kind}`, JSON.stringify(clean));
     this.emit("changed");
     return clean;
+  }
+
+  /**
+   * Les sites du prochain tour : quelques-uns par sorte, à tour de rôle dans la liste.
+   * advance : le curseur avance (un vrai tour) ; sinon on regarde seulement.
+   */
+  nextSites(advance = false): Record<IdeaKind, string[]> {
+    const out = { projet: [] as string[], design: [] as string[] };
+    for (const kind of IDEA_KINDS) {
+      const list = this.sources(kind);
+      if (!list.length) continue;
+      const start = Number(this.setting(`cursor_${kind}`) ?? 0) % list.length;
+      const n = Math.min(SITES_PER_TOUR[kind], list.length);
+      for (let k = 0; k < n; k++) out[kind].push(list[(start + k) % list.length]);
+      if (advance) this.saveSetting(`cursor_${kind}`, String((start + n) % list.length));
+    }
+    return out;
   }
 }
