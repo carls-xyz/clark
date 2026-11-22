@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Approver } from "../policy/permissions.ts";
 import { askedText, checkAlertText, describeStep, MESSAGE_MARK, planRecovery, resumePrompt, uncertainSteps, type Task } from "../tasks/journal.ts";
 import { executeTask, type Deps, type RunResult } from "./agent.ts";
-import { NEW_CONVERSATION_NOTE, type Conversation, type Message, type Role } from "./conversation.ts";
+import { cleanTitle, NEW_CONVERSATION_NOTE, newConversationHours, titlePrompt, type Conversation, type Message, type Role } from "./conversation.ts";
 import { createTeam, displayName, StaleAttempt, TEAM_LABEL, teamCheckText } from "./team.ts";
 import { resumeVerified } from "./recovery.ts";
 import { CHARLES_SOURCES } from "./reminders.ts";
@@ -114,6 +114,8 @@ export function createHub(
     refreshEngines?: () => Promise<void>;
     /** Juge rapide sans outils (vérification de fin de tâche). Absent : seule la règle « annonce la suite » joue. */
     judge?: (prompt: string) => Promise<string>;
+    /** Modèle rapide sans outils pour titrer une conversation. Absent : le titre reste le début de ton premier message. */
+    titler?: (prompt: string) => Promise<string>;
   } = {},
 ) {
   const { store, journal, conversation } = deps;
@@ -337,6 +339,7 @@ export function createHub(
         // Avis d'un membre du groupe : signé de son nom.
         else await say(chatId, result.text, "clark", taskId, undefined, task?.label.startsWith("avis:") ? task.label.slice(5) : null);
         if (task) await afterTurn(task, result);
+        if (task && result.status === "done") void nameConversation(task);
       } catch (err) {
         if (err instanceof StaleAttempt) {
           // Une autre exécution a pris le relais sur cette tâche : celle-ci s'efface sans rien dire.
@@ -429,6 +432,30 @@ export function createHub(
   const runTeam = (task: Task) => schedule(task.chat_id, () => team.run(task.id), task.id);
 
   /** Nouvelle demande : écrite dans le journal et dans le fil avant tout traitement. */
+  /**
+   * Un vrai titre pour la conversation, après la première réponse de Clark : 2 à 6 mots trouvés par
+   * un modèle rapide, à la place du début de ton premier message. Jamais à la place d'un titre que tu as donné.
+   */
+  const naming = new Set<number>();
+  const nameConversation = async (task: Task) => {
+    if (!opts.titler || task.chat_id !== OWNER_CHAT || (task.label !== "chat" && task.label !== TEAM_LABEL)) return;
+    const id = conversation.conversationOfTask(task.id);
+    if (id === null || naming.has(id) || !conversation.wantsTitle(id)) return;
+    const list = conversation.messagesOf(id, 40);
+    const first = list.find((m) => m.role === "user");
+    const reply = list.find((m) => m.role === "clark");
+    if (!first || !reply) return;
+    naming.add(id);
+    try {
+      const title = cleanTitle(await opts.titler(titlePrompt(first.text, reply.text)));
+      if (title && conversation.setAutoTitle(id, title)) changed();
+    } catch (err) {
+      console.warn("[clark] titre de conversation impossible :", err instanceof Error ? err.message : err);
+    } finally {
+      naming.delete(id);
+    }
+  };
+
   const enqueue = (
     chatId: number,
     prompt: string,
@@ -437,6 +464,21 @@ export function createHub(
     /** display : ce que le fil montre à la place de la consigne (la commande tapée, « /relances … »). */
     opts: { onCreated?: (taskId: number) => void; access?: "read" | "write"; display?: string; engine?: EngineName; model?: string | null; effort?: string | null; images?: string[]; parentId?: number } = {},
   ) => {
+    // Longue pause (Réglages › Conversations) : ton message ouvre une nouvelle conversation, l'ancienne
+    // reste dans la liste avec sa session. Pas pendant qu'une demande tourne encore dans celle-ci.
+    if ((label === "chat" || label === TEAM_LABEL) && chatId === OWNER_CHAT && CHARLES_SOURCES.has(source) && opts.parentId === undefined) {
+      const hours = newConversationHours();
+      const idle = conversation.idleHours(chatId);
+      if (hours > 0 && idle !== null && idle >= hours && !journal.unfinished().some((t) => t.chat_id === chatId)) {
+        const before = conversation.current(chatId);
+        const after = conversation.startNew(chatId, conversation.conversation(before)?.agent ?? null);
+        if (after !== before) {
+          conversation.saveSession(before, store.getSession(chatId));
+          store.clearSession(chatId);
+          conversation.add({ chatId, role: "system", text: NEW_CONVERSATION_NOTE });
+        }
+      }
+    }
     // Ce que l'utilisateur a vu s'afficher sans que l'agent l'écrive (rappels, décisions seul, notes…) :
     // donné avec son message, sinon l'agent ne sait pas à quoi il répond (« ton rappel »).
     // (Conversation de Clark seulement : un agent en discussion directe garde sa consigne telle quelle.)

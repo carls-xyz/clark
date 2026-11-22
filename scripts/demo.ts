@@ -754,6 +754,12 @@ const hub = createHub({ config, store, journal, conversation }, {
   execute: fakeExecute,
   // Démo : rien ne part vraiment.
   sendMail: async () => ({ id: "demo" }),
+  // Démo : un titre fait des premiers mots du message (en vrai, un modèle rapide le trouve).
+  titler: async (p: string) => {
+    const msg = (p.split("Message de l'utilisateur :\n")[1] ?? "").split("\n")[0].replace(/[^\p{L}\p{N}' ]/gu, " ").trim();
+    const words = msg.split(/\s+/).filter((w) => w.length > 2).slice(0, 4);
+    return words.length ? words.join(" ").replace(/^./, (c) => c.toUpperCase()) : "Conversation";
+  },
   googleStatus: () => ({ configured: true, connected: true, email: "demo@example.com", missingScopes: [] }),
 });
 

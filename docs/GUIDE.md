@@ -137,6 +137,10 @@ Clark a son propre Chrome (ton Google Chrome, avec un profil à part dans `data/
 
 ## Gérer les conversations
 
+**Nouvelle conversation toute seule.** Après une longue pause (4 h par défaut, Réglages › Général › Conversations, 0 pour jamais), ton message suivant, depuis l'interface ou Telegram, ouvre une nouvelle conversation ; l'ancienne reste dans la liste avec sa session, tu peux la rouvrir. Une conversation que tu viens de rouvrir n'est pas concernée, ni une où une demande tourne encore.
+
+**Titres.** Après la première réponse de Clark, un modèle rapide donne à la conversation un titre de 2 à 6 mots, à la place du début de ton premier message (les conversations déjà titrées ainsi le reçoivent à leur prochaine réponse). Un titre que tu as donné avec **Renommer** ne bouge plus. Sans Claude connecté, le titre reste le début de ton premier message.
+
 Dans la barre de gauche, le bouton **⋯** d'une conversation (au survol, ou au clavier) : **Renommer** (le nom reste ensuite), **Épingler en haut** (section « Épinglées »), **Supprimer…** (avec confirmation : ses messages sont effacés pour de bon, les tâches restent dans Activité ; refusé tant que Clark y répond). Les agents de « Équipe » ont le même menu pour leur dernière conversation. « Plus anciennes » se trie par activité récente, date de création ou nom (gardé sur l'appareil).
 
 ## Terminal

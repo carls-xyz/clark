@@ -125,7 +125,7 @@ const hub = createHub(
     refreshQuota: config.engine === "codex" ? codex?.quota : claude.mode === "subscription" ? refreshClaude : undefined,
     refreshEngines,
     // Vérification de fin de tâche : un petit modèle Claude, si Claude est disponible.
-    ...(claude.mode !== "none" ? { judge: claudeJudge } : {}),
+    ...(claude.mode !== "none" ? { judge: claudeJudge, titler: claudeJudge } : {}),
   },
 );
 onQuota = (q) => hub.setQuota(q, "codex");

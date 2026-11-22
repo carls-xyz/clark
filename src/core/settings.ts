@@ -12,7 +12,7 @@ export type SettingDef = {
   env: string;
   label: string;
   hint: string;
-  section: "Veille et brief" | "Dev" | "Moteurs" | "Dépense" | "Sécurité" | "Autonomie";
+  section: "Conversations" | "Veille et brief" | "Dev" | "Moteurs" | "Dépense" | "Sécurité" | "Autonomie";
   type: "int" | "number" | "bool" | "hour" | "select" | "roles";
   min?: number;
   max?: number;
@@ -24,6 +24,7 @@ export type SettingDef = {
 };
 
 export const SETTINGS: SettingDef[] = [
+  { key: "newConversation", env: "CLARK_NEW_CONVERSATION_HOURS", label: "Nouvelle conversation après", hint: "Heures sans échange : ton message suivant ouvre une nouvelle conversation (l'ancienne reste dans la liste). 0 : jamais.", section: "Conversations", type: "int", min: 0, max: 168, fallback: "4", apply: "now" },
   { key: "heartbeat", env: "CLARK_HEARTBEAT_MINUTES", label: "Tour de veille", hint: "Toutes les N minutes, de 8 h à 21 h. 0 : coupé.", section: "Veille et brief", type: "int", min: 0, max: 1440, fallback: "120", apply: "now" },
   { key: "ideas", env: "CLARK_IDEAS_HOUR", label: "Tour d'idées", hint: "Heure du tour d'idées (0 à 23) : Clark parcourt quelques sites et note des idées de projets. Vide : coupé.", section: "Veille et brief", type: "hour", fallback: "15", apply: "now" },
   { key: "brief", env: "CLARK_BRIEF_HOUR", label: "Brief du matin", hint: "Heure du brief (0 à 23). Vide : pas de brief.", section: "Veille et brief", type: "hour", fallback: "", apply: "now" },
