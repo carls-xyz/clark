@@ -17,9 +17,9 @@ export const MEMORY_KINDS = ["fact", "preference", "project", "person", "event",
 export type MemoryKind = (typeof MEMORY_KINDS)[number];
 
 /**
- * proposed   : Clark l'a proposé, Charles n'a pas encore répondu. Jamais utilisé.
- * confirmed  : Charles l'a confirmé (ou corrigé). Utilisé tant qu'il n'a pas expiré.
- * rejected   : Charles l'a ignoré.
+ * proposed   : Clark l'a proposé, l'utilisateur n'a pas encore répondu. Jamais utilisé.
+ * confirmed  : l'utilisateur l'a confirmé (ou corrigé). Utilisé tant qu'il n'a pas expiré.
+ * rejected   : l'utilisateur l'a ignoré.
  * superseded : remplacé par une correction confirmée.
  */
 export type MemoryStatus = "proposed" | "confirmed" | "rejected" | "superseded";
@@ -43,7 +43,7 @@ export type Memory = {
   expires_at: string | null;
   /** Souvenir confirmé que cette proposition corrige ; il reste actif jusqu'à la confirmation. */
   replaces_id: number | null;
-  /** Texte proposé par Clark, quand Charles l'a corrigé avant de confirmer. */
+  /** Texte proposé par Clark, quand l'utilisateur l'a corrigé avant de confirmer. */
   original_content: string | null;
   confirmed_at: string | null;
 };
@@ -70,26 +70,26 @@ const ACTIVE = "m.archived = 0 AND m.status = 'confirmed' AND (m.expires_at IS N
  */
 export class Store {
   readonly db: DatabaseSync;
-  /** Questions des agents à Charles (même base, pour que le serveur MCP de Codex y accède). */
+  /** Questions des agents à l'utilisateur (même base, pour que le serveur MCP de Codex y accède). */
   readonly questions: Questions;
-  /** Automatisations planifiées réglées par Charles. */
+  /** Automatisations planifiées réglées par l'utilisateur. */
   readonly automations: Automations;
   /** Brouillons du module Réseaux sociaux, en attente de validation. */
   readonly posts: Posts;
-  /** Propositions du tour de veille (heartbeat), en attente de Charles. */
+  /** Propositions du tour de veille (heartbeat), en attente de l'utilisateur. */
   readonly initiatives: Initiatives;
   /** Mails que Clark veut envoyer, en attente de ton accord. */
   readonly outbox: Outbox;
   /** Modèle et niveau de puissance choisis pour chaque moteur. */
   readonly choices: EngineChoices;
-  /** Serveurs MCP ajoutés par Charles (Plugins). */
+  /** Serveurs MCP ajoutés par l'utilisateur (Plugins). */
   readonly mcp: McpServers;
   /** Objectifs suivis sur plusieurs tours (mode objectif). */
   readonly goals: Goals;
   /** Côté dev : projets et tâches dans leurs copies du dépôt. */
   readonly dev: DevStore;
   readonly voice: VoiceSettings;
-  /** Commandes proposées par Clark pour le Terminal de Charles (src/terminal/terminal.ts). */
+  /** Commandes proposées par Clark pour le Terminal de l'utilisateur (src/terminal/terminal.ts). */
   readonly terminal: TerminalRequests;
   private readonly listeners = new Set<(event: "proposed" | "changed", m?: Memory) => void>();
 
@@ -221,7 +221,7 @@ export class Store {
   }
 
   /**
-   * Souvenir confirmé d'emblée : réservé à ce que Charles écrit lui-même (et aux tests).
+   * Souvenir confirmé d'emblée : réservé à ce que l'utilisateur écrit lui-même (et aux tests).
    * Clark, lui, passe toujours par propose().
    */
   remember(input: { kind: MemoryKind; content: string; tags?: string[]; importance?: number; source?: string; expiresAt?: string }): number {
@@ -249,7 +249,7 @@ export class Store {
   }
 
   /**
-   * Clark propose un souvenir. Il n'est utilisé qu'une fois confirmé par Charles.
+   * Clark propose un souvenir. Il n'est utilisé qu'une fois confirmé par l'utilisateur.
    * Avec replacesId, c'est une correction : l'ancienne version reste active d'ici là.
    */
   propose(input: {
@@ -310,7 +310,7 @@ export class Store {
   }
 
   /**
-   * Confirme une proposition, telle quelle ou corrigée par Charles.
+   * Confirme une proposition, telle quelle ou corrigée par l'utilisateur.
    * false si elle n'est plus en attente (déjà traitée).
    */
   confirm(id: number, correction?: { content?: string; expiresAt?: string | null }): boolean {
@@ -381,7 +381,7 @@ export class Store {
       .all(limit) as Memory[];
   }
 
-  /** Correction directe, réservée à Charles (Clark propose une correction avec propose). */
+  /** Correction directe, réservée à l'utilisateur (Clark propose une correction avec propose). */
   update(id: number, content: string): boolean {
     const r = this.db.prepare("UPDATE memories SET content = ? WHERE id = ? AND archived = 0").run(content.trim(), id);
     if (r.changes > 0) this.emit("changed");

@@ -89,7 +89,7 @@ test("projet : un vrai dépôt git, à sa racine, avec une branche qui existe", 
   assert.match((await addProject(hub, { name: "autre", path: dir }) as any).error, /déjà un projet/);
 });
 
-test("tâche dev : l'agent travaille dans sa copie, Charles relit le diff, accepte → commit sur la branche, sans crochet", async () => {
+test("tâche dev : l'agent travaille dans sa copie, l'utilisateur relit le diff, accepte → commit sur la branche, sans crochet", async () => {
   const dir = repo("site");
   const { hub, store, conversation, runs } = setup((cwd) => {
     writeFileSync(join(cwd, "hello.txt"), "bonjour\n");
@@ -328,7 +328,7 @@ test("plan dev : dépendances seulement vers des sous-tâches d'avant (pas de bo
   assert.deepEqual(plan.decisions, [{ question: "Toast ou fenêtre pour l'erreur ?", options: ["Toast", "Fenêtre"], tasks: [1] }]);
 });
 
-test("groupe : une sous-tâche attend celle dont elle dépend ET la décision de Charles, puis part de son travail", async () => {
+test("groupe : une sous-tâche attend celle dont elle dépend ET ta décision, puis part de son travail", async () => {
   const dir = repo("chaine");
   const plan = {
     tasks: [
@@ -421,14 +421,14 @@ test("réessayer : copie et branche neuves, conversation neuve, autre moteur, mo
   assert.equal(await retryDevTask(hub, 999, {}), "missing");
 });
 
-test("agent silencieux : signalé une fois, pas quand il attend Charles ; Arrêter interrompt son tour", async () => {
+test("agent silencieux : signalé une fois, pas quand il t'attend ; Arrêter interrompt son tour", async () => {
   process.env.CLARK_STALL_MINUTES = "1";
   const store = new Store(":memory:");
   const journal = new TaskJournal(store.db);
   const conversation = new Conversation(store.db);
   const execute = (async (deps: any, taskId: number, opts: RunOptions) => {
     deps.journal.setStatus(taskId, "running");
-    // D'abord il attend l'accord de Charles : ce n'est pas être bloqué.
+    // D'abord il attend l'accord de l'utilisateur : ce n'est pas être bloqué.
     await opts.approve({ tool: "Bash", summary: "Commande shell :\necho test" });
     await new Promise<void>((r) => onStop(taskId, r));
     deps.journal.finish(taskId, "failed", "Arrêté", 0);
@@ -470,7 +470,7 @@ test("fin de tour : les tests du projet tournent avant la relecture ; rouges, l'
   const p = (await addProject(hub, { name: "verif", path: dir, testCommand: "grep -q ok app.txt" })) as any;
   const r = startDevTask(hub, { projectId: p.id, instruction: "Ajoute la ligne ok dans app.txt" }) as any;
   await until(() => store.dev.get(r.id)!.status === "review");
-  assert.equal(runs.length, 2, "une correction automatique avant que Charles ne voie la tâche");
+  assert.equal(runs.length, 2, "une correction automatique avant que tu ne voies la tâche");
   assert.match(runs[0].prompt, /lance les tests \(« grep -q ok app\.txt »\)/, "la consigne demande de vérifier soi-même");
   assert.match(runs[1].prompt, /Clark a lancé les tests du projet \(grep -q ok app\.txt\) : ils échouent/);
   assert.equal(JSON.parse(store.dev.get(r.id)!.tests!).ok, true);
@@ -478,7 +478,7 @@ test("fin de tour : les tests du projet tournent avant la relecture ; rouges, l'
   assert.equal(sh(dir, "show", `${store.dev.get(r.id)!.branch}:app.txt`), "ligne 1\nok");
 });
 
-test("fin de tour : toujours rouge après 2 corrections → la tâche arrive à Charles avec les tests, et Accepter refuse", async () => {
+test("fin de tour : toujours rouge après 2 corrections → la tâche arrive chez toi avec les tests, et Accepter refuse", async () => {
   const dir = repo("rouge");
   const { hub, store, runs } = setup((cwd) => {
     writeFileSync(join(cwd, "app.txt"), "ligne 1\n");
@@ -488,7 +488,7 @@ test("fin de tour : toujours rouge après 2 corrections → la tâche arrive à 
   const r = startDevTask(hub, { projectId: p.id, instruction: "Ajoute la ligne ok dans app.txt" }) as any;
   await until(() => store.dev.get(r.id)!.status === "review");
   assert.equal(runs.length, 3, "le tour, puis 2 corrections au plus");
-  assert.equal(JSON.parse(store.dev.get(r.id)!.tests!).ok, false, "les tests rouges sont affichés à Charles");
+  assert.equal(JSON.parse(store.dev.get(r.id)!.tests!).ok, false, "les tests rouges sont affichés");
   const refused = (await acceptDevTask(hub, r.id)) as any;
   assert.match(refused.error, /Tests en échec : rien n'est gardé/);
 });
@@ -610,7 +610,7 @@ test("binôme : Claude planifie, Codex critique, auteurs alternés, relecture cr
   assert.equal(a.review_rounds, 2);
   assert.equal(readFileSync(join(a.worktree, "a.txt"), "utf8"), "A!\n", "la correction de l'auteur est dans la copie");
   assert.ok(calls.some((c) => c.kind === "code" && c.engine === "claude" && c.prompt.includes("Relecture de Codex")));
-  // B : jamais d'accord → au bout de 3 tours, Charles tranche.
+  // B : jamais d'accord → au bout de 3 tours, l'utilisateur tranche.
   assert.equal(b.review_state, "disagree");
   assert.equal(b.review_rounds, 3);
   assert.ok(calls.filter((c) => c.kind === "review").every((c) => c.access === "read"), "le relecteur ne fait que lire");
@@ -640,7 +640,7 @@ test("tâche longue : limite d'étapes atteinte → l'agent reprend seul (3 fois
 });
 
 test("pilote automatique : version verte acceptée seule ; rouge, il s'arrête et dit pourquoi ; groupe réuni seul", async () => {
-  // Tâche seule, tests verts : acceptée sans Charles (la PR ne peut pas s'ouvrir ici : pas d'origin, il le dit).
+  // Tâche seule, tests verts : acceptée sans l'utilisateur (la PR ne peut pas s'ouvrir ici : pas d'origin, il le dit).
   const dir = repo("pilote");
   const { hub, store, conversation } = setup((cwd) => {
     writeFileSync(join(cwd, "app.txt"), "ligne 1\nok\n");
@@ -652,7 +652,7 @@ test("pilote automatique : version verte acceptée seule ; rouge, il s'arrête e
   await until(() => store.dev.get(a.id)!.status === "accepted" && Boolean(store.dev.get(a.id)!.commit));
   await until(() => conversation.recent(OWNER_CHAT).some((m) => /Pilote automatique : Tâche dev #\d+ accepté, mais la PR n'a pas pu s'ouvrir/.test(m.text)));
 
-  // Tests rouges même après les corrections : rien n'est gardé, la main revient à Charles.
+  // Tests rouges même après les corrections : rien n'est gardé, la main revient à l'utilisateur.
   const dir2 = repo("pilote-rouge");
   const red = setup((cwd) => {
     writeFileSync(join(cwd, "app.txt"), "ligne 1\n");
@@ -662,10 +662,10 @@ test("pilote automatique : version verte acceptée seule ; rouge, il s'arrête e
   const b = startDevTask(red.hub, { projectId: p2.id, instruction: "Ajoute la ligne ok dans app.txt" }) as any;
   red.store.dev.update(b.id, { autopilot: 1 });
   await until(() => red.conversation.recent(OWNER_CHAT).some((m) => /Pilote automatique arrêté sur #\d+ .*les tests sont rouges/.test(m.text)));
-  assert.equal(red.store.dev.get(b.id)!.status, "review", "pas acceptée : Charles décide");
+  assert.equal(red.store.dev.get(b.id)!.status, "review", "pas acceptée : tu décides");
 });
 
-test("pilote automatique : groupe — sous-tâches vertes acceptées, puis réunies sur une branche, sans Charles", async () => {
+test("pilote automatique : groupe — sous-tâches vertes acceptées, puis réunies sur une branche, sans toi", async () => {
   const dir = repo("pilote-groupe");
   const plan = { tasks: [{ title: "A", instruction: "Écris le fichier a.txt avec A", files: ["a.txt"] }, { title: "B", instruction: "Écris le fichier b.txt avec B", files: ["b.txt"] }] };
   const { store, hub } = groupSetup(plan, (cwd, prompt) => {

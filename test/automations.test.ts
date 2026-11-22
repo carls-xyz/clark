@@ -133,7 +133,7 @@ test("planificateur : une occurrence part une seule fois, même si l'horloge ret
   assert.ok(a.last_task_id, "la tâche lancée est notée");
   assert.ok(
     conversation.recent(OWNER_CHAT).some((m) => m.role === "system" && /^Automatisation « Point candidatures » :/.test(m.text)),
-    "le fil dit que c'est une automatisation, pas Charles",
+    "le fil dit que c'est une automatisation, pas toi",
   );
   assert.ok(!conversation.recent(OWNER_CHAT).some((m) => m.role === "user"));
 });

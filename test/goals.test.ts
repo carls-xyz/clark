@@ -85,7 +85,7 @@ test("objectif : Clark enchaîne les tours jusqu'à l'atteindre, dans son propre
   assert.ok(conversation.recent(goalChat(id)).some((m) => m.text === "tour 1 fini"));
 });
 
-test("objectif bloqué : Clark attend, la réponse de Charles part avec le tour suivant", async () => {
+test("objectif bloqué : Clark attend, ta réponse part avec le tour suivant", async () => {
   const { hub, store, prompts } = setup((turn, prompt) =>
     prompt.includes("- Charles : Le 26") ? { status: "done", summary: "Fini avec le 26." } : { status: "blocked", summary: "Le 25 ou le 26 ?" },
   );
@@ -117,7 +117,7 @@ test("objectif qui tourne en rond, ou qui atteint sa limite : Clark s'arrête et
   assert.equal(limit.store.goals.get(b)!.max_turns, 7, "reprendre ajoute cinq tours");
 });
 
-test("objectif : pas de tour sans quota, pause et arrêt par Charles", async () => {
+test("objectif : pas de tour sans quota, pause et arrêt à ta demande", async () => {
   const { hub, store } = setup(() => ({ status: "progress", summary: "avance" }));
   hub.setQuota({ plan: "max", windows: [{ label: "Fenêtre de 5 h", usedPercent: 95, durationMins: 300, resetsAt: null }], reached: false, readAt: Date.now() });
   const id = createGoal(hub, "Préparer le rendu Java Club", 5);

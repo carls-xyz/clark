@@ -3,10 +3,10 @@ import { OWNER_CHAT } from "../core/hub.ts";
 import type { DevTask } from "./store.ts";
 
 /**
- * Pilote automatique (choisi par Charles au lancement d'une tâche de code, d'un groupe ou d'un
+ * Pilote automatique (choisi par l'utilisateur au lancement d'une tâche de code, d'un groupe ou d'un
  * binôme) : Clark accepte seul une version prête dont les tests sont verts (et, en binôme, que
  * le relecteur a approuvée), réunit le groupe quand tout est accepté, puis ouvre la PR.
- * Charles ne valide qu'une fois : la fusion de la PR, sur GitHub. Clark ne fusionne jamais.
+ * L'utilisateur ne valide qu'une fois : la fusion de la PR, sur GitHub. Clark ne fusionne jamais.
  *
  * Il s'arrête et rend la main dès que quelque chose demande un humain : tests rouges, désaccord
  * du binôme, relecture qui n'a pas abouti, décision à prendre, conflit qui ne se résout pas.

@@ -153,7 +153,7 @@ function open(db: string, port: number) {
   return { store, journal, conversation, hub };
 }
 
-test("Clark propose lundi, Charles corrige en mardi, redémarrage, nouvelle conversation : mardi, avec sa source", async () => {
+test("Clark propose lundi, l'utilisateur corrige en mardi, redémarrage, nouvelle conversation : mardi, avec sa source", async () => {
   const dir = mkdtempSync(join(tmpdir(), "clark-scenario-"));
   const db = join(dir, "clark.db");
   const port = 20000 + Math.floor(Math.random() * 20000);
@@ -170,7 +170,7 @@ test("Clark propose lundi, Charles corrige en mardi, redémarrage, nouvelle conv
       // La proposition est annoncée dans le fil.
       assert.ok(conversation.recent(OWNER_CHAT).some((m) => m.role === "system" && /propose de retenir.*lundi/.test(m.text)));
 
-      // 2. Charles corrige en « mardi » depuis l'interface. Une correction vide est refusée.
+      // 2. L'utilisateur corrige en « mardi » depuis l'interface. Une correction vide est refusée.
       assert.equal((await post(port, `/api/memories/${id}`, { action: "correct", content: " " })).status, 400);
       const fixed = await post(port, `/api/memories/${id}`, { action: "correct", content: "Mes relances se font le mardi", expiresAt: null });
       assert.equal(fixed.status, 200);

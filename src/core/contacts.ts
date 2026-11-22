@@ -2,7 +2,7 @@ import type { Access } from "../policy/permissions.ts";
 import { CATALOG, type CatalogRole } from "./plan.ts";
 
 /**
- * Les agents de l'équipe comme contacts : Charles peut écrire directement au Chercheur,
+ * Les agents de l'équipe comme contacts : l'utilisateur peut écrire directement au Chercheur,
  * au Rédacteur… chacun dans ses propres conversations. Les droits restent ceux de l'équipe,
  * fixés par le code : seul le Rédacteur écrit, les autres lisent seulement.
  */
@@ -32,7 +32,7 @@ export const CONTACTS: Contact[] = [
 export const isContactRole = (role: unknown): role is CatalogRole => typeof role === "string" && role in CATALOG;
 export const isConversationAgent = (role: unknown): role is CatalogRole | "groupe" => role === "groupe" || isContactRole(role);
 
-/** Un membre du groupe répond à Charles : son avis à lui, sans voir celui des autres. */
+/** Un membre du groupe répond à l'utilisateur : son avis à lui, sans voir celui des autres. */
 export function groupPrompt(role: CatalogRole, text: string, recent: { who: string; text: string }[]): string {
   const context = recent.length ? `\n\nDerniers échanges de ce groupe :\n${recent.map((r) => `${r.who} : ${r.text.replace(/\s+/g, " ").slice(0, 400)}`).join("\n")}` : "";
   return `${directPrompt(role, text)}
@@ -44,10 +44,10 @@ export function contactOf(agent: string | null | undefined): Contact {
   return (agent && CONTACTS.find((c) => c.role === agent)) || CLARK_CONTACT;
 }
 
-/** Repère en tête du message : sert aussi à la démo pour savoir à qui Charles parle. */
+/** Repère en tête du message : sert aussi à la démo pour savoir à qui l'utilisateur parle. */
 export const directMarker = (role: CatalogRole) => `[Discussion directe — ${CATALOG[role].name}]`;
 
-/** Le message de Charles, adressé à un agent plutôt qu'à Clark. */
+/** Le message de l'utilisateur, adressé à un agent plutôt qu'à Clark. */
 export function directPrompt(role: CatalogRole, text: string): string {
   const c = CATALOG[role];
   const rights =

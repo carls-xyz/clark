@@ -2,7 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 
 /**
  * Automatisations planifiées (idée reprise d'Orca) : une consigne lancée toute seule
- * à heure fixe, par Clark seul ou par l'équipe. Créées et réglées par Charles dans
+ * à heure fixe, par Clark seul ou par l'équipe. Créées et réglées par l'utilisateur dans
  * l'interface ; Clark ne s'en crée pas lui-même.
  *
  * Heures en heure de Paris. Chaque occurrence a une clé (« 2026-11-19T09:00 ») notée

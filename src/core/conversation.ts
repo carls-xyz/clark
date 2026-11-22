@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 
 /**
- * Fil de la conversation, tel que Charles le voit : ses messages, les réponses
+ * Fil de la conversation, tel que l'utilisateur le voit : ses messages, les réponses
  * de Clark et les notes du système (reprise, validation…). Il est durable, pour
  * que l'interface web retrouve l'historique après un rechargement ou un redémarrage.
  * Ce n'est pas la mémoire de l'agent : celle-ci vit dans la session du SDK et les souvenirs.
@@ -14,7 +14,7 @@ export type Message = {
   role: Role;
   text: string;
   task_id: number | null;
-  /** Canal d'origine d'un message de Charles : "web", "telegram" ou "clark" (brief). */
+  /** Canal d'origine d'un message de l'utilisateur : "web", "telegram" ou "clark" (brief). */
   source: string | null;
   /** Genre de notification (reply, approval, dev, pr, stalled, proposals, system) : décide où elle part. */
   kind: string | null;
@@ -23,13 +23,13 @@ export type Message = {
   created_at: string;
 };
 
-/** Note posée quand Charles ouvre une nouvelle conversation (aussi envoyée sur Telegram). */
+/** Note posée quand l'utilisateur ouvre une nouvelle conversation (aussi envoyée sur Telegram). */
 export const NEW_CONVERSATION_NOTE = "Nouvelle conversation. Ma mémoire longue reste intacte.";
 
-/** Un message de Charles ou d'un agent dans la conversation c (les notes du système ne comptent pas). */
+/** Un message de l'utilisateur ou d'un agent dans la conversation c (les notes du système ne comptent pas). */
 const HAS_CONTENT = "EXISTS (SELECT 1 FROM messages hc WHERE hc.conversation_id = c.id AND hc.role != 'system')";
 
-/** Titre d'une conversation sans message de Charles : sa date. */
+/** Titre d'une conversation sans message de l'utilisateur : sa date. */
 function untitled(createdAt: string): string {
   const d = new Date(`${createdAt.replace(" ", "T")}Z`);
   return `Conversation du ${d.toLocaleDateString("fr-FR", { day: "numeric", month: "long", timeZone: "Europe/Paris" })}`;
@@ -81,9 +81,9 @@ export class Conversation {
     }
     db.exec("CREATE INDEX IF NOT EXISTS messages_conv ON messages(conversation_id, id)");
     const convCols = db.prepare("PRAGMA table_info(conversations)").all() as { name: string }[];
-    // L'agent à qui Charles parle (null : Clark), et le dernier message qu'il a vu (non-lus).
+    // L'agent à qui l'utilisateur parle (null : Clark), et le dernier message qu'il a vu (non-lus).
     if (!convCols.some((c) => c.name === "agent")) db.exec("ALTER TABLE conversations ADD COLUMN agent TEXT");
-    // Épinglée par Charles : en tête de la liste, quoi qu'il arrive.
+    // Épinglée par l'utilisateur : en tête de la liste, quoi qu'il arrive.
     if (!convCols.some((c) => c.name === "pinned")) db.exec("ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");
     if (!convCols.some((c) => c.name === "seen_id")) {
       db.exec("ALTER TABLE conversations ADD COLUMN seen_id INTEGER NOT NULL DEFAULT 0");
@@ -133,8 +133,8 @@ export class Conversation {
   }
 
   /**
-   * Un message de Charles ou d'un agent date la conversation (la liste se trie sur la dernière
-   * activité) ; le premier message de Charles lui donne son titre. Les notes du système ne comptent pas.
+   * Un message de l'utilisateur ou d'un agent date la conversation (la liste se trie sur la dernière
+   * activité) ; le premier message de l'utilisateur lui donne son titre. Les notes du système ne comptent pas.
    */
   private touchConversation(id: number, role: Role, text: string, at?: string) {
     if (role === "system") return;
@@ -157,7 +157,7 @@ export class Conversation {
     return this.db.prepare("SELECT * FROM conversations WHERE id = ?").get(id) as ConversationRow | undefined;
   }
 
-  /** Une conversation neuve devient l'ouverte. Celle d'avant, si Charles n'y a rien écrit, resservira. */
+  /** Une conversation neuve devient l'ouverte. Celle d'avant, si l'utilisateur n'y a rien écrit, resservira. */
   startNew(chatId: number, agent: string | null = null): number {
     const cur = this.current(chatId);
     const used = this.db.prepare("SELECT 1 FROM messages WHERE conversation_id = ? AND role = 'user' LIMIT 1").get(cur);
@@ -176,7 +176,7 @@ export class Conversation {
     return row?.id ?? null;
   }
 
-  /** Une conversation qui a du contenu (un message de Charles ou d'un agent) : on peut la lister, la rouvrir. */
+  /** Une conversation qui a du contenu (un message de l'utilisateur ou d'un agent) : on peut la lister, la rouvrir. */
   hasContent(id: number): boolean {
     return Boolean(this.db.prepare(`SELECT 1 FROM conversations c WHERE c.id = ? AND (c.title IS NOT NULL OR ${HAS_CONTENT})`).get(id));
   }
@@ -184,7 +184,7 @@ export class Conversation {
   /**
    * La conversation d'une tâche : celle de son premier message sur ce canal, sinon celle de la
    * tâche qui l'a lancée (avis d'un membre du groupe, mission confiée par Clark…). Une note posée
-   * ailleurs (alerte sur le fil de Charles pour une tâche du tour de veille) ne l'attire pas.
+   * ailleurs (alerte sur le fil de l'utilisateur pour une tâche du tour de veille) ne l'attire pas.
    */
   conversationForTask(taskId: number, chatId: number): number | null {
     const own = this.db
@@ -219,7 +219,7 @@ export class Conversation {
     return row?.conversation_id ?? null;
   }
 
-  /** Charles a vu la conversation jusqu'à son dernier message. */
+  /** L'utilisateur a vu la conversation jusqu'à son dernier message. */
   markSeen(id: number) {
     this.db.prepare("UPDATE conversations SET seen_id = COALESCE((SELECT MAX(id) FROM messages WHERE conversation_id = ?), seen_id) WHERE id = ?").run(id, id);
   }
@@ -250,11 +250,11 @@ export class Conversation {
          ORDER BY c.updated_at DESC, c.id DESC LIMIT ?`,
       )
       .all(chatId, limit) as ConversationSummary[];
-    // Sans message de Charles (que des réponses, des rappels) : un titre quand même.
+    // Sans message de l'utilisateur (que des réponses, des rappels) : un titre quand même.
     return rows.map((r) => ({ ...r, title: r.title ?? untitled(r.created_at) }));
   }
 
-  /** Charles renomme une conversation (le titre ne bouge plus ensuite). */
+  /** L'utilisateur renomme une conversation (le titre ne bouge plus ensuite). */
   rename(id: number, title: string): boolean {
     const t = title.replace(/\s+/g, " ").trim().slice(0, 80);
     if (!t) return false;
@@ -289,7 +289,7 @@ export class Conversation {
   /**
    * Où va un message qui ne suit aucune tâche. Ce que Clark poste de lui-même (rappel, décision
    * prise seul, souvenir retenu) va dans sa conversation à lui, pas dans celle d'un agent que
-   * Charles a ouverte. Le reste (ce que Charles écrit, la note « Nouvelle conversation ») : l'ouverte.
+   * l'utilisateur a ouverte. Le reste (ce que l'utilisateur écrit, la note « Nouvelle conversation ») : l'ouverte.
    */
   private homeOf(m: { chatId: number; role: Role; text: string; agent?: string | null }): number {
     const cur = this.current(m.chatId);
@@ -301,7 +301,7 @@ export class Conversation {
   /**
    * Réparation des messages rangés avant ces règles : la suite d'une tâche rejoint la conversation
    * de la tâche (avis du groupe arrivés après « Nouvelle conversation », réponse du tour de veille
-   * attirée par une alerte sur le fil de Charles). Sans effet sur ce qui est déjà bien rangé.
+   * attirée par une alerte sur le fil de l'utilisateur). Sans effet sur ce qui est déjà bien rangé.
    */
   repairTaskMessages(): number {
     const rows = this.db.prepare("SELECT id, chat_id, task_id, conversation_id FROM messages WHERE task_id IS NOT NULL ORDER BY id").all() as {
@@ -329,7 +329,7 @@ export class Conversation {
         moved++;
       }
     }
-    // La date d'une conversation : sa dernière activité (message de Charles ou d'un agent).
+    // La date d'une conversation : sa dernière activité (message de l'utilisateur ou d'un agent).
     this.db.exec(`UPDATE conversations SET updated_at = COALESCE(
       (SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = conversations.id AND m.role != 'system'), created_at)`);
     return moved;
@@ -348,7 +348,7 @@ export class Conversation {
 
   add(m: { chatId: number; role: Role; text: string; taskId?: number; source?: string; kind?: string; agent?: string | null }): Message {
     // La suite d'une tâche (réponse, étape) reste dans la conversation où elle a été demandée,
-    // même si Charles en a ouvert une autre entre-temps.
+    // même si l'utilisateur en a ouvert une autre entre-temps.
     const conv = (m.taskId === undefined ? null : this.conversationForTask(m.taskId, m.chatId)) ?? this.homeOf(m);
     const r = this.db
       .prepare("INSERT INTO messages (chat_id, role, text, task_id, source, kind, conversation_id, agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")

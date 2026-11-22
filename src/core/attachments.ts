@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 
 /**
- * Pièces jointes de Charles : un fichier ou un dossier de son Mac, choisi dans la vraie fenêtre
+ * Pièces jointes de l'utilisateur : un fichier ou un dossier de son Mac, choisi dans la vraie fenêtre
  * du Finder (le navigateur ne donne jamais le chemin d'un fichier). Clark reçoit le chemin, le
  * contenu d'un petit fichier texte, ou la liste d'un dossier, comme de la donnée.
  */
@@ -18,7 +18,7 @@ const SKIP = new Set(["node_modules", ".git", ".next", "dist", "build", ".cache"
 export type PickKind = "file" | "folder";
 
 /**
- * Ouvre la fenêtre de choix du Mac (osascript) et rend le chemin choisi, ou null si Charles annule.
+ * Ouvre la fenêtre de choix du Mac (osascript) et rend le chemin choisi, ou null si l'utilisateur annule.
  * Elle s'ouvre sur le Mac où tourne Clark : seulement depuis l'interface de ce Mac.
  */
 export function pickPath(kind: PickKind, run: typeof execFile = execFile): Promise<string | null> {

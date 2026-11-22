@@ -6,8 +6,8 @@ import { browserProfileDir } from "./driver.ts";
  * Le navigateur de Clark, partagé par les deux moteurs et tenu par le processus principal.
  * Règles, appliquées ici par le code (pas par la consigne) :
  * - lire, ouvrir une page, faire défiler, remplir un champ ordinaire, suivre un lien : libre ;
- * - tout ce qui envoie ou engage (formulaire, Envoyer, Payer, Se connecter…) : accord de Charles ;
- * - jamais de mot de passe, de numéro de carte ni de code : Charles le tape lui-même.
+ * - tout ce qui envoie ou engage (formulaire, Envoyer, Payer, Se connecter…) : accord de l'utilisateur ;
+ * - jamais de mot de passe, de numéro de carte ni de code : l'utilisateur le tape lui-même.
  */
 
 export const BROWSER_ACTIONS = ["open", "read", "click", "type", "select", "scroll", "back"] as const;
@@ -36,7 +36,7 @@ export type BrowserState = {
 
 type Deps = {
   driver: BrowserDriver;
-  /** Demande l'accord de Charles pour la tâche (bouton web / Telegram). */
+  /** Demande l'accord de l'utilisateur pour la tâche (bouton web / Telegram). */
   approve: (taskId: number, req: { tool: string; summary: string }) => Promise<boolean>;
   /** La tâche tourne-t-elle encore ? Une tâche finie libère le navigateur. */
   taskAlive: (taskId: number) => boolean;
@@ -69,7 +69,7 @@ export function formatView(v: PageView): string {
   return [`Page : ${v.title || "(sans titre)"} — ${v.url}`, NOT_INSTRUCTIONS, "", "Éléments (réf · type · nom) :", els || "(aucun)", "", "Texte visible :", v.text || "(vide)"].join("\n");
 }
 
-/** Pourquoi cette action demande l'accord de Charles (null : elle est libre). */
+/** Pourquoi cette action demande l'accord de l'utilisateur (null : elle est libre). */
 export function needsApproval(action: BrowserAction, el: ElementInfo | undefined, args: { submit?: boolean }): string | null {
   if (action === "click" && el) {
     if (el.submits) return "envoie un formulaire";
@@ -79,7 +79,7 @@ export function needsApproval(action: BrowserAction, el: ElementInfo | undefined
   return null;
 }
 
-/** Saisie interdite : mot de passe, carte, code. Charles le fait lui-même. */
+/** Saisie interdite : mot de passe, carte, code. L'utilisateur le fait lui-même. */
 export function forbiddenTyping(el: ElementInfo, text: string): string | null {
   if (el.secret || SECRET_NAME.test(el.name)) return "Je ne tape jamais de mot de passe, de numéro de carte ni de code : Charles le fait lui-même, dans la fenêtre du navigateur de Clark (Réglages › Connexions › Ouvrir le navigateur).";
   if (CARD_NUMBER.test(text.replace(/\s/g, " "))) return "Ce texte ressemble à un numéro de carte : je ne le tape pas. Charles le fait lui-même s'il le veut.";
@@ -252,7 +252,7 @@ export class BrowserService {
                   : `écrire « ${(args.text ?? "").slice(0, 300)} » dans « ${el.name || el.ref} » puis valider (Entrée)`;
               const page = this.last?.url ?? "";
               const before = formState(this.last);
-              // Pendant que Charles décide, le navigateur reste libre (il peut l'afficher pour regarder).
+              // Pendant que l'utilisateur décide, le navigateur reste libre (il peut l'afficher pour regarder).
               release();
               const ok = await this.deps.approve(taskId, { tool: "browser", summary: `Navigateur · ${host()} — ${what} (${why}).\nPage : ${page}` });
               release = await this.lock();
@@ -261,7 +261,7 @@ export class BrowserService {
               await d.ensure(this.wantVisible);
               await this.capture();
               const same = this.last?.url === page ? this.last.elements.find((e) => e.tag === el.tag && e.name === el.name && e.submits === el.submits) : undefined;
-              // Charles a validé une page précise : si elle a changé (rechargée, champs modifiés), on n'envoie rien.
+              // L'utilisateur a validé une page précise : si elle a changé (rechargée, champs modifiés), on n'envoie rien.
               if (!same || formState(this.last) !== before) {
                 this.reloaded = false;
                 return "La page a changé pendant que Charles décidait (rechargée ou champs modifiés) : rien n'est envoyé. Relis la page (browser_read), vérifie les champs, puis redemande.";

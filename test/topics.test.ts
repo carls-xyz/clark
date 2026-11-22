@@ -55,13 +55,13 @@ test("sujets : une note par sujet, reliée aux souvenirs et aux jours du journal
   assert.equal(await refreshTopics(store, think, vault), null);
   assert.equal(calls, 1);
 
-  // Un sujet qui disparaît : sa note (écrite par Clark) part, une note de Charles dans le dossier reste.
+  // Un sujet qui disparaît : sa note (écrite par Clark) part, une note de l'utilisateur dans le dossier reste.
   writeFileSync(join(vault, TOPICS_DIR, "Mes idées.md"), "Une note à moi.");
   store.remember({ kind: "fact", content: "Nouveau souvenir pour changer la mémoire." });
   const think2 = async () => JSON.stringify({ topics: [{ name: "Site perso", description: "Le portfolio.", memories: [a, b] }] });
   assert.equal(await refreshTopics(store, think2, vault, { force: true, onDone: () => sync.sync() }), 1);
   assert.ok(!existsSync(join(vault, TOPICS_DIR, "Portfolio.md")));
   assert.ok(existsSync(join(vault, TOPICS_DIR, "Site perso.md")));
-  assert.ok(existsSync(join(vault, TOPICS_DIR, "Mes idées.md")), "une note de Charles n'est jamais supprimée");
+  assert.ok(existsSync(join(vault, TOPICS_DIR, "Mes idées.md")), "une note de l'utilisateur n'est jamais supprimée");
   assert.match(readFileSync(join(vault, MEMORY_DIR, `${nameOf(a)}.md`), "utf8"), /- Sujet : \[\[Site perso\]\]/);
 });

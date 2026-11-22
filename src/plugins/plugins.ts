@@ -19,7 +19,7 @@ const run = promisify(execFile);
  * une adresse git (https) ou un dossier de ton Mac.
  *
  * Rien n'est installé sans relecture : Clark récupère le paquet à part, montre tout ce qu'il
- * apporte (consignes, méthodes, programmes lancés), et Charles décide. Les crochets (hooks)
+ * apporte (consignes, méthodes, programmes lancés), et l'utilisateur décide. Les crochets (hooks)
  * et les agents des plugins Claude Code ne sont pas repris : ils exécuteraient du code ou
  * changeraient les règles sans passer par Clark.
  */
@@ -207,7 +207,7 @@ export function catalogOf(market: any, source: string, subdir: string | null): C
   });
 }
 
-/** Ce qu'apporte un paquet, tel que Charles le relit. `taken` : noms déjà pris ailleurs. */
+/** Ce qu'apporte un paquet, tel que l'utilisateur le relit. `taken` : noms déjà pris ailleurs. */
 export function inspectPackage(
   dir: string,
   ctx: { source: string; subdir: string | null; commit: string; installedRoot: string; commandsTaken: string[]; skillsTaken: string[]; mcpTaken: string[] },
@@ -460,7 +460,7 @@ export class Plugins {
     this.forget(token);
   }
 
-  /** Installe (ou met à jour) exactement ce que Charles a relu. */
+  /** Installe (ou met à jour) exactement ce que l'utilisateur a relu. */
   install(token: string): InstalledPlugin {
     const p = this.pending.get(token);
     if (!p) throw new Error("Relecture expirée : recommence.");

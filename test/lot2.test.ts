@@ -53,7 +53,7 @@ test("recherche dans les conversations : par mots-clés et liste du jour", () =>
   assert.match(t.history_search.run({ query: "introuvable" }), /Rien trouvé/);
 });
 
-test("rappels : seulement à la demande de Charles, à l'heure de Paris", () => {
+test("rappels : seulement à ta demande, à l'heure de Paris", () => {
   const { store, journal } = setup();
   const mine = journal.create(OWNER_CHAT, "chat", "rappelle-moi");
   journal.setSource(mine, "telegram");
@@ -159,7 +159,7 @@ test("Telegram parle à Clark, même si l'interface avait « Toute l'équipe » 
   assert.equal(conversation.current(OWNER_CHAT), clark);
 });
 
-test("rappel puis réponse de Charles : Clark reçoit ce qui s'est affiché depuis le dernier échange", async () => {
+test("rappel puis ta réponse : Clark reçoit ce qui s'est affiché depuis le dernier échange", async () => {
   const store = new Store(":memory:");
   const journal = new TaskJournal(store.db);
   const conversation = new Conversation(store.db);
@@ -175,5 +175,5 @@ test("rappel puis réponse de Charles : Clark reçoit ce qui s'est affiché depu
   assert.equal(runs[0], "Salut", "rien d'affiché avant : message tel quel");
   assert.match(runs[1], /^\[Affiché à Charles depuis votre dernier échange[\s\S]*Clark : Rappel : Connecter Codex\.\n\nMessage de Charles : Je le fais cet après-midi$/);
   const shown = conversation.recent(OWNER_CHAT).filter((m) => m.role === "user").map((m) => m.text);
-  assert.deepEqual(shown, ["Salut", "Je le fais cet après-midi"], "le fil montre ce que Charles a écrit");
+  assert.deepEqual(shown, ["Salut", "Je le fais cet après-midi"], "le fil montre ce que tu as écrit");
 });

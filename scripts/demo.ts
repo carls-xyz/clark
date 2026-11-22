@@ -329,7 +329,7 @@ async function fakeDevTurn(
       const off = onStop(taskId, () => resolve());
       setTimeout(() => (off(), resolve()), 30 * 60_000).unref();
     });
-    const text = "Arrêté par Charles avant la fin.";
+    const text = "Arrêté à ta demande avant la fin.";
     deps.journal.finish(taskId, "failed", text, 0);
     return { text, costUsd: 0, status: "failed" as const };
   }
@@ -620,7 +620,7 @@ async function fakeTeamAgent(
 
   if (role === "Rédacteur") {
     const second = prompt.includes("Le Relecteur a demandé des corrections");
-    // « question » dans la demande : le Rédacteur demande le ton à Charles avant d'écrire.
+    // « question » dans la demande : le Rédacteur demande le ton à l'utilisateur avant d'écrire.
     let tone = "";
     if (/question/i.test(prompt) && !second) {
       const qid = `demo-${taskId}-ask`;
@@ -809,7 +809,7 @@ const demoEntries = [
 writeFileSync(join(demoCatalog, ".claude-plugin/marketplace.json"), JSON.stringify({ name: "catalogue-demo", owner: { name: "Exemple" }, plugins: demoEntries }, null, 2));
 process.env.CLARK_DEMO_CATALOG = demoCatalog;
 
-// Plugins : relus par Charles avant installation ; leurs commandes, skills et serveurs MCP rejoignent les siens.
+// Plugins : relus par l'utilisateur avant installation ; leurs commandes, skills et serveurs MCP rejoignent les siens.
 const plugins = new Plugins({
   mcp: store.mcp,
   ownCommands: () => ownCommands().map((c) => c.name),

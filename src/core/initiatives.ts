@@ -83,7 +83,7 @@ export class Initiatives {
     return this.db.prepare("SELECT * FROM initiatives WHERE status = 'pending' ORDER BY id").all() as Initiative[];
   }
 
-  /** Les dernières décisions de Charles, données au tour de veille suivant. */
+  /** Les dernières décisions de l'utilisateur, données au tour de veille suivant. */
   recentDecisions(limit = 10): Initiative[] {
     return this.db.prepare("SELECT * FROM initiatives WHERE status != 'pending' ORDER BY decided_at DESC, id DESC LIMIT ?").all(limit) as Initiative[];
   }

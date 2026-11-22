@@ -251,7 +251,7 @@ test("codex : sans choix, rien n'est imposé (défaut de Codex)", async () => {
   assert.equal(turn.params.effort, undefined);
 });
 
-/** Codex appelle un outil d'un serveur MCP ajouté : il demande l'accord, Clark le transmet à Charles. */
+/** Codex appelle un outil d'un serveur MCP ajouté : il demande l'accord, Clark le transmet à l'utilisateur. */
 function mcpApprovalPath(msg: any, io: any) {
   switch (msg.method) {
     case "initialize":
@@ -298,7 +298,7 @@ function mcpApprovalPath(msg: any, io: any) {
   }
 }
 
-test("codex : outil MCP ajouté → accord de Charles, réponse « Allow » seulement pour cet appel", async () => {
+test("codex : outil MCP ajouté → ton accord, réponse « Allow » seulement pour cet appel", async () => {
   const { transport, sent } = fakeCodex(mcpApprovalPath);
   const { hub, store, conversation } = setup(transport);
   store.mcp.add({ name: "notion", transport: "stdio", command: "npx", args: ["-y", "x"], envVars: ["NOTION_TOKEN"] });
@@ -314,7 +314,7 @@ test("codex : outil MCP ajouté → accord de Charles, réponse « Allow » seul
   assert.equal(cfg["mcp_servers.notion.default_tools_approval_mode"], "prompt");
 });
 
-test("codex : refus de Charles → « Cancel »", async () => {
+test("codex : ton refus → « Cancel »", async () => {
   const { transport, sent } = fakeCodex(mcpApprovalPath);
   const { hub, conversation } = setup(transport);
   void hub.enqueue(OWNER_CHAT, "Crée la page", "chat", "web");

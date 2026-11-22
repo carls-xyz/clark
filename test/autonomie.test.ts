@@ -14,7 +14,7 @@ test("autonomie : relire l'historique est une lecture (permis aux agents en lect
   assert.equal(effectOf("mcp__memory__history_read"), "read");
 });
 
-test("autonomie : history_read rend un long message de Charles en entier", () => {
+test("autonomie : history_read rend un long message de l'utilisateur en entier", () => {
   const store = new Store(":memory:");
   const conversation = new Conversation(store.db);
   const long = `Feu vert. ${"Point détaillé de la consigne. ".repeat(150)}FIN-DU-MESSAGE`;

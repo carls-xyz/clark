@@ -149,7 +149,7 @@ const bot = config.telegram ? createTelegram(hub, config.telegram) : null;
 let stopScheduler = () => {};
 
 // L'interface démarre avant la reprise : une validation redemandée doit pouvoir s'y afficher.
-// Plugins : relus par Charles avant installation ; leurs commandes, skills et serveurs MCP rejoignent les siens.
+// Plugins : relus par l'utilisateur avant installation ; leurs commandes, skills et serveurs MCP rejoignent les siens.
 const plugins = new Plugins({
   mcp: store.mcp,
   ownCommands: () => ownCommands().map((c) => c.name),
@@ -177,7 +177,7 @@ const logins = createLogins({
     hub.touch();
   },
 });
-// Obsidian : la mémoire de Clark en notes liées dans le coffre de Charles, dans les deux sens.
+// Obsidian : la mémoire de Clark en notes liées dans le coffre de l'utilisateur, dans les deux sens.
 const vault = vaultPath();
 const obsidian = { vault, lastSync: null as string | null, error: null as string | null, notes: 0 };
 let vaultSync: VaultSync | null = null;
@@ -242,7 +242,7 @@ if (vault) {
   console.log(`[clark] obsidian : ${vault}`);
 }
 
-// Terminal de Charles (interface web du Mac) : ses commandes, et celles que Clark propose.
+// Terminal de l'utilisateur (interface web du Mac) : ses commandes, et celles que Clark propose.
 const terminal = new Terminal({ cwd: join(homedir(), "Developer"), onChange: () => hub.touch() });
 store.terminal.expireStale(); // celles d'avant le redémarrage : plus personne pour cliquer
 const announced = new Set<number>();
@@ -326,7 +326,7 @@ await hub.recover();
 const stopAutomations = startScheduler({ config, store, enqueue: hub.enqueue, automations: store.automations, launch: (a, slot) => launchAutomation(hub, a, { slot }) });
 // Tour de veille : propositions proactives, de jour, quand un moteur est connecté.
 const stopHeartbeat = startHeartbeat(hub);
-// Autonomie : ce que Charles a permis à Clark de décider seul (Réglages › Général › Autonomie).
+// Autonomie : ce que l'utilisateur a permis à Clark de décider seul (Réglages › Général › Autonomie).
 const stopAutonomy = startAutonomy(hub);
 // Rappels créés depuis la conversation (« rappelle-moi demain à 9 h… »).
 const stopReminders = startReminders(hub);

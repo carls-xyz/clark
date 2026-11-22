@@ -26,12 +26,12 @@ test("terminal : une commande tourne, sa sortie et son code reviennent, « cd »
   assert.equal(a.output, "bonjour\nrouge", "couleurs retirées, marque du dossier cachée");
   const b = t.run("mkdir sous && cd sous", { by: "charles" }) as TerminalRun;
   await done(t, b.id);
-  assert.equal(t.cwd, join(dir, "sous"), "le dossier de Charles suit son cd");
+  assert.equal(t.cwd, join(dir, "sous"), "ton dossier suit ton cd");
   const c = t.run("cd / && exit 3", { by: "clark", cwd: dir }) as TerminalRun;
   await done(t, c.id);
   assert.equal(c.status, "failed");
   assert.equal(c.exitCode, 3);
-  assert.equal(t.cwd, join(dir, "sous"), "une commande de Clark ne déplace pas Charles");
+  assert.equal(t.cwd, join(dir, "sous"), "une commande de Clark ne te déplace pas");
 });
 
 test("terminal : une seule commande à la fois, et « Arrêter » coupe tout ce qu'elle a lancé", async () => {
@@ -80,7 +80,7 @@ test("terminal : une commande proposée par Clark attend le clic, tourne, puis C
   assert.equal(requests.pending().length, 0);
 });
 
-test("terminal : Clark ne propose pas de commande quand Charles écrit depuis Telegram (personne pour cliquer)", async () => {
+test("terminal : Clark ne propose pas de commande quand tu écris depuis Telegram (personne pour cliquer)", async () => {
   const { Store } = await import("../src/memory/store.ts");
   const { TaskJournal } = await import("../src/tasks/journal.ts");
   const { memoryTools } = await import("../src/memory/tools.ts");

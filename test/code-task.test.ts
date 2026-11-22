@@ -20,7 +20,7 @@ test("tâche de code : le shell passe sans bouton (bac à sable) ; ailleurs, il 
   assert.equal(asked, 0);
   const chat = createPolicy({ store, journal, taskId, roots: [tmpdir()], approve });
   assert.equal(((await chat("Bash", { command: "npm test" }, { ...ctx, toolUseID: "t2" })) as any).behavior, "deny");
-  assert.equal(asked, 1, "hors tâche de code : le bouton de Charles");
+  assert.equal(asked, 1, "hors tâche de code : ton bouton");
   // En lecture seule, même une tâche de code ne lance rien.
   const ro = createPolicy({ store, journal, taskId, roots: [tmpdir()], approve, autoBash: true, access: "read" });
   assert.equal(((await ro("Bash", { command: "rm -rf x" }, { ...ctx, toolUseID: "t3" })) as any).behavior, "deny");

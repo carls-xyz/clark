@@ -118,7 +118,7 @@ export async function freshBase(repo: string, base: string): Promise<{ ref: stri
 
 /** Crée la copie : une nouvelle branche partie de la branche de base (à jour si possible). Renvoie le commit de départ. */
 export async function addWorktree(repo: string, dir: string, branch: string, base: string, startRef = base): Promise<string> {
-  // Extraction des fichiers en parallèle (plus rapide sur un gros dépôt), sauf réglage contraire de Charles.
+  // Extraction des fichiers en parallèle (plus rapide sur un gros dépôt), sauf réglage contraire de l'utilisateur.
   await git(repo, ["-c", "checkout.workers=4", "worktree", "add", "-b", branch, dir, startRef]);
   return (await git(dir, ["rev-parse", "HEAD"])).trim();
 }

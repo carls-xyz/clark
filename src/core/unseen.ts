@@ -1,9 +1,9 @@
 import { NEW_CONVERSATION_NOTE, type Conversation } from "./conversation.ts";
 
 /**
- * Messages affichés à Charles dans la conversation depuis sa dernière demande, sans que l'agent
+ * Messages affichés à l'utilisateur dans la conversation depuis sa dernière demande, sans que l'agent
  * les ait écrits pendant un tour : rappels, décisions prises seul, propositions, notes du système.
- * Ils ne sont pas dans la session de l'agent ; on les lui donne avec le message suivant de Charles.
+ * Ils ne sont pas dans la session de l'agent ; on les lui donne avec le message suivant de l'utilisateur.
  */
 export const UNSEEN_MAX = 10;
 

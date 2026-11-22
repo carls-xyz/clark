@@ -2,7 +2,7 @@
 
 Mis à jour le 21 novembre 2026. Ce qui est fait est décrit dans le [mode d'emploi](docs/GUIDE.md) ; ici, ce qui reste.
 
-## 1. Branchements (Charles)
+## 1. Branchements (à faire par l'utilisateur)
 
 - [x] Google : client OAuth (projet « clark »), connecté le 20/11. Reste : remplir Branding puis publier l'appli, sinon reconnexion tous les 7 jours.
 - [ ] Codex : Réglages › Moteurs › Connecter Codex.
@@ -42,6 +42,6 @@ Mis à jour le 21 novembre 2026. Ce qui est fait est décrit dans le [mode d'emp
 - [ ] Consolidation plus longue : un résumé par semaine et par mois à partir des journaux.
 - [x] Veille du soir écrite aussi dans Obsidian (`Clark/Veille/`), reliée au journal (21/11).
 - [x] Tâches longues : 150 étapes et reprise, tests par l'agent sans clic, tests avant relecture ; pilote automatique jusqu'à la PR (21/11).
-- [ ] Auto-amélioration : Clark propose de lui-même ses corrections en PR, relues par Charles.
+- [ ] Auto-amélioration : Clark propose de lui-même ses corrections en PR, relues par l'utilisateur.
 - [ ] Réseaux sociaux, suite : Instagram.
 - [ ] Idées d'OpenBot restantes : schémas dans la conversation, fichiers produits en cartes.

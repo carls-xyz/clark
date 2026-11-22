@@ -27,7 +27,7 @@ import { canStop, stopRunning } from "./stops.ts";
 import { notifyAllowed, type NotifyKind } from "./notify.ts";
 import { AUTOMATION_CHAT_BASE, isAutomationChat } from "../scheduler/automations.ts";
 
-/** Clark n'a qu'un interlocuteur : Charles. Une seule conversation, quel que soit le canal. */
+/** Clark n'a qu'un interlocuteur : l'utilisateur. Une seule conversation, quel que soit le canal. */
 export const OWNER_CHAT = 1;
 
 const APPROVAL_TIMEOUT_MS = 10 * 60 * 1000;
@@ -56,7 +56,7 @@ export type Channel = {
   deliver?(m: Message): Promise<void>;
   /** Demande de validation, avec ses boutons. */
   askApproval?(a: Approval): Promise<void>;
-  /** Question d'un agent à Charles, avec ses réponses proposées. */
+  /** Question d'un agent à l'utilisateur, avec ses réponses proposées. */
   askQuestion?(q: Question): Promise<void>;
   /** Brouillon de publication à valider (Réseaux sociaux), avec son aperçu. */
   proposePost?(p: Post): Promise<void>;
@@ -72,7 +72,7 @@ export type Channel = {
 
 export type Hub = ReturnType<typeof createHub>;
 
-/** Règles d'autonomie : true = Clark a tranché seul (rien à proposer à Charles). */
+/** Règles d'autonomie : true = Clark a tranché seul (rien à proposer à l'utilisateur). */
 export type AutonomyHooks = {
   initiative?: (i: Initiative) => boolean;
   memory?: (m: Memory) => boolean;
@@ -167,7 +167,7 @@ export function createHub(
   let autonomy: AutonomyHooks = {};
   // Propositions du tour de veille : dans ton fil et sur les canaux, avec Accepter / Refuser.
   store.initiatives.onEvent((event, i) => {
-    // Autonomie : ce que Charles a permis à Clark de trancher seul ne lui est pas proposé.
+    // Autonomie : ce que l'utilisateur a permis à Clark de trancher seul ne lui est pas proposé.
     if (event === "proposed" && i && autonomy.initiative?.(i)) return changed();
     if (event === "proposed" && i) {
       void say(OWNER_CHAT, `Clark te propose : « ${short(i.title, 120)} ». ${short(i.why, 200)}`, "system");
@@ -347,7 +347,7 @@ export function createHub(
   };
 
   /**
-   * Vérification de fin de tâche (src/core/finish-check.ts) : un message de Charles qui s'est
+   * Vérification de fin de tâche (src/core/finish-check.ts) : un message de l'utilisateur qui s'est
    * arrêté à mi-chemin repart pour un tour, dans la limite des plafonds.
    */
   const followUps = new Map<number, { root: number; next: number; checks: number }>();
@@ -365,7 +365,7 @@ export function createHub(
       }
     }
     if (result.status !== "done" || task.label !== "chat" || task.parent_id !== null || task.chat_id !== OWNER_CHAT) return;
-    // Charles a écrit entre-temps : c'est lui qui donne la suite.
+    // L'utilisateur a écrit entre-temps : c'est lui qui donne la suite.
     if (journal.unfinished().some((t) => t.chat_id === task.chat_id && t.id !== task.id)) return;
     const chain = followUps.get(task.id) ?? { root: task.id, next: 0, checks: 0 };
     let missing: string[] | null | undefined;
@@ -430,7 +430,7 @@ export function createHub(
     /** display : ce que le fil montre à la place de la consigne (la commande tapée, « /relances … »). */
     opts: { onCreated?: (taskId: number) => void; access?: "read" | "write"; display?: string; engine?: EngineName; model?: string | null; effort?: string | null; images?: string[]; parentId?: number } = {},
   ) => {
-    // Ce que Charles a vu s'afficher sans que l'agent l'écrive (rappels, décisions seul, notes…) :
+    // Ce que l'utilisateur a vu s'afficher sans que l'agent l'écrive (rappels, décisions seul, notes…) :
     // donné avec son message, sinon l'agent ne sait pas à quoi il répond (« ton rappel »).
     // (Conversation de Clark seulement : un agent en discussion directe garde sa consigne telle quelle.)
     if ((label === "chat" || label === TEAM_LABEL) && chatId === OWNER_CHAT && CHARLES_SOURCES.has(source) && opts.parentId === undefined && !prompt.startsWith("[Discussion directe")) {
@@ -458,7 +458,7 @@ export function createHub(
     journal.setEngine(taskId, engine);
     const run = engine === mainEngine && !opts.engine ? execute : (executors[engine] ?? execute);
     opts.onCreated?.(taskId);
-    // Lancée par une automatisation ou une proposition acceptée : ce n'est pas Charles qui l'a écrite, on le dit.
+    // Lancée par une automatisation ou une proposition acceptée : ce n'est pas l'utilisateur qui l'a écrite, on le dit.
     // Une ligne courte : la consigne complète reste dans Réglages › Automatisations.
     if (source.startsWith("automation:")) conversation.add({ chatId, role: "system", text: `Automatisation « ${source.slice(11)} » : c'est parti.`, taskId });
     else if (source.startsWith("initiative:")) conversation.add({ chatId, role: "system", text: `Proposition acceptée « ${source.slice(11)} » : ${short(prompt, 300)}`, taskId });
@@ -467,7 +467,7 @@ export function createHub(
       conversation.add({ chatId, role: "system", text: short(prompt.split("\n")[0], 200), taskId });
     }
     else if (source === "suite" || source === "secours") {
-      // Suite automatique (vérification de fin) : une note, pas un message de Charles.
+      // Suite automatique (vérification de fin) : une note, pas un message de l'utilisateur.
       conversation.add({ chatId, role: "system", text: opts.display ?? "Je continue.", taskId });
     }
     else if (label === HEARTBEAT_LABEL || label.startsWith("avis:")) {
@@ -584,7 +584,7 @@ export function createHub(
   /** Au démarrage : chaque tâche coupée est reprise, relancée ou mise en attente de vérification. */
   /**
    * Équipe coupée : les agents terminés sont gardés. L'agent en cours est repris s'il ne
-   * faisait que lire ; s'il écrivait, toute l'équipe attend la décision de Charles.
+   * faisait que lire ; s'il écrivait, toute l'équipe attend la décision de l'utilisateur.
    */
   const recoverTeam = async (task: Task) => {
     const children = journal.children(task.id);
@@ -705,8 +705,8 @@ export function createHub(
     },
     choice: (name: EngineName) => store.choices.get(name),
     /**
-     * Choix de Charles dans l'interface, vérifié contre la liste du moteur. Appliqué aux prochaines tâches.
-     * reason « model » : seul le modèle change ; l'effort devient le niveau choisi par Charles si ce modèle
+     * Choix de l'utilisateur dans l'interface, vérifié contre la liste du moteur. Appliqué aux prochaines tâches.
+     * reason « model » : seul le modèle change ; l'effort devient le niveau choisi par l'utilisateur si ce modèle
      * le propose, sinon Auto (et le niveau choisi reste en mémoire pour le prochain modèle qui l'a).
      */
     setChoice(name: EngineName, c: EngineChoice, reason: "model" | "effort" = "effort", from = "interface"): string | null {
@@ -771,12 +771,12 @@ export function createHub(
     },
     checkStalls,
 
-    /** Arrêter un agent en plein tour (clic de Charles). */
+    /** Arrêter un agent en plein tour (clic de l'utilisateur). */
     stopTask(taskId: number): "stopped" | "not_running" {
       if (!stopRunning(taskId)) return "not_running";
       stalled.delete(taskId);
       const t = journal.get(taskId);
-      void say(t && isDevChat(t.chat_id) ? t.chat_id : OWNER_CHAT, "Agent arrêté par Charles.", "system", taskId);
+      void say(t && isDevChat(t.chat_id) ? t.chat_id : OWNER_CHAT, "Agent arrêté à ta demande.", "system", taskId);
       changed();
       return "stopped";
     },
@@ -801,7 +801,7 @@ export function createHub(
     google: () => (opts.googleStatus ?? googleStatus)(),
 
     /**
-     * Décision de Charles sur un mail : Refuser, rien ne part ; Envoyer, Clark l'envoie une
+     * Décision de l'utilisateur sur un mail : Refuser, rien ne part ; Envoyer, Clark l'envoie une
      * seule fois (la transition pending → approved ne réussit qu'une fois, même en double clic).
      */
     async decideMail(id: number, action: "send" | "refuse"): Promise<"sent" | "refused" | "failed" | "already"> {
@@ -828,7 +828,7 @@ export function createHub(
     posts: () => store.posts.pending(),
     initiatives: () => store.initiatives.pending(),
 
-    /** Décision de Charles sur une proposition : acceptée, elle devient une tâche ; refusée, Clark s'en souvient. */
+    /** Décision de l'utilisateur sur une proposition : acceptée, elle devient une tâche ; refusée, Clark s'en souvient. */
     decideInitiative(id: number, action: "accept" | "decline", reason?: string): "done" | "already" {
       const i = store.initiatives.get(id);
       if (!i || i.status !== "pending") return "already";
@@ -845,7 +845,7 @@ export function createHub(
     },
 
     /**
-     * Décision de Charles sur un brouillon : valider (rangé dans « à publier »), jeter, ou
+     * Décision de l'utilisateur sur un brouillon : valider (rangé dans « à publier »), jeter, ou
      * faire refaire avec une consigne, qui part comme un nouveau message à Clark.
      */
     decidePost(id: number, action: "approve" | "reject" | "redo", feedback?: string): "done" | "already" | "missing_feedback" {
@@ -872,7 +872,7 @@ export function createHub(
       return store.questions.pending();
     },
 
-    /** Réponse de Charles à une question d'agent. false si elle n'attend plus de réponse. */
+    /** Réponse de l'utilisateur à une question d'agent. false si elle n'attend plus de réponse. */
     answerQuestion(id: number, answer: string): boolean {
       const text = answer.trim();
       if (!text) return false;
@@ -914,7 +914,7 @@ export function createHub(
     },
 
     /**
-     * Réponse de Charles à une proposition de souvenir. Corriger = confirmer avec son texte.
+     * Réponse de l'utilisateur à une proposition de souvenir. Corriger = confirmer avec son texte.
      * "already" si elle n'est plus en attente (double clic, autre onglet).
      */
     resolveMemory(
@@ -948,7 +948,7 @@ export function createHub(
       const before = conversation.current(chatId);
       const after = conversation.startNew(chatId, agent);
       if (after === before) {
-        // Rien n'y a été écrit par Charles : elle resert, mais repart quand même d'un fil vierge.
+        // Rien n'y a été écrit par l'utilisateur : elle resert, mais repart quand même d'un fil vierge.
         store.clearSession(chatId);
         changed();
         return Promise.resolve(null);
@@ -991,7 +991,7 @@ export function createHub(
       changed();
     },
 
-    /** Renommer, épingler, supprimer une conversation de Charles (depuis l'interface). */
+    /** Renommer, épingler, supprimer une conversation de l'utilisateur (depuis l'interface). */
     editConversation(id: number, action: "rename" | "pin" | "unpin" | "delete", title = "", chatId = OWNER_CHAT): "ok" | "unknown" | "busy" | "invalid" {
       const c = conversation.conversation(id);
       if (!c || c.chat_id !== chatId) return "unknown";

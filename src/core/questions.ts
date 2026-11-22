@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 
 /**
- * Questions d'un agent à Charles (idée reprise de l'orchestration d'Orca : un worker
+ * Questions d'un agent à l'utilisateur (idée reprise de l'orchestration d'Orca : un worker
  * demande au lieu de deviner, puis attend la réponse). Elles passent par la base pour
  * fonctionner aussi depuis le serveur MCP de Codex, qui tourne dans un autre processus.
  */

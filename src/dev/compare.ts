@@ -6,7 +6,7 @@ import { DEV_LABEL_PREFIX } from "./store.ts";
 
 /**
  * Comparer : la même consigne confiée à deux agents (Claude et Codex, ou deux efforts), chacun
- * dans sa copie. Charles garde une version : elle est acceptée, l'autre est jetée.
+ * dans sa copie. L'utilisateur garde une version : elle est acceptée, l'autre est jetée.
  */
 
 export type CompareSide = { engine: EngineName | null; model?: string | null; effort?: string | null };

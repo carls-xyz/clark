@@ -11,9 +11,9 @@ import { DEV_LABEL_PREFIX, DEV_REVIEW_PREFIX, devReviewChat, type DevTask } from
  * - Code : les sous-tâches alternent d'auteur (Claude, Codex, Claude…) ; le relecteur est l'autre.
  * - Relecture croisée : après chaque version, le relecteur lit le diff dans la copie (lecture
  *   seule) et rend un verdict. Des problèmes : l'auteur corrige (il peut contester un point en le
- *   disant). Au plus BINOME_ROUNDS tours ; au-delà, le désaccord est exposé à Charles, qui tranche.
+ *   disant). Au plus BINOME_ROUNDS tours ; au-delà, le désaccord est exposé à l'utilisateur, qui tranche.
  *
- * Ce n'est jamais Clark qui accepte : Charles relit et accepte comme pour toute tâche dev.
+ * Ce n'est jamais Clark qui accepte : l'utilisateur relit et accepte comme pour toute tâche dev.
  */
 
 export const BINOME_ROUNDS = 3;
@@ -128,7 +128,7 @@ export const reviewNotes = notesOf;
 
 /**
  * Après une version de l'auteur (appelé par collect, la tâche encore « working ») : le relecteur
- * la lit ; approuvée, elle passe à Charles ; sinon l'auteur corrige, jusqu'au dernier tour.
+ * la lit ; approuvée, elle passe à l'utilisateur ; sinon l'auteur corrige, jusqu'au dernier tour.
  * runTurn et patchOf viennent du runner (pas d'import circulaire au chargement).
  */
 export async function crossReview(
@@ -190,5 +190,5 @@ export async function crossReview(
   await deps.runTurn(hub, id, fixPrompt(id, reviewer, verdict, round));
 }
 
-/** Pour l'annonce dans la conversation de Charles. */
+/** Pour l'annonce dans la conversation de l'utilisateur. */
 export const announceDev = (hub: Hub) => (text: string) => hub.post(OWNER_CHAT, text, "system", "dev");

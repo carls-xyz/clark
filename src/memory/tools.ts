@@ -126,7 +126,7 @@ const source = z
 /**
  * Les outils de mémoire, communs aux deux moteurs : le Claude Agent SDK les reçoit
  * en serveur MCP interne, Codex en serveur MCP séparé (src/memory/mcp-server.ts).
- * Clark ne confirme jamais seul : il propose, Charles confirme, corrige ou ignore.
+ * Clark ne confirme jamais seul : il propose, l'utilisateur confirme, corrige ou ignore.
  */
 export function memoryTools(store: Store, ctx: { taskId: () => number | undefined; writeRefusal: () => string | null; google?: GoogleApi; browser?: BrowserCall; messages?: MessagesCall }) {
   const google = ctx.google ?? realGoogle;
@@ -153,7 +153,7 @@ export function memoryTools(store: Store, ctx: { taskId: () => number | undefine
     const refusal = ctx.writeRefusal();
     if (refusal) throw new Error(refusal);
   };
-  // Rappels et automatisations : seulement si la demande vient de Charles lui-même (pas d'un
+  // Rappels et automatisations : seulement si la demande vient de l'utilisateur lui-même (pas d'un
   // tour planifié, d'une proposition, d'un mail ou d'une page : texte venu de l'extérieur).
   const notFromCharles = (): string | null => {
     const taskId = ctx.taskId();
@@ -430,7 +430,7 @@ export function memoryTools(store: Store, ctx: { taskId: () => number | undefine
           }[]
         ).reverse();
         if (!rows.length) return `Conversation #${conversation} introuvable ou vide.`;
-        // Les messages entiers (une consigne de Charles peut être longue), dans une limite totale raisonnable.
+        // Les messages entiers (une consigne de l'utilisateur peut être longue), dans une limite totale raisonnable.
         let budget = 60_000;
         return rows
           .map((r) => {

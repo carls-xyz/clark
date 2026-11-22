@@ -116,11 +116,11 @@ test("agents comme contacts : écrire au Chercheur l'envoie à lui, en lecture s
   assert.match(runs[0].prompt, /^\[Discussion directe — Chercheur\]/);
   assert.match(runs[0].prompt, /Où en est Studio Pixel \?/);
   assert.equal(runs[0].access, "read", "le Chercheur lit seulement");
-  // Le fil montre le message tel que Charles l'a tapé, pas la consigne.
+  // Le fil montre le message tel que l'utilisateur l'a tapé, pas la consigne.
   for (let i = 0; i < 50 && conversation.messagesOf(conv).length < 2; i++) await new Promise((r) => setTimeout(r, 10));
   assert.deepEqual(conversation.messagesOf(conv).filter((m) => m.role !== "system").map((m) => m.text), ["Où en est Studio Pixel ?", "Ici le Chercheur."]);
 
-  // Non-lus : la réponse compte jusqu'à ce que Charles la voie.
+  // Non-lus : la réponse compte jusqu'à ce que l'utilisateur la voie.
   assert.equal(conversation.list(OWNER_CHAT).find((c) => c.id === conv)?.unread, 1);
   hub.markSeen(conv);
   assert.equal(conversation.list(OWNER_CHAT).find((c) => c.id === conv)?.unread, 0);
@@ -143,7 +143,7 @@ test("conversations : l'avis d'un membre du groupe arrivé après « Nouvelle co
   assert.deepEqual(conversation.messagesOf(conversation.current(OWNER_CHAT)), []);
 });
 
-test("conversations : une alerte sur le fil de Charles n'attire pas la réponse du tour de veille", () => {
+test("conversations : une alerte sur ton fil n'attire pas la réponse du tour de veille", () => {
   const { conversation, journal } = setup();
   const ownerConv = conversation.current(OWNER_CHAT);
   const beat = journal.create(0, "heartbeat", "tour");
@@ -165,7 +165,7 @@ test("conversations : un rappel posté pendant une discussion avec un agent va c
   assert.deepEqual(conversation.messagesOf(mousse).map((m) => m.text), ["Mousse, cherche ça"]);
 });
 
-test("conversations : triées sur la dernière activité, et listées même sans message de Charles", () => {
+test("conversations : triées sur la dernière activité, et listées même sans message de l'utilisateur", () => {
   const db = new DatabaseSync(":memory:");
   const conversation = new Conversation(db);
   conversation.add({ chatId: OWNER_CHAT, role: "user", text: "ancienne" });

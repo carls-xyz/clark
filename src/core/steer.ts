@@ -1,5 +1,5 @@
 /**
- * Message de Charles pendant qu'un agent travaille (idée reprise d'OpenBot, rien de copié) :
+ * Message de l'utilisateur pendant qu'un agent travaille (idée reprise d'OpenBot, rien de copié) :
  * au lieu d'attendre la fin, il est glissé dans le tour en cours, entre deux actions.
  * Claude : entrée en flux du SDK (priorité « next ») ; Codex : turn/steer de l'App Server.
  */

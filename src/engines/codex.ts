@@ -173,7 +173,7 @@ function outputOf(item: any): string {
 
 /**
  * Moteur Codex : Clark pilote le Codex App Server officiel, connecté au compte ChatGPT
- * de Charles. Même contrat que le moteur Claude : journal des étapes, validations par
+ * de l'utilisateur. Même contrat que le moteur Claude : journal des étapes, validations par
  * bouton, reprise du fil après un redémarrage.
  */
 export function createCodexEngine(
@@ -271,7 +271,7 @@ export function createCodexEngine(
     const threadOpts = {
       cwd: run.cwd ?? paths.workspace,
       // Tâche de code : les commandes dans le bac à sable passent sans bouton (tests, build) ; seule
-      // une demande d'en sortir arrive à Charles. Ailleurs : chaque commande non sûre lui est demandée.
+      // une demande d'en sortir arrive à l'utilisateur. Ailleurs : chaque commande non sûre lui est demandée.
       approvalPolicy: run.codeTask && !readOnly ? "on-request" : "untrusted",
       // Profil du bac à sable : dossier personnel fermé, dossier de Clark en écriture ou en lecture.
       permissions: readOnly ? PERMISSION_PROFILES.read : PERMISSION_PROFILES.write,
@@ -281,7 +281,7 @@ export function createCodexEngine(
 
     // Clé de liaison du fil : transmise au serveur de mémoire que Codex lance pour ce fil.
     const bindings = new Bindings(store.db);
-    // Serveurs MCP ajoutés par Charles : passés au fil, sans redémarrer Codex.
+    // Serveurs MCP ajoutés par l'utilisateur : passés au fil, sans redémarrer Codex.
     const userMcp = codexMcpConfig(store.mcp.enabled());
     const withBinding = (binding: string) => ({ ...threadOpts, config: { ...userMcp, "mcp_servers.memory.env.CLARK_BINDING": binding } });
 
@@ -333,7 +333,7 @@ export function createCodexEngine(
 
     const ask = async (itemId: string, tool: string, input: Record<string, unknown>, summary: string) => {
       if (readOnly) {
-        // Lecture seule : refusé par Clark sans rien demander à Charles.
+        // Lecture seule : refusé par Clark sans rien demander à l'utilisateur.
         journal.recordStep({ taskId, toolUseId: itemId, tool, input, tier: "ask", status: "denied", attempt: run.attempt });
         store.audit(tool, "denied-read-only", input);
         return false;
@@ -367,7 +367,7 @@ export function createCodexEngine(
           return { action: "decline", content: null, _meta: null };
         case "item/tool/requestUserInput": {
           // Codex demande l'accord pour un outil MCP (serveur réglé sur « demander ») : on le
-          // transmet à Charles. Seulement « Allow » (cet appel) ou « Cancel » ; jamais
+          // transmet à l'utilisateur. Seulement « Allow » (cet appel) ou « Cancel » ; jamais
           // « pour la session » ni « toujours », qui contourneraient les demandes suivantes.
           const item = items.get(p.itemId);
           const qs: any[] = p.questions ?? [];
@@ -439,7 +439,7 @@ export function createCodexEngine(
       });
       const turnId = started?.turn?.id;
       offStop = onStop(taskId, () => void c.request("turn/interrupt", { threadId, turnId }).catch(() => {}));
-      // Message de Charles pendant le tour : glissé dans le tour en cours (turn/steer).
+      // Message de l'utilisateur pendant le tour : glissé dans le tour en cours (turn/steer).
       const offSteer =
         task.parent_id === null && turnId
           ? onSteer(taskId, async (text) => {
@@ -476,7 +476,7 @@ export function createCodexEngine(
       text = finalText || lastText || "(pas de réponse)";
     } else if (result.status === "interrupted") {
       status = "failed";
-      text = wasStopped(taskId) ? "Arrêté par Charles avant la fin." : "Je me suis arrêté avant la fin. Dis-moi si je continue.";
+      text = wasStopped(taskId) ? "Arrêté à ta demande avant la fin." : "Je me suis arrêté avant la fin. Dis-moi si je continue.";
     } else {
       status = "failed";
       text = `Codex a échoué : ${result.error ?? "raison inconnue"}`;

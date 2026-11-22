@@ -70,7 +70,7 @@ function renderCommentForm(d) {
   </form>`;
 }
 
-/** Le diff complet d'une tâche : lignes numérotées, commentaires de Charles posés dessus. */
+/** Le diff complet d'une tâche : lignes numérotées, commentaires de l'utilisateur posés dessus. */
 function renderPatch(patch, t) {
   if (!patch) return `<p class="quiet">Chargement du diff…</p>`;
   if (!patch.trim()) return `<p class="quiet">Aucun changement.</p>`;

@@ -4,7 +4,7 @@ import { ENGINE_ROLES, parseRoleEngines, type Config } from "../config.ts";
 /**
  * Les réglages de Clark modifiables dans l'interface (Réglages › Général). Chacun correspond à
  * une variable de .env : la valeur choisie dans l'interface passe devant celle de .env. Aucun
- * secret ici : clés et jetons restent dans .env, que seul Charles écrit.
+ * secret ici : clés et jetons restent dans .env, que seul l'utilisateur écrit.
  */
 
 export type SettingDef = {

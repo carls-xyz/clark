@@ -7,7 +7,7 @@ import type { DatabaseSync } from "node:sqlite";
  */
 export type EngineChoice = { model: string | null; effort: string | null };
 /**
- * Le niveau que Charles a choisi lui-même (« wanted »), gardé à part : passer par un modèle sans
+ * Le niveau que l'utilisateur a choisi lui-même (« wanted »), gardé à part : passer par un modèle sans
  * ce niveau met l'effort sur Auto, et revenir à un modèle qui l'a le remet. Sans ça, un aller-retour
  * de modèle faisait perdre le choix pour de bon (l'effort « repassait en Auto »).
  */

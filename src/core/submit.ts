@@ -12,7 +12,7 @@ import { expandCommand } from "../skills/library.ts";
 export type Mode = "chat" | "team" | "goal";
 
 /**
- * Une demande de Charles, d'où qu'elle vienne (web, Telegram) : une commande perso
+ * Une demande de l'utilisateur, d'où qu'elle vienne (web, Telegram) : une commande perso
  * (« /relances Studio Pixel ») est remplacée par sa consigne et prend son mode ; sinon le
  * mode choisi (message, équipe, objectif).
  */

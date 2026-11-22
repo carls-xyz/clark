@@ -17,7 +17,7 @@ import { killTree } from "../core/kill-tree.ts";
 /**
  * Côté dev, première passe : une consigne → une copie isolée du dépôt (worktree, branche
  * clark/…) → un agent (Claude ou Codex) qui ne modifie que cette copie, dans son bac à
- * sable → Charles relit le diff, lance les tests s'il veut, puis accepte (commit sur la
+ * sable → l'utilisateur relit le diff, lance les tests s'il veut, puis accepte (commit sur la
  * branche), demande une retouche, ou jette tout.
  */
 export { slug as devSlug };
@@ -57,7 +57,7 @@ export async function addProject(hub: Hub, input: { name: string; path: string; 
   const clarkRoot = real(paths.root);
   // Clark peut travailler sur lui-même : ses tâches tournent dans des copies (worktrees), un
   // accord fait un commit sur la branche de la tâche, jamais dans le dossier qui tourne, et ce
-  // qui change arrive par une PR que Charles relit et fusionne. Ses sous-dossiers, eux, non
+  // qui change arrive par une PR que l'utilisateur relit et fusionne. Ses sous-dossiers, eux, non
   // (workspace/, où vivent justement les copies).
   if (real(root).startsWith(clarkRoot + sep)) return { ok: false, field: "path", error: "Pas un sous-dossier de Clark : donne la racine de son dépôt." };
   if (store.dev.projects().some((p) => real(p.path) === real(root))) return { ok: false, field: "path", error: "Ce dépôt est déjà un projet." };
@@ -160,7 +160,7 @@ export function startDevTask(
  * accepté (leurs branches fusionnées dans la sienne) : son diff ne montre que ce qu'elle ajoute.
  */
 /**
- * Copie préparée d'avance (idée reprise d'Orca) : pendant que Charles tape une tâche de code,
+ * Copie préparée d'avance (idée reprise d'Orca) : pendant que l'utilisateur tape une tâche de code,
  * une copie du projet est créée (base à jour, dépendances liées). À l'envoi, elle est renommée
  * et la branche créée dessus : la tâche démarre aussitôt. Une par projet, 5 minutes au plus.
  */
@@ -227,7 +227,7 @@ async function prepareAndRun(hub: Hub, id: number) {
     .filter((d): d is DevTask => d?.status === "accepted" && Boolean(d.commit));
   try {
     mkdirSync(worktreesDir(), { recursive: true });
-    // Copie préparée pendant que Charles tapait : elle sert telle quelle (déjà à jour).
+    // Copie préparée pendant que l'utilisateur tapait : elle sert telle quelle (déjà à jour).
     const warm = !t.existing_branch && !deps.length ? await takePrewarm(p.path, p.id, t.worktree, t.branch) : null;
     // Sinon, base à jour (dépôt distant récupéré) : moins de conflits et de CI rouge plus tard.
     const start = t.existing_branch || warm ? null : await freshBase(p.path, p.base_branch);
@@ -292,7 +292,7 @@ async function checkoutExisting(repo: string, dir: string, branch: string): Prom
 /**
  * Lance les sous-tâches en attente d'un groupe dont tout est prêt : celles dont elles dépendent
  * sont acceptées, et leurs décisions prises. Si l'une d'elles est jetée, la sous-tâche s'arrête
- * (Charles peut la réessayer sans elle).
+ * (l'utilisateur peut la réessayer sans elle).
  */
 export function launchReady(hub: Hub, groupId: number) {
   const { store } = hub.deps;
@@ -316,7 +316,7 @@ export const maxParallel = () => Math.max(1, Number(process.env.CLARK_DEV_PARALL
 let active = 0;
 const waiters: { id: number; go: (granted: boolean) => void }[] = [];
 export const isWaitingSlot = (id: number) => waiters.some((w) => w.id === id);
-/** true : une place est prise. false : l'attente a été annulée (Charles a arrêté la tâche). */
+/** true : une place est prise. false : l'attente a été annulée (l'utilisateur a arrêté la tâche). */
 async function slot(hub: Hub, id: number): Promise<boolean> {
   if (active < maxParallel()) {
     active++;
@@ -359,7 +359,7 @@ export async function runTurn(hub: Hub, id: number, prompt: string, images: stri
     store.dev.unmarkCommentsSent(id, t.rounds + 1);
     store.dev.update(id, {
       status: t.rounds > 0 ? "review" : "failed",
-      error: t.rounds > 0 ? "Retouche annulée avant que l'agent ne commence : la version précédente est intacte." : "Arrêtée par Charles avant que l'agent ne commence.",
+      error: t.rounds > 0 ? "Retouche annulée avant que l'agent ne commence : la version précédente est intacte." : "Arrêtée à ta demande avant que l'agent ne commence.",
       pending_turn: null,
     });
     return;
@@ -442,8 +442,8 @@ export async function collect(hub: Hub, id: number) {
     else await hub.post(OWNER_CHAT, `Tâche dev #${id} (${p.name}) arrêtée : ${why}. Tu peux répondre, la relancer sur l'autre moteur ou la jeter, dans Dev.`, "system", "dev");
     return;
   }
-  // Avant Charles (et avant le relecteur d'un binôme) : les tests du projet. Rouges, l'agent corrige
-  // tout seul (2 fois au plus) ; toujours rouges, la tâche arrive à Charles avec les tests affichés.
+  // Avant l'utilisateur (et avant le relecteur d'un binôme) : les tests du projet. Rouges, l'agent corrige
+  // tout seul (2 fois au plus) ; toujours rouges, la tâche arrive à l'utilisateur avec les tests affichés.
   if (run?.status === "done" && p.test_command && !t.merge_branch) {
     store.dev.update(id, { summary: run.result, diff_stat: stat });
     const r = await runDevTests(hub, id, undefined, { duringWork: true });
@@ -458,7 +458,7 @@ export async function collect(hub: Hub, id: number) {
       return;
     }
   }
-  // Binôme : avant Charles, l'autre moteur relit cette version (et l'auteur corrige si besoin).
+  // Binôme : avant l'utilisateur, l'autre moteur relit cette version (et l'auteur corrige si besoin).
   if (run?.status === "done" && t.reviewer) {
     store.dev.update(id, { summary: run.result, diff_stat: stat });
     void crossReview(hub, id, { runTurn, patchOf: devPatch, announce: announceDev(hub), ready: (x) => pilot(hub, x) }).catch(async (err) => {
@@ -543,7 +543,7 @@ export function retouchDevTask(hub: Hub, id: number, instruction: string, design
   if (!t) return "missing";
   if (instruction.trim().length < 3) return { error: "Écris la retouche" };
   if (!store.dev.transition(id, ["review", "failed"], "working")) return "already";
-  // Binôme : une retouche de Charles ouvre un nouveau cycle de relecture croisée.
+  // Binôme : une retouche de l'utilisateur ouvre un nouveau cycle de relecture croisée.
   if (t.reviewer) store.dev.update(id, { review_rounds: 0, review_state: null });
   // Une nouvelle consigne : de nouveau droit aux relances et corrections automatiques.
   store.dev.update(id, { auto_continues: 0, test_fixes: 0 });
@@ -557,7 +557,7 @@ export function retouchDevTask(hub: Hub, id: number, instruction: string, design
   return "done";
 }
 
-/** Les commentaires de Charles sur le diff, en une consigne : chacun avec son fichier, ses lignes et leur texte. */
+/** Les commentaires de l'utilisateur sur le diff, en une consigne : chacun avec son fichier, ses lignes et leur texte. */
 export function reviewPrompt(id: number, comments: { file: string; side: string; line_start: number; line_end: number; snippet: string; body: string; sent_round: number | null }[]): string {
   const parts = comments.map((c, i) => {
     const where = `${c.file}, ${c.line_start === c.line_end ? `ligne ${c.line_start}` : `lignes ${c.line_start} à ${c.line_end}`}${c.side === "old" ? " (lignes retirées)" : ""}`;
@@ -789,7 +789,7 @@ export async function retryDevTask(hub: Hub, id: number, choice: { engine?: Engi
 const testing = new Set<number>();
 
 /**
- * « Lancer les tests », sur un clic de Charles : la commande du projet, dans la copie, hors du
+ * « Lancer les tests », sur un clic de l'utilisateur : la commande du projet, dans la copie, hors du
  * bac à sable (les tests ont souvent besoin du réseau ou des dépendances). Les node_modules
  * du dépôt sont reliés à la copie s'ils y manquent et sont ignorés par git.
  */
@@ -799,7 +799,7 @@ export async function runDevTests(hub: Hub, id: number, timeoutMs = 10 * 60_000,
   if (!t) return "missing";
   const p = store.dev.project(t.project_id)!;
   if (!p.test_command) return { error: "Ce projet n'a pas de commande de test (à régler dans Dev › Projets)." };
-  // Pendant le travail (fin d'un tour, avant la relecture de Charles) : la tâche est encore « working ».
+  // Pendant le travail (fin d'un tour, avant la relecture de l'utilisateur) : la tâche est encore « working ».
   const allowed = opts.duringWork ? ["working", "review", "failed"] : ["review", "failed"];
   if (!allowed.includes(t.status) || !existsSync(t.worktree)) return { error: "Les tests se lancent sur une tâche à relire." };
   if (testing.has(id)) return "already";
@@ -876,7 +876,7 @@ export const projectLabel = (path: string) => basename(path);
 
 /**
  * Sous-tâche prête : ses changements vont-ils entrer en conflit avec ceux d'une autre du même
- * groupe ? Calculé sans toucher aux copies ; Charles est prévenu avant la réunion.
+ * groupe ? Calculé sans toucher aux copies ; l'utilisateur est prévenu avant la réunion.
  */
 async function warnConflicts(hub: Hub, id: number) {
   const { store } = hub.deps;

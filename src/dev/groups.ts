@@ -241,7 +241,7 @@ async function integrateGroupNow(hub: Hub, id: number): Promise<DevOutcome> {
   return "done";
 }
 
-/** La réponse de Charles à une décision du plan : ajoutée à la consigne des sous-tâches concernées, qui partent si tout est prêt. */
+/** La réponse de l'utilisateur à une décision du plan : ajoutée à la consigne des sous-tâches concernées, qui partent si tout est prêt. */
 export function resolveGate(hub: Hub, gateId: number, resolution: string): DevOutcome {
   const { store } = hub.deps;
   const g = store.dev.gate(gateId);
@@ -282,7 +282,7 @@ export function startDevGroups(hub: Hub) {
 
 // ── Pull requests ──
 
-/** Ce que la PR proposera par défaut (Charles le relit et le modifie avant d'envoyer). */
+/** Ce que la PR proposera par défaut (l'utilisateur le relit et le modifie avant d'envoyer). */
 export function prDraft(hub: Hub, kind: "task" | "group", id: number): { title: string; body: string; branch: string; base: string } | null {
   const { store } = hub.deps;
   if (kind === "task") {
@@ -312,7 +312,7 @@ export function prDraft(hub: Hub, kind: "task" | "group", id: number): { title: 
 }
 
 /**
- * Ouvre la pull request, sur le clic de Charles, avec le titre et le texte qu'il a relus :
+ * Ouvre la pull request, sur le clic de l'utilisateur, avec le titre et le texte qu'il a relus :
  * envoi de la branche sur « origin » (sans crochets), puis `gh pr create`. Une seule fois.
  */
 export function openPullRequest(hub: Hub, kind: "task" | "group", id: number, input: { title: string; body: string }): Promise<DevOutcome> {
