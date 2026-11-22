@@ -474,11 +474,11 @@ export function createHub(
       // Suite automatique (vérification de fin) : une note, pas un message de l'utilisateur.
       conversation.add({ chatId, role: "system", text: opts.display ?? "Je continue.", taskId });
     }
-    else if (label === HEARTBEAT_LABEL || isIdeaLabel(label) || label.startsWith("avis:")) {
-      // Tour de veille, tour d'idées, avis d'un membre du groupe : rien dans le fil avant la réponse.
+    else if (label === HEARTBEAT_LABEL || label === "brief" || isIdeaLabel(label) || label.startsWith("avis:")) {
+      // Tour de veille, brief, tour d'idées, avis d'un membre du groupe : rien dans le fil avant la réponse.
     }
     else if (label === "chat" || label === TEAM_LABEL) conversation.add({ chatId, role: "user", text: opts.display ?? prompt, taskId, source });
-    else conversation.add({ chatId, role: "system", text: label === "brief" ? "Brief du matin" : `Tâche planifiée : ${label}`, taskId });
+    else conversation.add({ chatId, role: "system", text: `Tâche planifiée : ${label}`, taskId });
     if (label === TEAM_LABEL) return launchTeam(chatId, taskId);
     return schedule(
       chatId,
@@ -490,7 +490,7 @@ export function createHub(
           ...(devOfLabel(label) ? { codeTask: true } : {}),
           // Le tour de veille repart toujours de zéro : il ne reprend pas ta conversation.
           // Le tour de veille et les avis du groupe repartent de zéro : ils ne reprennent pas ta conversation.
-          resume: label === HEARTBEAT_LABEL || isIdeaLabel(label) || opts.parentId !== undefined ? undefined : (store.getSession(chatId) ?? undefined), // lu au moment d'exécuter
+          resume: label === HEARTBEAT_LABEL || label === "brief" || isIdeaLabel(label) || opts.parentId !== undefined ? undefined : (store.getSession(chatId) ?? undefined), // lu au moment d'exécuter
           approve: approverFor(chatId, taskId),
           mode: "new",
           ...(opts.access ? { access: opts.access } : {}),

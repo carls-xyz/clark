@@ -6797,3 +6797,11 @@ ui-menu-separator {
     text-align: center;
   }
 }
+
+.cal-ideas {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: var(--fs-small);
+}

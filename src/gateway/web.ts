@@ -562,7 +562,7 @@ export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voi
       at: p.decided_at,
     })),
     // Calendrier des veilles : de quoi afficher le nombre sur l'icône (les comptes rendus se lisent à part).
-    calendar: { recent: store.automations.recentCalendarRuns(), automations: store.automations.list().filter((a) => a.thread === "calendar").length },
+    calendar: { recent: calendarRecent(hub), automations: store.automations.list().filter((a) => a.thread === "calendar").length, brief: hub.deps.config.briefHour, ideasHour: ideasHour() },
     automations: store.automations.list().map((a) => {
       const last = a.last_task_id ? journal.get(a.last_task_id) : undefined;
       return {
@@ -601,10 +601,14 @@ export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voi
  * Vidéo d'un brouillon, avec la lecture par morceaux (en-tête Range) dont Safari a
  * besoin pour lire et avancer dans une vidéo. Seuls les fichiers des brouillons sont servis.
  */
+/** Ce que le calendrier range, en plus des automatisations : le brief du matin et le tour d'idées. */
+const CALENDAR_TASKS: Record<string, string> = { brief: "Brief du matin", idees: "Tour d'idées" };
+
 /**
- * Un mois du calendrier des veilles (« AAAA-MM ») : chaque exécution d'une automatisation
- * rangée dans le calendrier, avec son état et son compte rendu. Les dates sont en UTC : on
- * prend un jour de marge de chaque côté, l'interface range par jour en heure de Paris.
+ * Un mois du calendrier (« AAAA-MM ») : les exécutions des automatisations rangées dans
+ * le calendrier, les briefs du matin et les tours d'idées, avec leur état et leur compte
+ * rendu. Les dates sont en UTC : on prend un jour de marge de chaque côté, l'interface
+ * range par jour en heure de Paris.
  */
 export function calendarMonth(hub: Hub, month: string) {
   const { store, journal } = hub.deps;
@@ -612,24 +616,74 @@ export function calendarMonth(hub: Hub, month: string) {
   const iso = (d: Date) => d.toISOString().slice(0, 19).replace("T", " ");
   const from = iso(new Date(Date.UTC(y, m - 1, 0)));
   const to = iso(new Date(Date.UTC(y, m, 2)));
-  const runs = store.automations.calendarRuns(from, to).map((r) => {
-    const t = r.task_id ? journal.get(r.task_id) : undefined;
+  const ofTask = (taskId: number | null) => {
+    const t = taskId ? journal.get(taskId) : undefined;
     const said = t ? journal.outcome(t.id) : null;
+    const quiet = said?.outcome === "quiet";
     return {
-      id: r.id,
-      automationId: r.automation_id,
+      t,
+      quiet,
+      note: quiet ? "Rien de neuf." : said?.outcome === "failed" ? (said.note ?? "Pas abouti.") : null,
+      report: t && !quiet ? (t.result ?? "").trim() || null : null,
+    };
+  };
+  const automations = store.automations.calendarRuns(from, to).map((r) => {
+    const x = ofTask(r.task_id);
+    return {
+      key: `a${r.id}`,
+      kind: "automation" as const,
       name: r.name,
       at: r.created_at,
       manual: r.manual === 1,
       // started (en cours ou faite, voir task), skipped (rien de neuf, pré-vérification), failed.
-      status: said?.outcome === "quiet" ? "skipped" : r.status,
-      note: r.note ?? (said?.outcome === "quiet" ? "Rien de neuf." : said?.outcome === "failed" ? (said.note ?? "Pas abouti.") : null),
-      task: t ? t.status : null,
+      status: x.quiet ? "skipped" : r.status,
+      note: r.note ?? x.note,
+      task: x.t ? x.t.status : null,
       taskId: r.task_id,
-      report: t && said?.outcome !== "quiet" ? (t.result ?? "").trim() || null : null,
+      report: x.report,
+      ideas: [] as { id: number; title: string; kind: string; status: string }[],
     };
   });
+  const tasks = (
+    store.db
+      .prepare(`SELECT id, label, created_at FROM tasks WHERE label IN (${Object.keys(CALENDAR_TASKS).map(() => "?").join(", ")}) AND parent_id IS NULL AND created_at >= ? AND created_at < ?`)
+      .all(...Object.keys(CALENDAR_TASKS), from, to) as { id: number; label: string; created_at: string }[]
+  ).map((row) => {
+    const x = ofTask(row.id);
+    // Tour d'idées : les idées qu'il a notées, pour les retrouver dans la page Idées.
+    const ideas = row.label === "idees" ? (store.db.prepare("SELECT id, title, kind, status FROM ideas WHERE task_id = ? ORDER BY id").all(row.id) as { id: number; title: string; kind: string; status: string }[]) : [];
+    return {
+      key: `t${row.id}`,
+      kind: row.label === "brief" ? ("brief" as const) : ("ideas" as const),
+      name: CALENDAR_TASKS[row.label],
+      at: row.created_at,
+      manual: false,
+      status: x.quiet && !ideas.length ? "skipped" : "started",
+      note: x.note,
+      task: x.t?.status ?? null,
+      taskId: row.id,
+      report: x.report,
+      ideas,
+    };
+  });
+  const runs = [...automations, ...tasks].sort((a, b) => a.at.localeCompare(b.at));
   return { month, runs };
+}
+
+/** Dates des derniers éléments du calendrier, pour le nombre « pas encore vus » sur l'icône. */
+export function calendarRecent(hub: Hub, limit = 20): string[] {
+  const { store } = hub.deps;
+  return (
+    store.db
+      .prepare(
+        `SELECT at FROM (
+           SELECT r.created_at AS at FROM automation_runs r JOIN automations a ON a.id = r.automation_id WHERE a.thread = 'calendar'
+           UNION ALL
+           SELECT created_at AS at FROM tasks WHERE label IN (${Object.keys(CALENDAR_TASKS).map(() => "?").join(", ")}) AND parent_id IS NULL
+         ) ORDER BY at DESC LIMIT ?`,
+      )
+      .all(...Object.keys(CALENDAR_TASKS), limit) as { at: string }[]
+  ).map((r) => r.at);
 }
 
 function sendVideo(req: IncomingMessage, res: ServerResponse, post: { media_path: string } | undefined) {

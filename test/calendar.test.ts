@@ -82,7 +82,7 @@ test("calendrier : le compte rendu reste hors de ta conversation et se lit au jo
   assert.equal(cal.runs[0].name, "Veille du soir");
   assert.equal(cal.runs[0].task, "done");
   assert.match(cal.runs[0].report!, /Un article utile/);
-  assert.deepEqual(store.automations.recentCalendarRuns(), [cal.runs[0].id]);
+  assert.deepEqual(store.automations.recentCalendarRuns().map((id) => `a${id}`), [cal.runs[0].key]);
 
   // Remise dans la conversation : elle sort du calendrier (et son historique avec).
   store.automations.setThread(id, "main");
@@ -118,4 +118,27 @@ test("calendrier : le mois se lit avec une marge d'un jour (UTC → heure de Par
   );
   assert.equal(cal.runs[1].status, "skipped");
   assert.equal(cal.runs[1].report, null);
+});
+
+test("brief du matin : dans sa conversation à part, sans reprendre de session, et lu dans le calendrier", async () => {
+  const { BRIEF_CHAT, BRIEF_LABEL, startScheduler } = await import("../src/scheduler/cron.ts");
+  // L'horloge lance le brief dans sa conversation, pas dans la tienne.
+  const hour = Number(new Date().toLocaleString("fr-FR", { timeZone: "Europe/Paris", hour: "numeric" }));
+  const sched = setup();
+  const sent: [number, string][] = [];
+  const stop = startScheduler({ config: { ...config(), briefHour: hour }, store: sched.store, enqueue: async (chat, _p, label) => void sent.push([chat, label]) });
+  stop();
+  assert.deepEqual(sent, [[BRIEF_CHAT, BRIEF_LABEL]]);
+
+  const { store, journal, conversation, hub } = setup();
+  store.setSession(BRIEF_CHAT, "vieille-session");
+  const before = conversation.recent(OWNER_CHAT).length;
+  const done = hub.enqueue(BRIEF_CHAT, "Fais le brief", BRIEF_LABEL);
+  await done;
+  const t = journal.lastCreated(BRIEF_LABEL)!;
+  assert.ok(t);
+  assert.equal(conversation.recent(OWNER_CHAT).length, before, "rien dans ta conversation");
+  const entry = calendarMonth(hub, t.slice(0, 7)).runs.find((r) => r.kind === "brief")!;
+  assert.equal(entry.name, "Brief du matin");
+  assert.match(entry.report!, /Un article utile/);
 });
