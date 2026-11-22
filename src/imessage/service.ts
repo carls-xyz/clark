@@ -63,7 +63,7 @@ export class MessagesService {
 
   status() {
     const s = this.backend.status();
-    return { access: s.access, self: this.self !== null, channel: s.access && this.self !== null && this.timer !== null, nodePath: nodeBinary(), error: this.lastError };
+    return { access: s.access, problem: s.problem ?? null, self: this.self !== null, channel: s.access && this.self !== null && this.timer !== null, nodePath: nodeBinary(), error: this.lastError };
   }
 
   private get lastId(): number | null {

@@ -100,6 +100,8 @@ function renderIMessagePlugin() {
   if (!m) return "";
   const what =
     "Clark lit tes conversations quand tu le demandes (et au tour de veille), et répond à tes contacts avec ton accord sur le texte exact. Si tu le règles, tu lui écris aussi depuis ton iPhone, dans ta conversation avec toi-même.";
+  if (!m.access && m.problem === "not_mac")
+    return plugin("iMessage", "off", what, `<p class="quiet">iMessage ne marche que quand Clark tourne sur un Mac : ici, il tourne sur ${esc(state.system?.name ?? "un autre système")}. Telegram reste disponible.</p>`);
   if (!m.access)
     return plugin(
       "iMessage",

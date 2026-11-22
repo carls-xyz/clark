@@ -158,6 +158,9 @@ export function createLogins(opts: { onChange: () => void; onDone: (engine: Logi
 }
 export type Logins = ReturnType<typeof createLogins>;
 
-/** Clark tourne en service launchd : il peut se relancer seul (launchd le redémarre après une sortie non nulle). */
-export const canRestart = () => process.env.XPC_SERVICE_NAME === "local.clark";
+/**
+ * Clark tourne en service (launchd sur le Mac, systemd sur Linux) : il peut se relancer seul,
+ * le service le redémarre après une sortie non nulle. CLARK_SERVICE est posé par l'unité systemd.
+ */
+export const canRestart = () => process.env.XPC_SERVICE_NAME === "local.clark" || process.env.CLARK_SERVICE === "systemd";
 export const RESTART_EXIT_CODE = 75;

@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { openSync, readSync, closeSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
+import { notOnThisSystem, onMac } from "./platform.ts";
 
 /**
  * Pièces jointes de l'utilisateur : un fichier ou un dossier de son Mac, choisi dans la vraie fenêtre
@@ -21,7 +22,9 @@ export type PickKind = "file" | "folder";
  * Ouvre la fenêtre de choix du Mac (osascript) et rend le chemin choisi, ou null si l'utilisateur annule.
  * Elle s'ouvre sur le Mac où tourne Clark : seulement depuis l'interface de ce Mac.
  */
-export function pickPath(kind: PickKind, run: typeof execFile = execFile): Promise<string | null> {
+export function pickPath(kind: PickKind, run: typeof execFile = execFile, platform: NodeJS.Platform = process.platform): Promise<string | null> {
+  // Hors Mac (un VPS) : pas de fenêtre de choix, le chemin s'écrit à la main.
+  if (!onMac(platform)) return Promise.reject(new Error(`${notOnThisSystem("filePicker")} Écris le chemin à la main.`));
   const prompt = kind === "folder" ? "Choisis un dossier pour Clark" : "Choisis un fichier pour Clark";
   const choose = kind === "folder" ? `choose folder with prompt "${prompt}"` : `choose file with prompt "${prompt}"`;
   const script = `try\n  set p to ${choose} default location (path to home folder)\n  return POSIX path of p\non error number -128\n  return ""\nend try`;
