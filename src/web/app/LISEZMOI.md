@@ -9,3 +9,4 @@ Le code qui s'exécute au chargement (écouteurs, démarrage) doit venir après 
 - `18-terminal.js` : le Terminal (tes commandes, celles que Clark propose), relu par `/api/terminal` pendant qu'une commande tourne.
 - `19-gestion-conversations.js` : le menu ⋯ d'une conversation (renommer, épingler, supprimer) et le tri de la liste.
 - `20-idees.js` : la page Idées (tour d'idées, idées lancées en vrac, avis de Clark, tri).
+- `21-calendrier.js` : le Calendrier des veilles (comptes rendus des automatisations rangées dans le calendrier, par jour).

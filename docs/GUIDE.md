@@ -449,6 +449,7 @@ Chaque automatisation peut aussi avoir :
 - **une pré-vérification** : une commande lancée juste avant (60 s au plus, dans le dossier du projet pour une tâche dev) ; si elle échoue, l'occurrence est **sautée** et rien n'est consommé. Exemple : `gh pr list --state open | grep -q .` pour ne tourner que s'il y a des PR ouvertes ;
 - **son propre fil** : la consigne et le travail restent à part (avec leur propre mémoire de conversation d'une fois sur l'autre), et le résultat t'est annoncé dans ta conversation ; ses demandes d'accord arrivent dans « À toi » sous son nom ;
 - **créée en pause**, pour l'essayer avec « Lancer maintenant » avant de l'activer.
+- **le calendrier** (« Dans le calendrier », ou « Mettre dans le calendrier » sur une automatisation existante) : pour une veille ou un point régulier. Rien n'arrive dans ta conversation ; le compte rendu s'affiche dans la page **Calendrier** (icône de la colonne, `#calendrier`), au jour où elle a tourné, et l'icône compte ceux que tu n'as pas encore vus. Un échec est quand même signalé en une ligne dans ta conversation. « Remettre dans la conversation » la fait sortir du calendrier.
 
 Chaque exécution est notée (lancée et son résultat, sautée avec la raison, en échec), visible dans « Dernières exécutions » ; « Lancer maintenant » passe aussi par la pré-vérification.
 

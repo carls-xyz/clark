@@ -68,7 +68,9 @@ export async function launchAutomation(hub: Hub, a: Automation, opts: { slot?: s
     return runId;
   }
 
-  const own = a.thread === "own";
+  // Son propre fil, ou le calendrier : la tâche tourne hors de ta conversation.
+  const own = a.thread === "own" || a.thread === "calendar";
+  const calendar = a.thread === "calendar";
   const chatId = own ? automationChat(a.id) : OWNER_CHAT;
   let taskId: number | null = null;
   const done = hub.enqueue(chatId, a.prompt, a.kind === "team" ? TEAM_LABEL : "chat", `automation:${a.name}`, {
@@ -81,7 +83,7 @@ export async function launchAutomation(hub: Hub, a: Automation, opts: { slot?: s
     ...(engine && a.model ? { model: a.model } : {}),
     ...(engine && a.effort ? { effort: a.effort } : {}),
   });
-  // Dans son propre fil : le résultat t'est annoncé dans ta conversation, en une fois.
+  // Dans son propre fil : le résultat t'est annoncé dans ta conversation, en une fois (sauf calendrier).
   if (own)
     void done.then(() => {
       const t = taskId ? journal.get(taskId) : undefined;
@@ -91,9 +93,15 @@ export async function launchAutomation(hub: Hub, a: Automation, opts: { slot?: s
       if (said.outcome === "quiet") return runs.updateRun(runId, { status: "skipped", note: "Rien de neuf." });
       if (said.outcome === "failed") {
         runs.updateRun(runId, { status: "failed", note: said.note ?? "Pas abouti." });
-        return void hub.post(OWNER_CHAT, `Automatisation « ${a.name} » (pas abouti) : ${short(said.note ?? "raison non donnée", 300)}`, "system", "system");
+        // Calendrier : l'échec y est noté ; une ligne courte ici, pour ne pas le rater.
+        return void hub.post(OWNER_CHAT, `Automatisation « ${a.name} » (pas abouti) : ${short(said.note ?? "raison non donnée", calendar ? 160 : 300)}`, "system", "system");
       }
       const ok = t.status === "done";
+      // Calendrier : le compte rendu y reste, rien dans ta conversation. Un échec est quand même signalé.
+      if (calendar) {
+        if (!ok) void hub.post(OWNER_CHAT, `Automatisation « ${a.name} » : pas aboutie, le détail est dans le calendrier.`, "system", "system");
+        return;
+      }
       void hub.post(OWNER_CHAT, `Automatisation « ${a.name} »${ok ? "" : " (pas abouti)"} : ${short((t.result ?? "").trim() || "(pas de réponse)", 1500)}`, ok ? "clark" : "system", ok ? "reply" : "system");
     });
   return runId;

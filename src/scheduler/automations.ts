@@ -33,12 +33,17 @@ export type Automation = {
   effort: string | null;
   /** Commande de pré-vérification : si elle échoue, l'occurrence est sautée (rien n'est consommé). */
   precheck: string | null;
-  /** main : dans ta conversation ; own : dans son propre fil (le résultat t'est annoncé). */
-  thread: "main" | "own";
+  /**
+   * main : dans ta conversation ; own : dans son propre fil (le résultat t'est annoncé) ;
+   * calendar : dans le calendrier, rien dans ta conversation (une veille, un point régulier).
+   */
+  thread: AutomationThread;
   created_at: string;
 };
 
 export type AutomationKind = "chat" | "team" | "dev";
+export type AutomationThread = "main" | "own" | "calendar";
+export const AUTOMATION_THREADS: AutomationThread[] = ["main", "own", "calendar"];
 
 /** Une exécution : lancée, sautée par la pré-vérification, ou en échec avant de partir. */
 export type AutomationRun = {
@@ -150,7 +155,7 @@ export type AutomationInput = {
   model?: string | null;
   effort?: string | null;
   precheck?: string | null;
-  thread?: "main" | "own";
+  thread?: AutomationThread;
   /** false : créée en pause, pour la tester avec « Lancer maintenant » avant de l'activer. */
   enabled?: boolean;
 };
@@ -169,7 +174,7 @@ export function validateAutomation(i: Partial<AutomationInput>): string | null {
   if (i.engine && !["claude", "codex"].includes(i.engine)) return "Moteur inconnu";
   if ((i.model || i.effort) && !i.engine) return "Choisis d'abord le moteur";
   if (i.precheck && (i.precheck.length > 300 || /[\r\n]/.test(i.precheck))) return "Pré-vérification : une ligne, 300 caractères au plus";
-  if (i.thread && !["main", "own"].includes(i.thread)) return "Fil inconnu";
+  if (i.thread && !AUTOMATION_THREADS.includes(i.thread)) return "Fil inconnu";
   return null;
 }
 
@@ -285,6 +290,17 @@ export class Automations {
     return ok;
   }
 
+  /** Où arrive le résultat : ta conversation, son propre fil, ou le calendrier. Pas pour une tâche dev. */
+  setThread(id: number, thread: AutomationThread): boolean {
+    if (!AUTOMATION_THREADS.includes(thread)) throw new Error("Fil inconnu");
+    const a = this.get(id);
+    if (!a) return false;
+    if (a.kind === "dev") throw new Error("Une tâche dev se relit dans Dev, pas dans le calendrier");
+    this.db.prepare("UPDATE automations SET thread = ? WHERE id = ?").run(thread, id);
+    this.changed();
+    return true;
+  }
+
   remove(id: number): boolean {
     const ok = this.db.prepare("DELETE FROM automations WHERE id = ?").run(id).changes > 0;
     if (ok) this.db.prepare("DELETE FROM automation_runs WHERE automation_id = ?").run(id);
@@ -318,6 +334,26 @@ export class Automations {
 
   runs(automationId: number, limit = 10): AutomationRun[] {
     return this.db.prepare("SELECT * FROM automation_runs WHERE automation_id = ? ORDER BY id DESC LIMIT ?").all(automationId, limit) as AutomationRun[];
+  }
+
+  /**
+   * Exécutions des automatisations rangées dans le calendrier, entre deux dates (UTC,
+   * « AAAA-MM-JJ HH:MM:SS »), les plus anciennes d'abord. Les exécutions faites avant le
+   * passage au calendrier en font partie : le calendrier montre tout l'historique.
+   */
+  calendarRuns(from: string, to: string): (AutomationRun & { name: string })[] {
+    return this.db
+      .prepare(
+        "SELECT r.*, a.name AS name FROM automation_runs r JOIN automations a ON a.id = r.automation_id WHERE a.thread = 'calendar' AND r.created_at >= ? AND r.created_at < ? ORDER BY r.id",
+      )
+      .all(from, to) as (AutomationRun & { name: string })[];
+  }
+
+  /** Dernières exécutions du calendrier (ids), pour le nombre sur l'icône. */
+  recentCalendarRuns(limit = 20): number[] {
+    return (this.db.prepare("SELECT r.id FROM automation_runs r JOIN automations a ON a.id = r.automation_id WHERE a.thread = 'calendar' ORDER BY r.id DESC LIMIT ?").all(limit) as { id: number }[]).map(
+      (r) => r.id,
+    );
   }
 
   recordTask(id: number, taskId: number) {

@@ -561,6 +561,8 @@ export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voi
       file: p.export_path,
       at: p.decided_at,
     })),
+    // Calendrier des veilles : de quoi afficher le nombre sur l'icône (les comptes rendus se lisent à part).
+    calendar: { recent: store.automations.recentCalendarRuns(), automations: store.automations.list().filter((a) => a.thread === "calendar").length },
     automations: store.automations.list().map((a) => {
       const last = a.last_task_id ? journal.get(a.last_task_id) : undefined;
       return {
@@ -599,6 +601,37 @@ export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voi
  * Vidéo d'un brouillon, avec la lecture par morceaux (en-tête Range) dont Safari a
  * besoin pour lire et avancer dans une vidéo. Seuls les fichiers des brouillons sont servis.
  */
+/**
+ * Un mois du calendrier des veilles (« AAAA-MM ») : chaque exécution d'une automatisation
+ * rangée dans le calendrier, avec son état et son compte rendu. Les dates sont en UTC : on
+ * prend un jour de marge de chaque côté, l'interface range par jour en heure de Paris.
+ */
+export function calendarMonth(hub: Hub, month: string) {
+  const { store, journal } = hub.deps;
+  const [y, m] = month.split("-").map(Number);
+  const iso = (d: Date) => d.toISOString().slice(0, 19).replace("T", " ");
+  const from = iso(new Date(Date.UTC(y, m - 1, 0)));
+  const to = iso(new Date(Date.UTC(y, m, 2)));
+  const runs = store.automations.calendarRuns(from, to).map((r) => {
+    const t = r.task_id ? journal.get(r.task_id) : undefined;
+    const said = t ? journal.outcome(t.id) : null;
+    return {
+      id: r.id,
+      automationId: r.automation_id,
+      name: r.name,
+      at: r.created_at,
+      manual: r.manual === 1,
+      // started (en cours ou faite, voir task), skipped (rien de neuf, pré-vérification), failed.
+      status: said?.outcome === "quiet" ? "skipped" : r.status,
+      note: r.note ?? (said?.outcome === "quiet" ? "Rien de neuf." : said?.outcome === "failed" ? (said.note ?? "Pas abouti.") : null),
+      task: t ? t.status : null,
+      taskId: r.task_id,
+      report: t && said?.outcome !== "quiet" ? (t.result ?? "").trim() || null : null,
+    };
+  });
+  return { month, runs };
+}
+
 function sendVideo(req: IncomingMessage, res: ServerResponse, post: { media_path: string } | undefined) {
   if (!post || !existsSync(post.media_path)) throw new HttpError(404, "Vidéo introuvable");
   const size = statSync(post.media_path).size;
@@ -728,6 +761,12 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
         return;
       }
       if (path === "/api/state") return json(res, 200, view());
+      // Calendrier des veilles : les exécutions d'un mois, avec leur compte rendu (lu à la demande, pas dans l'état poussé).
+      if (path === "/api/calendar") {
+        const month = url.searchParams.get("month") ?? "";
+        if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return json(res, 400, { error: "Mois attendu : AAAA-MM" });
+        return json(res, 200, calendarMonth(hub, month));
+      }
       // La sortie du Terminal, relue pendant qu'il est affiché (hôte vérifié plus haut ; pas de CORS).
       if (path === "/api/terminal") {
         if (!opts.terminal) return json(res, 409, { error: "Terminal indisponible" });
@@ -1182,7 +1221,7 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
         model: typeof body.model === "string" && body.model.trim() ? body.model.trim() : null,
         effort: typeof body.effort === "string" && body.effort.trim() ? body.effort.trim() : null,
         precheck: typeof body.precheck === "string" && body.precheck.trim() ? body.precheck.trim() : null,
-        thread: body.thread === "own" ? "own" : "main",
+        thread: body.thread === "own" || body.thread === "calendar" ? body.thread : "main",
         enabled: body.enabled !== false,
       };
       if (input.kind === "dev" && !store.dev.project(input.projectId ?? -1)) throw new HttpError(400, "Choisis le projet de la tâche dev");
@@ -1204,7 +1243,14 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
       if (!store.automations.get(id)) throw new HttpError(404, "Automatisation introuvable");
       if (body.action === "enable" || body.action === "disable") store.automations.setEnabled(id, body.action === "enable");
       else if (body.action === "delete") store.automations.remove(id);
-      else if (body.action === "run") void launchAutomation(hub, store.automations.get(id)!, { manual: true });
+      else if (body.action === "thread") {
+        if (body.thread !== "main" && body.thread !== "own" && body.thread !== "calendar") throw new HttpError(400, "Fil inconnu");
+        try {
+          store.automations.setThread(id, body.thread);
+        } catch (err) {
+          throw new HttpError(400, err instanceof Error ? err.message : "Impossible");
+        }
+      } else if (body.action === "run") void launchAutomation(hub, store.automations.get(id)!, { manual: true });
       else throw new HttpError(400, "Action inconnue");
       return json(res, 200, { ok: true });
     }
