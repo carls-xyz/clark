@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -7,7 +7,7 @@ import type { Config } from "../src/config.ts";
 import type { executeTask } from "../src/core/agent.ts";
 import { Conversation } from "../src/core/conversation.ts";
 import { createHub, OWNER_CHAT } from "../src/core/hub.ts";
-import { catchUpWeek, cleanJournal, dayBounds, isoWeek, journalOf, JOURNAL_BUSY, JOURNAL_DIR, JOURNAL_UNUSABLE, lastWeekForPrompt, mayTryJournal, needsRewrite, quietDay, recentJournalForPrompt, RETRY_DELAY_MS, writeJournal, writeJournalNow, writeWeekSummary } from "../src/core/daily-journal.ts";
+import { catchUpMonth, catchUpWeek, cleanJournal, dayBounds, isoMonth, isoWeek, journalOf, JOURNAL_BUSY, JOURNAL_DIR, JOURNAL_UNUSABLE, lastMonthForPrompt, lastWeekForPrompt, mayTryJournal, MONTH_HOUR, MONTH_MINUTE, monthlyDue, needsRewrite, quietDay, recentJournalForPrompt, RETRY_DELAY_MS, startDailyJournal, writeJournal, writeJournalNow, writeMonthSummary, writeWeekSummary } from "../src/core/daily-journal.ts";
 import { buildSystemPrompt } from "../src/core/prompt.ts";
 import { Store } from "../src/memory/store.ts";
 import { TaskJournal } from "../src/tasks/journal.ts";
@@ -214,4 +214,154 @@ test("réessai après une réponse inutilisable : un seul, 30 min après, puis a
   assert.equal(RETRY_DELAY_MS, 30 * 60_000);
   const twice = { count: 2, at: t + RETRY_DELAY_MS };
   assert.equal(mayTryJournal(twice, t + 3 * RETRY_DELAY_MS), false);
+});
+
+// Résumé du mois : tiré des seuls journaux du jour, comme la semaine.
+const MONTH_TEXT = "## En bref\nUn mois sur le portfolio, voir [[Journal 2026-10-02]] et [[Inventé]].\n## Ce qui a avancé\n- PR prête\n## Décisions et changements\nRien.\n## En suspens\n- Merger la PR";
+/** Seme n journaux dans un même mois (jours pairs, pour rester dans le mois). */
+function monthJournals(db: Parameters<typeof journalOf>[0], month = "2026-10", n = 5) {
+  for (let i = 1; i <= n; i++) {
+    const day = `${month}-${String(i * 2).padStart(2, "0")}`;
+    journalOf(db).save(day, `Jour ${i}.`, `## En bref\nJour ${i} du mois.`);
+  }
+}
+
+test("mois : bornes du mois calendaire (31 jours, février bissextile ou non, passage d'année)", () => {
+  assert.deepEqual(isoMonth("2026-10-15"), { month: "2026-10", start: "2026-10-01", end: "2026-10-31" });
+  assert.deepEqual(isoMonth("2026-02-10"), { month: "2026-02", start: "2026-02-01", end: "2026-02-28" });
+  assert.deepEqual(isoMonth("2024-02-10"), { month: "2024-02", start: "2024-02-01", end: "2024-02-29" });
+  assert.deepEqual(isoMonth("2026-12-31"), { month: "2026-12", start: "2026-12-01", end: "2026-12-31" });
+  assert.deepEqual(isoMonth("2027-01-01"), { month: "2027-01", start: "2027-01-01", end: "2027-01-31" });
+});
+
+test("mois : dû le 1er une fois l'heure atteinte, quel que soit le jour de semaine (même un dimanche)", () => {
+  assert.equal(MONTH_HOUR, 23);
+  assert.equal(MONTH_MINUTE, 45);
+  // Le 1er, pile et au-delà de 23 h 45.
+  assert.equal(monthlyDue({ date: "2026-10-01", hour: 23, minute: 45 }), true);
+  assert.equal(monthlyDue({ date: "2026-10-01", hour: 23, minute: 50 }), true);
+  // Le 1er, mais trop tôt.
+  assert.equal(monthlyDue({ date: "2026-10-01", hour: 23, minute: 30 }), false);
+  assert.equal(monthlyDue({ date: "2026-10-01", hour: 22, minute: 59 }), false);
+  // Le 2 : jamais.
+  assert.equal(monthlyDue({ date: "2026-10-02", hour: 23, minute: 50 }), false);
+  // 2026-11-01 est un dimanche (l'hebdo se déclenche aussi) : le mensuel se déclenche quand même.
+  const nov1 = new Date("2026-11-01T22:45:00Z");
+  assert.equal(nov1.toLocaleDateString("en-US", { weekday: "long", timeZone: "Europe/Paris" }), "Sunday");
+  assert.equal(monthlyDue({ date: "2026-11-01", hour: 23, minute: 45 }), true);
+});
+
+test("mois : rien sous cinq journaux, sans appeler le modèle", async () => {
+  const { store, hub } = setup();
+  monthJournals(store.db, "2026-10", 4);
+  const m = fakeModel(MONTH_TEXT);
+  assert.equal(await writeMonthSummary(hub, "2026-10", m.think, null), null);
+  assert.equal(m.calls.length, 0);
+  assert.equal(journalOf(store.db).getMonth("2026-10"), undefined);
+});
+
+test("mois : le prompt part des journaux, pas des conversations ; liens filtrés ; note et base", async () => {
+  const { store, conversation, hub } = setup();
+  const vault = mkdtempSync(join(tmpdir(), "clark-mois-"));
+  monthJournals(store.db, "2026-10", 5);
+  conversation.add({ chatId: OWNER_CHAT, role: "user", text: "Message de conversation secret-xyz" });
+  const m = fakeModel(MONTH_TEXT);
+  assert.equal(await writeMonthSummary(hub, "2026-10", m.think, vault), "2026-10");
+  assert.equal(m.calls.length, 1);
+  assert.match(m.calls[0], /Jour 1 du mois/);
+  assert.match(m.calls[0], /rien d'inventé/);
+  assert.match(m.calls[0], /\[\[Journal 2026-10-02\]\]/);
+  assert.doesNotMatch(m.calls[0], /secret-xyz/, "jamais les conversations");
+  const mo = journalOf(store.db).getMonth("2026-10")!;
+  assert.equal(mo.start, "2026-10-01");
+  assert.equal(mo.end, "2026-10-31");
+  assert.match(mo.body, /\[\[Journal 2026-10-02\]\]/, "lien vers un journal du mois gardé");
+  assert.doesNotMatch(mo.body, /\[\[Inventé\]\]/);
+  assert.match(mo.body, /et Inventé\./, "texte du lien retiré conservé");
+  const file = join(vault, JOURNAL_DIR, "Mois 2026-10.md");
+  assert.ok(existsSync(file));
+  const note = readFileSync(file, "utf8");
+  assert.match(note, /^---\ntype: mois\nmonth: 2026-10\nstart: 2026-10-01\nend: 2026-10-31\ntags: \[clark\/mois\]\n---\n# Mois 2026-10 \(du 2026-10-01 au 2026-10-31\)/);
+  assert.match(note, /- \[\[Journal 2026-10-02\]\]/);
+  assert.match(note, /- \[\[Journal 2026-10-10\]\]/);
+  assert.match(note, /Retour à \[\[Clark\]\]/);
+});
+
+test("mois : écrit aussi sans coffre (vault null)", async () => {
+  const { store, hub } = setup();
+  monthJournals(store.db, "2026-10", 5);
+  assert.equal(await writeMonthSummary(hub, "2026-10", fakeModel(MONTH_TEXT).think, null), "2026-10");
+  assert.ok(journalOf(store.db).getMonth("2026-10"));
+});
+
+test("mois : un échec du coffre laisse la base vide (rejouable), la tentative suivante écrit la note", async () => {
+  const { store, hub } = setup();
+  monthJournals(store.db, "2026-10", 5);
+  // Un « coffre » qui est en fait un fichier : mkdirSync sous un fichier échoue (ENOTDIR).
+  const badVault = join(mkdtempSync(join(tmpdir(), "clark-mois-ko-")), "pas-un-dossier");
+  writeFileSync(badVault, "x");
+  const m = fakeModel(MONTH_TEXT);
+  await assert.rejects(writeMonthSummary(hub, "2026-10", m.think, badVault));
+  assert.equal(journalOf(store.db).getMonth("2026-10"), undefined, "rien en base tant que la note a échoué");
+  // Seconde tentative, coffre valide : la note est écrite et la base renseignée.
+  const vault = mkdtempSync(join(tmpdir(), "clark-mois-ok-"));
+  assert.equal(await writeMonthSummary(hub, "2026-10", m.think, vault), "2026-10");
+  assert.ok(existsSync(join(vault, JOURNAL_DIR, "Mois 2026-10.md")));
+  assert.ok(journalOf(store.db).getMonth("2026-10"));
+});
+
+test("mois : rattrapage du dernier mois complet, une seule fois, sans toucher au mois en cours", async () => {
+  const { store, hub } = setup();
+  monthJournals(store.db, "2026-10", 5); // mois complet précédent
+  monthJournals(store.db, "2026-11", 5); // mois en cours : ne doit pas être écrit
+  const m = fakeModel(MONTH_TEXT);
+  const inNovember = new Date("2026-11-15T10:00:00Z");
+  assert.equal(await catchUpMonth(hub, m.think, null, inNovember), "2026-10");
+  assert.ok(journalOf(store.db).getMonth("2026-10"));
+  assert.equal(journalOf(store.db).getMonth("2026-11"), undefined, "jamais le mois en cours");
+  assert.equal(await catchUpMonth(hub, m.think, null, inNovember), null);
+  assert.equal(m.calls.length, 1, "pas réécrit au second appel");
+});
+
+test("mois : planificateur — le tick du dimanche 1er écrit le mois même après l'échec de l'hebdo", async (t) => {
+  const { store, hub } = setup();
+  const vault = mkdtempSync(join(tmpdir(), "clark-sched-"));
+  // Cinq journaux en octobre (mois complet précédent).
+  for (const d of ["2026-10-05", "2026-10-12", "2026-10-19", "2026-10-26", "2026-10-27"]) journalOf(store.db).save(d, "Jour.", "## En bref\nJour du mois d'octobre.");
+  // On casse l'hebdo : sa table disparaît, donc getWeek lève (erreur hors du try interne de weekIfMissing).
+  store.db.exec("DROP TABLE weekly_summary");
+  assert.throws(() => journalOf(store.db).getWeek("2026-S44"), "l'hebdo échoue bien");
+  const flush = async () => {
+    for (let i = 0; i < 40; i++) await new Promise((r) => setImmediate(r));
+  };
+  t.mock.timers.enable({ apis: ["setInterval", "setTimeout"] });
+  // Horloge mutable : d'abord en octobre (le rattrapage ne vise QUE le mois précédent, septembre, vide).
+  let clock = new Date("2026-10-15T08:00:00Z");
+  const stop = startDailyJournal(hub, async () => MONTH_TEXT, () => vault, () => clock);
+  // Le rattrapage du démarrage tourne seul (60 s), sans atteindre le tick (5 min).
+  t.mock.timers.tick(60_000);
+  await flush();
+  assert.equal(journalOf(store.db).getMonth("2026-10"), undefined, "le rattrapage d'octobre ne touche pas octobre (il vise septembre)");
+  assert.equal(journalOf(store.db).getMonth("2026-09"), undefined, "septembre vide : rien écrit non plus");
+  // Puis dimanche 2026-11-01, 23 h 46 (Paris) : fenêtre hebdo ET fenêtre du mois ouvertes.
+  clock = new Date("2026-11-01T22:46:00Z");
+  assert.equal(clock.toLocaleDateString("en-US", { weekday: "long", timeZone: "Europe/Paris" }), "Sunday");
+  // On atteint le prochain tick (à 5 min) : c'est lui, pas le rattrapage, qui agit maintenant.
+  t.mock.timers.tick(5 * 60_000);
+  await flush();
+  stop();
+  // Le tick a poursuivi après l'échec de l'hebdo : octobre est écrit en base et dans le coffre.
+  assert.ok(journalOf(store.db).getMonth("2026-10"), "octobre écrit par le tick malgré l'hebdo en échec");
+  assert.ok(existsSync(join(vault, JOURNAL_DIR, "Mois 2026-10.md")));
+});
+
+test("mois : nomme le mois réel (non trompeur) et apparaît dans le prompt système", async () => {
+  const { store, hub } = setup();
+  assert.equal(lastMonthForPrompt(store.db), "");
+  monthJournals(store.db, "2026-10", 5);
+  await writeMonthSummary(hub, "2026-10", fakeModel(MONTH_TEXT).think, null);
+  const brief = journalOf(store.db).getMonth("2026-10")!.brief;
+  assert.equal(lastMonthForPrompt(store.db), `En octobre 2026 : ${brief}`);
+  const sys = buildSystemPrompt(store, join(tmpdir(), "rien"));
+  assert.ok(sys.includes(`En octobre 2026 : ${brief}`));
 });
