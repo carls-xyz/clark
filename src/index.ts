@@ -45,6 +45,7 @@ import { startDevGroups } from "./dev/groups.ts";
 import { TaskJournal } from "./tasks/journal.ts";
 import { Settings } from "./core/settings.ts";
 import { NotifyStore, setNotifyStore, startAwake, startQuietDigest } from "./core/notify.ts";
+import { takeRollbackNote } from "./core/platform.ts";
 
 // La base d'abord : les réglages choisis dans l'interface passent devant .env.
 const store = new Store(paths.db);
@@ -333,6 +334,9 @@ const quotaTimer = setInterval(() => void refreshEngines(), 15 * 60_000);
 quotaTimer.unref();
 
 await hub.recover();
+// Version de secours : scripts/service.sh est revenu à la dernière version qui démarrait ; on le dit.
+const rollback = takeRollbackNote(join(paths.root, "data", "rollback.txt"));
+if (rollback) void hub.post(OWNER_CHAT, rollback, "system", "system");
 const stopAutomations = startScheduler({ config, store, enqueue: hub.enqueue, automations: store.automations, launch: (a, slot) => launchAutomation(hub, a, { slot }) });
 // Tour de veille : propositions proactives, de jour, quand un moteur est connecté.
 const stopHeartbeat = startHeartbeat(hub);

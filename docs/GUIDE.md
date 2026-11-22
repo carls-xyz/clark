@@ -254,6 +254,14 @@ Dans le chat privé Telegram (si configuré), `/taches` affiche les tâches en f
 
 Pour voir l'interface sans clé API, lance `npm run demo` puis ouvre http://localhost:4311. Elle tourne avec un faux agent et des données fictives : rien n'est réellement lu ni écrit. Sa base (`data/demo.db`) survit à un redémarrage. Pour repartir de zéro : `npm run demo -- --reset`.
 
+## En service (Mac ou Linux)
+
+`scripts/service.sh install` installe Clark comme service et le démarre : **launchd** sur le Mac (il démarre à chaque ouverture de session), **systemd** (unité utilisateur `clark`) sur Linux. Sur un serveur, `sudo loginctl enable-linger $USER` le fait tourner sans session ouverte. Ensuite : `restart`, `status`, `logs`, `uninstall`.
+
+**Filet de sécurité.** Après `install` ou `restart`, le script attend que Clark réponde (`/api/health`, 40 s au plus). S'il répond, la version est notée bonne (`data/last-good-commit`). S'il ne répond pas, le script revient tout seul à la dernière version qui marchait (`git switch --detach`), redémarre, et Clark te le dit au démarrage avec la commande pour revenir sur ta branche une fois corrigé. Pas de retour automatique si tu as des modifications non commitées, ni avec `CLARK_NO_ROLLBACK=1`. Le bouton « Redémarrer Clark » de l'interface ne passe pas par ce filet.
+
+**Hors Mac.** Quelques morceaux ne marchent que sur un Mac : iMessage, la fenêtre de choix de fichier, garder la machine éveillée, la voix du système. Ailleurs, ils sont simplement absents (la carte iMessage le dit, les entrées « Joindre un fichier » et « Parcourir… » disparaissent ; le chemin s'écrit à la main). Tout le reste ne dépend pas du système.
+
 ## La commande `clark`
 
 `npm run cli:install` relie `bin/clark.mjs` à `~/.local/bin/clark` (déjà fait sur ce Mac). Elle parle à Clark par son interface locale :

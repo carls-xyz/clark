@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
+import { onMac } from "../core/platform.ts";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -110,11 +111,20 @@ end run`;
 export class MacMessages implements MessagesBackend {
   private db: DatabaseSync | null = null;
   private problem: string | null = null;
+  /** Hors Mac (un VPS), il n'y a pas de Messages : iMessage est absent, sans erreur. */
+  private readonly platform: NodeJS.Platform;
+  constructor(platform: NodeJS.Platform = process.platform) {
+    this.platform = platform;
+  }
   private names: Map<string, string> | null = null;
   private namesAt = 0;
 
   private open(): DatabaseSync | null {
     if (this.db) return this.db;
+    if (!onMac(this.platform)) {
+      this.problem = "not_mac";
+      return null;
+    }
     try {
       if (!existsSync(chatsDb())) throw new Error("introuvable");
       this.db = new DatabaseSync(chatsDb(), { readOnly: true });

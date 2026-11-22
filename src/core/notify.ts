@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
+import { onMac } from "./platform.ts";
 import type { DatabaseSync } from "node:sqlite";
 
 /**
@@ -144,7 +145,8 @@ export function startAwake(isBusy: () => boolean): () => void {
   const bin = "/usr/bin/caffeinate";
   let child: ChildProcess | null = null;
   const tick = () => {
-    if (!existsSync(bin)) return;
+    // Hors Mac (un VPS), rien à faire : un serveur ne se met pas en veille.
+    if (!onMac() || !existsSync(bin)) return;
     const mode = notifyPrefs().awake;
     const want = mode === "always" || (mode === "agent" && isBusy());
     if (want && !child) {

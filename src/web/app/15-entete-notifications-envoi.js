@@ -134,6 +134,7 @@ function render() {
   renderFoot();
   renderTermCount();
   renderIdeasCount();
+  renderMacOnly();
   renderCalendarCount();
   renderView();
   if (view === "inbox") scheduleHistory();
@@ -355,3 +356,10 @@ document.addEventListener("click", (e) => {
   input.focus();
 });
 
+
+
+/** Hors Mac (un VPS) : pas de fenêtre de choix de fichier, ses entrées disparaissent. */
+function renderMacOnly() {
+  const mac = state?.system?.mac !== false;
+  for (const el of document.querySelectorAll('[value="attach-file"], [value="attach-folder"], [data-pick-folder]')) el.hidden = !mac;
+}
