@@ -1,5 +1,4 @@
 import type { Config } from "../config.ts";
-import { OWNER_CHAT } from "../core/hub.ts";
 import { dueSlot, type Automation, type Automations } from "./automations.ts";
 import type { Store } from "../memory/store.ts";
 
@@ -9,6 +8,13 @@ const BRIEF_PROMPT = `C'est l'heure du brief du matin. Sans que Charles ait rien
 - fais-en un brief de 5 lignes maximum, le plus urgent en premier ;
 - termine par une seule suggestion concrète pour sa journée, si tu en as une utile.
 Si Google n'est pas connecté, dis-le en une ligne et n'invente rien. S'il n'y a rien de notable, dis-le en une ligne.`;
+
+/**
+ * Conversation à part du brief : il ne s'écrit plus dans la tienne, il se lit dans le
+ * Calendrier (au-delà des plages des objectifs, du dev et des automatisations).
+ */
+export const BRIEF_CHAT = 7_000_000;
+export const BRIEF_LABEL = "brief";
 
 /**
  * Proactivité, version MVP : un tour d'horloge par minute, et le brief du matin
@@ -45,10 +51,10 @@ export function startScheduler(deps: { config: Config; store: Store; enqueue: En
     if (automations && launch) runDueAutomations(automations, launch);
     if (config.briefHour === null) return;
     const hour = Number(new Date().toLocaleString("fr-FR", { timeZone: "Europe/Paris", hour: "numeric" }));
-    if (hour !== config.briefHour || store.ranToday("brief")) return;
+    if (hour !== config.briefHour || store.ranToday(BRIEF_LABEL)) return;
     // Marque le brief tout de suite pour ne pas le relancer à la minute suivante.
-    store.addSpend(0, "brief");
-    void enqueue(OWNER_CHAT, BRIEF_PROMPT, "brief");
+    store.addSpend(0, BRIEF_LABEL);
+    void enqueue(BRIEF_CHAT, BRIEF_PROMPT, BRIEF_LABEL);
   };
 
   tick();

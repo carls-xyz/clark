@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Approver } from "../policy/permissions.ts";
-import { checkAlertText, describeStep, planRecovery, resumePrompt, uncertainSteps, type Task } from "../tasks/journal.ts";
+import { askedText, checkAlertText, describeStep, MESSAGE_MARK, planRecovery, resumePrompt, uncertainSteps, type Task } from "../tasks/journal.ts";
 import { executeTask, type Deps, type RunResult } from "./agent.ts";
 import { NEW_CONVERSATION_NOTE, type Conversation, type Message, type Role } from "./conversation.ts";
 import { createTeam, displayName, StaleAttempt, TEAM_LABEL, teamCheckText } from "./team.ts";
@@ -230,7 +230,7 @@ export function createHub(
       if (quiet && !stalled.has(t.id)) {
         stalled.set(t.id, last);
         changedAny = true;
-        const what = isDevChat(t.chat_id) ? `la tâche dev #${devOfLabel(t.label) ?? "?"}` : `« ${short(t.prompt.replace(/\s+/g, " "), 80)} »`;
+        const what = isDevChat(t.chat_id) ? `la tâche dev #${devOfLabel(t.label) ?? "?"}` : `« ${short(askedText(t.prompt).replace(/\s+/g, " "), 80)} »`;
         void say(OWNER_CHAT, `L'agent de ${what} ne donne plus signe de vie depuis ${Math.round((now - last) / 60_000)} min. Tu peux l'arrêter dans Activité, ou attendre.`, "system", t.id, "stalled");
       } else if (!quiet && stalled.has(t.id)) {
         stalled.delete(t.id);
@@ -444,7 +444,7 @@ export function createHub(
       const shown = unseenNotes(conversation, conversation.current(chatId));
       if (shown) {
         opts = { ...opts, display: opts.display ?? prompt };
-        prompt = `${shown}\n\nMessage de Charles : ${prompt}`;
+        prompt = `${shown}${MESSAGE_MARK}${prompt}`;
       }
     }
     const taskId = journal.create(chatId, label, prompt, opts.parentId);
@@ -477,11 +477,11 @@ export function createHub(
       // Suite automatique (vérification de fin) : une note, pas un message de l'utilisateur.
       conversation.add({ chatId, role: "system", text: opts.display ?? "Je continue.", taskId });
     }
-    else if (label === HEARTBEAT_LABEL || isIdeaLabel(label) || label.startsWith("avis:")) {
-      // Tour de veille, tour d'idées, avis d'un membre du groupe : rien dans le fil avant la réponse.
+    else if (label === HEARTBEAT_LABEL || label === "brief" || isIdeaLabel(label) || label.startsWith("avis:")) {
+      // Tour de veille, brief, tour d'idées, avis d'un membre du groupe : rien dans le fil avant la réponse.
     }
     else if (label === "chat" || label === TEAM_LABEL) conversation.add({ chatId, role: "user", text: opts.display ?? prompt, taskId, source });
-    else conversation.add({ chatId, role: "system", text: label === "brief" ? "Brief du matin" : `Tâche planifiée : ${label}`, taskId });
+    else conversation.add({ chatId, role: "system", text: `Tâche planifiée : ${label}`, taskId });
     if (label === TEAM_LABEL) return launchTeam(chatId, taskId);
     return schedule(
       chatId,
@@ -493,7 +493,7 @@ export function createHub(
           ...(devOfLabel(label) ? { codeTask: true } : {}),
           // Le tour de veille repart toujours de zéro : il ne reprend pas ta conversation.
           // Le tour de veille et les avis du groupe repartent de zéro : ils ne reprennent pas ta conversation.
-          resume: label === HEARTBEAT_LABEL || isIdeaLabel(label) || opts.parentId !== undefined ? undefined : (store.getSession(chatId) ?? undefined), // lu au moment d'exécuter
+          resume: label === HEARTBEAT_LABEL || label === "brief" || isIdeaLabel(label) || opts.parentId !== undefined ? undefined : (store.getSession(chatId) ?? undefined), // lu au moment d'exécuter
           approve: approverFor(chatId, taskId),
           mode: "new",
           ...(opts.access ? { access: opts.access } : {}),
@@ -597,7 +597,7 @@ export function createHub(
     const children = journal.children(task.id);
     // Avec le parallélisme, plusieurs agents peuvent avoir été coupés en même temps.
     const active = children.filter((c) => c.status === "running" || c.status === "queued");
-    const what = `« ${short(task.prompt)} »`;
+    const what = `« ${short(askedText(task.prompt))} »`;
     for (const a of active) {
       journal.expireApprovals(a.id);
       const plan = planRecovery(a, journal.steps(a.id));
@@ -637,7 +637,7 @@ export function createHub(
       }
       const expired = journal.expireApprovals(task.id);
       const plan = planRecovery(task, journal.steps(task.id));
-      const what = `« ${short(task.prompt)} »`;
+      const what = `« ${short(askedText(task.prompt))} »`;
 
       if (plan.action === "restart") {
         await say(task.chat_id, `J'ai redémarré avant de commencer ${what}. Je m'y mets.`, "system", task.id);
@@ -907,17 +907,17 @@ export function createHub(
       if (action === "drop") {
         journal.setStatus(task.id, "abandoned");
         for (const c of journal.children(task.id)) if (c.status !== "done" && c.status !== "failed") journal.setStatus(c.id, "abandoned");
-        void say(chatId, `Tâche abandonnée : « ${short(task.prompt)} ».`, "system", task.id);
+        void say(chatId, `Tâche abandonnée : « ${short(askedText(task.prompt))} ».`, "system", task.id);
         return "abandoned";
       }
       if (task.label === TEAM_LABEL) {
         journal.setStatus(task.id, "running"); // évite un double clic
-        void say(chatId, `L'équipe reprend « ${short(task.prompt)} ». L'agent coupé vérifie d'abord ce qui a déjà été écrit.`, "system", task.id);
+        void say(chatId, `L'équipe reprend « ${short(askedText(task.prompt))} ». L'agent coupé vérifie d'abord ce qui a déjà été écrit.`, "system", task.id);
         runTeam(task);
         return "resumed";
       }
       journal.setStatus(task.id, "running"); // évite un double clic
-      void say(chatId, `Je reprends « ${short(task.prompt)} » : d'abord une vérification en lecture seule, puis la suite.`, "system", task.id);
+      void say(chatId, `Je reprends « ${short(askedText(task.prompt))} » : d'abord une vérification en lecture seule, puis la suite.`, "system", task.id);
       // Vérification en lecture seule imposée par le moteur, puis reprise avec le droit d'écrire.
       schedule(task.chat_id, () => resumeVerified(execute, deps, journal.get(task.id)!, approverFor(task.chat_id, task.id)), task.id);
       return "resumed";

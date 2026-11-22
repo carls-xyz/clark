@@ -132,18 +132,10 @@ export function ideasTourStatus(hub: Hub, now = new Date()) {
 /** Lance un tour d'idées (lecture seule, dans sa conversation à part). */
 export function runIdeasTour(hub: Hub) {
   const { store } = hub.deps;
-  let taskId: number | null = null;
   const done = hub.enqueue(IDEAS_CHAT, ideasTourPrompt(store.ideas.nextSites(true), store.ideas.knownTitles(), store.ideas.byStatus("kept").slice(0, 12)), IDEAS_TOUR_LABEL, "clark", {
     access: "read",
-    onCreated: (t) => (taskId = t),
   });
-  // Annoncé une fois, à la fin : combien d'idées, sans les détailler (elles sont dans la page).
-  void done.then(() => {
-    if (taskId === null) return;
-    const titles = (store.db.prepare("SELECT title FROM ideas WHERE task_id = ? ORDER BY id").all(taskId) as { title: string }[]).map((r) => r.title);
-    if (!titles.length) return;
-    void hub.post(OWNER_CHAT, `Tour d'idées : ${titles.length === 1 ? "1 idée notée" : `${titles.length} idées notées`} (${titles.map((t) => `« ${short(t, 60)} »`).join(", ")}). À trier dans Idées.`, "system", "proposals");
-  });
+  // Rien dans ta conversation : le tour (et les idées notées) se lit dans le Calendrier, les idées dans Idées.
   return done;
 }
 

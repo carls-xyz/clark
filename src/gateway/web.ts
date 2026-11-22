@@ -26,6 +26,8 @@ import { hashtagsOf } from "../social/posts.ts";
 import { PLATFORMS, platformName } from "../social/platforms.ts";
 import { heartbeatStatus, runHeartbeatNow } from "../scheduler/heartbeat.ts";
 import { nextRunText, scheduleText, type AutomationInput } from "../scheduler/automations.ts";
+import { inThread, noteCategory } from "../core/thread.ts";
+import type { Message } from "../core/conversation.ts";
 import { launchAutomation } from "../scheduler/automation-run.ts";
 import { TEAM_LABEL } from "../core/team.ts";
 import { describeStep, uncertainSteps } from "../tasks/journal.ts";
@@ -330,7 +332,8 @@ export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voi
     },
     // L'équipe comme contacts : chacun avec sa conversation la plus récente.
     contacts: CONTACTS.map((c) => ({ role: c.role, name: c.name, badge: c.badge, mission: c.mission, access: c.access, latest: conversation.latestWith(OWNER_CHAT, c.role) })),
-    messages: conversation.messagesOf(conversation.current(OWNER_CHAT), 200).filter((m) => !(m.role === "system" && m.text === NEW_CONVERSATION_NOTE)).map((m) => ({
+    // Ta conversation : toi, Clark, et les notes de vos échanges. Le reste est dans « notes » (Activité).
+    messages: threadMessages(hub, conversation.messagesOf(conversation.current(OWNER_CHAT), 200)).map((m) => ({
       id: m.id,
       role: m.role,
       text: m.text,
@@ -340,6 +343,7 @@ export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voi
       agent: m.agent ?? null,
       at: m.created_at,
     })),
+    notes: activityNotes(hub),
     running: mine(journal.unfinished()).map((t) => ({
       id: t.id,
       parentId: t.parent_id,
@@ -562,7 +566,7 @@ export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voi
       at: p.decided_at,
     })),
     // Calendrier des veilles : de quoi afficher le nombre sur l'icône (les comptes rendus se lisent à part).
-    calendar: { recent: store.automations.recentCalendarRuns(), automations: store.automations.list().filter((a) => a.thread === "calendar").length },
+    calendar: { recent: calendarRecent(hub), automations: store.automations.list().filter((a) => a.thread === "calendar").length, brief: hub.deps.config.briefHour, ideasHour: ideasHour() },
     automations: store.automations.list().map((a) => {
       const last = a.last_task_id ? journal.get(a.last_task_id) : undefined;
       return {
@@ -601,10 +605,14 @@ export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voi
  * Vidéo d'un brouillon, avec la lecture par morceaux (en-tête Range) dont Safari a
  * besoin pour lire et avancer dans une vidéo. Seuls les fichiers des brouillons sont servis.
  */
+/** Ce que le calendrier range, en plus des automatisations : le brief du matin et le tour d'idées. */
+const CALENDAR_TASKS: Record<string, string> = { brief: "Brief du matin", idees: "Tour d'idées" };
+
 /**
- * Un mois du calendrier des veilles (« AAAA-MM ») : chaque exécution d'une automatisation
- * rangée dans le calendrier, avec son état et son compte rendu. Les dates sont en UTC : on
- * prend un jour de marge de chaque côté, l'interface range par jour en heure de Paris.
+ * Un mois du calendrier (« AAAA-MM ») : les exécutions des automatisations rangées dans
+ * le calendrier, les briefs du matin et les tours d'idées, avec leur état et leur compte
+ * rendu. Les dates sont en UTC : on prend un jour de marge de chaque côté, l'interface
+ * range par jour en heure de Paris.
  */
 export function calendarMonth(hub: Hub, month: string) {
   const { store, journal } = hub.deps;
@@ -612,24 +620,100 @@ export function calendarMonth(hub: Hub, month: string) {
   const iso = (d: Date) => d.toISOString().slice(0, 19).replace("T", " ");
   const from = iso(new Date(Date.UTC(y, m - 1, 0)));
   const to = iso(new Date(Date.UTC(y, m, 2)));
-  const runs = store.automations.calendarRuns(from, to).map((r) => {
-    const t = r.task_id ? journal.get(r.task_id) : undefined;
+  const ofTask = (taskId: number | null) => {
+    const t = taskId ? journal.get(taskId) : undefined;
     const said = t ? journal.outcome(t.id) : null;
+    const quiet = said?.outcome === "quiet";
     return {
-      id: r.id,
-      automationId: r.automation_id,
+      t,
+      quiet,
+      note: quiet ? "Rien de neuf." : said?.outcome === "failed" ? (said.note ?? "Pas abouti.") : null,
+      report: t && !quiet ? (t.result ?? "").trim() || null : null,
+    };
+  };
+  const automations = store.automations.calendarRuns(from, to).map((r) => {
+    const x = ofTask(r.task_id);
+    return {
+      key: `a${r.id}`,
+      kind: "automation" as const,
       name: r.name,
       at: r.created_at,
       manual: r.manual === 1,
       // started (en cours ou faite, voir task), skipped (rien de neuf, pré-vérification), failed.
-      status: said?.outcome === "quiet" ? "skipped" : r.status,
-      note: r.note ?? (said?.outcome === "quiet" ? "Rien de neuf." : said?.outcome === "failed" ? (said.note ?? "Pas abouti.") : null),
-      task: t ? t.status : null,
+      status: x.quiet ? "skipped" : r.status,
+      note: r.note ?? x.note,
+      task: x.t ? x.t.status : null,
       taskId: r.task_id,
-      report: t && said?.outcome !== "quiet" ? (t.result ?? "").trim() || null : null,
+      report: x.report,
+      ideas: [] as { id: number; title: string; kind: string; status: string }[],
     };
   });
+  const tasks = (
+    store.db
+      .prepare(`SELECT id, label, created_at FROM tasks WHERE label IN (${Object.keys(CALENDAR_TASKS).map(() => "?").join(", ")}) AND parent_id IS NULL AND created_at >= ? AND created_at < ?`)
+      .all(...Object.keys(CALENDAR_TASKS), from, to) as { id: number; label: string; created_at: string }[]
+  ).map((row) => {
+    const x = ofTask(row.id);
+    // Tour d'idées : les idées qu'il a notées, pour les retrouver dans la page Idées.
+    const ideas = row.label === "idees" ? (store.db.prepare("SELECT id, title, kind, status FROM ideas WHERE task_id = ? ORDER BY id").all(row.id) as { id: number; title: string; kind: string; status: string }[]) : [];
+    return {
+      key: `t${row.id}`,
+      kind: row.label === "brief" ? ("brief" as const) : ("ideas" as const),
+      name: CALENDAR_TASKS[row.label],
+      at: row.created_at,
+      manual: false,
+      status: x.quiet && !ideas.length ? "skipped" : "started",
+      note: x.note,
+      task: x.t?.status ?? null,
+      taskId: row.id,
+      report: x.report,
+      ideas,
+    };
+  });
+  const runs = [...automations, ...tasks].sort((a, b) => a.at.localeCompare(b.at));
   return { month, runs };
+}
+
+/** Dates des derniers éléments du calendrier, pour le nombre « pas encore vus » sur l'icône. */
+export function calendarRecent(hub: Hub, limit = 20): string[] {
+  const { store } = hub.deps;
+  return (
+    store.db
+      .prepare(
+        `SELECT at FROM (
+           SELECT r.created_at AS at FROM automation_runs r JOIN automations a ON a.id = r.automation_id WHERE a.thread = 'calendar'
+           UNION ALL
+           SELECT created_at AS at FROM tasks WHERE label IN (${Object.keys(CALENDAR_TASKS).map(() => "?").join(", ")}) AND parent_id IS NULL
+         ) ORDER BY at DESC LIMIT ?`,
+      )
+      .all(...Object.keys(CALENDAR_TASKS), limit) as { at: string }[]
+  ).map((r) => r.at);
+}
+
+/** La conversation d'une tâche (null si inconnue), lue une fois par tâche. */
+function taskChats(hub: Hub) {
+  const seen = new Map<number, number | undefined>();
+  return (id: number) => {
+    if (!seen.has(id)) seen.set(id, hub.deps.journal.get(id)?.chat_id);
+    return seen.get(id);
+  };
+}
+
+/** Les messages qui ont leur place dans ta conversation (voir src/core/thread.ts). */
+export function threadMessages(hub: Hub, list: Message[]): Message[] {
+  const chatOf = taskChats(hub);
+  return list.filter((m) => !(m.role === "system" && m.text === NEW_CONVERSATION_NOTE) && inThread(m, OWNER_CHAT, chatOf));
+}
+
+/** Activité › « Ce qui s'est passé » : les dernières notes sorties de ta conversation, rangées par sorte. */
+export function activityNotes(hub: Hub, limit = 80) {
+  const chatOf = taskChats(hub);
+  return hub.deps.conversation
+    .recent(OWNER_CHAT, 400)
+    .filter((m) => m.role === "system" && m.text !== NEW_CONVERSATION_NOTE && !inThread(m, OWNER_CHAT, chatOf))
+    .slice(-limit)
+    .reverse()
+    .map((m) => ({ id: m.id, text: m.text, kind: m.kind, category: noteCategory(m), taskId: m.task_id, at: m.created_at }));
 }
 
 function sendVideo(req: IncomingMessage, res: ServerResponse, post: { media_path: string } | undefined) {
@@ -746,9 +830,7 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
       if (past) {
         const c = hub.deps.conversation.conversation(Number(past[1]));
         if (!c || c.chat_id !== OWNER_CHAT || !hub.deps.conversation.hasContent(c.id)) return json(res, 404, { error: "Conversation introuvable" });
-        const messages = hub.deps.conversation
-          .messagesOf(c.id, 200)
-          .filter((m) => !(m.role === "system" && m.text === NEW_CONVERSATION_NOTE))
+        const messages = threadMessages(hub, hub.deps.conversation.messagesOf(c.id, 200))
           .map((m) => ({ id: m.id, role: m.role, text: m.text, taskId: m.task_id, source: m.source, kind: m.kind, agent: m.agent ?? null, at: m.created_at }));
         const title = c.title ?? hub.deps.conversation.list(OWNER_CHAT, 500).find((x) => x.id === c.id)?.title ?? "Conversation";
         return json(res, 200, { id: c.id, title, agent: c.agent, at: c.updated_at, messages });

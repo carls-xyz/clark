@@ -10,3 +10,4 @@ Le code qui s'exécute au chargement (écouteurs, démarrage) doit venir après 
 - `19-gestion-conversations.js` : le menu ⋯ d'une conversation (renommer, épingler, supprimer) et le tri de la liste.
 - `20-idees.js` : la page Idées (tour d'idées, idées lancées en vrac, avis de Clark, tri).
 - `21-calendrier.js` : le Calendrier des veilles (comptes rendus des automatisations rangées dans le calendrier, par jour).
+- `22-activite-notes.js` : Activité › « Ce qui s'est passé » (les notes sorties de ta conversation : dev, PR, mémoire, propositions…).

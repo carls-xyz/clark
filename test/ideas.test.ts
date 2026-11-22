@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { calendarMonth } from "../src/gateway/web.ts";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -166,7 +167,7 @@ test("tour d'idées : à l'heure, une fois par jour, pas avec trop d'idées à t
   else process.env.CLARK_IDEAS_HOUR = before;
 });
 
-test("tour d'idées : à part, en lecture seule, sans reprendre de session ; annoncé une fois à la fin", async () => {
+test("tour d'idées : à part, en lecture seule, sans reprendre de session ; rien dans ta conversation, tout dans le calendrier", async () => {
   const { store, hub, calls, said } = setup((s, taskId) => {
     s.ideas.add({ ...idea("Clark sur VPS"), taskId });
     s.ideas.add({ ...idea("Résumé des PR"), taskId });
@@ -177,8 +178,15 @@ test("tour d'idées : à part, en lecture seule, sans reprendre de session ; ann
   assert.equal(calls[0].opts.access, "read");
   assert.equal(calls[0].opts.resume, undefined, "chaque tour repart de zéro");
   assert.match(calls[0].opts.prompt, /\[Tour d'idées\]/);
-  await until(() => said().some((t) => t.startsWith("Tour d'idées : 2 idées notées")));
-  assert.ok(!said().some((t) => t.includes("[Tour d'idées]")), "la consigne ne s'affiche pas dans ta conversation");
+  assert.ok(!said().some((t) => t.includes("Tour d'idées")), "ni la consigne ni une annonce dans ta conversation");
+  const tour = hub.deps.journal.lastCreated(IDEAS_TOUR_LABEL);
+  const month = (tour ?? new Date().toISOString()).slice(0, 7);
+  const entry = calendarMonth(hub, month).runs.find((r) => r.kind === "ideas")!;
+  assert.equal(entry.name, "Tour d'idées");
+  assert.deepEqual(
+    entry.ideas.map((i) => i.title),
+    ["Clark sur VPS", "Résumé des PR"],
+  );
 });
 
 test("creuser : recherche en lecture seule ; avis annoncé, ou l'idée revient à trier", async () => {

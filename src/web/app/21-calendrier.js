@@ -1,6 +1,6 @@
-// ── Calendrier : les veilles et points réguliers, rangés par jour (hors de ta conversation) ──
+// ── Calendrier : veilles, brief du matin et tours d'idées, rangés par jour (hors de ta conversation) ──
 
-const CAL_SEEN_KEY = "clark.calendarSeen";
+const CAL_SEEN_KEY = "clark.calendarSeenAt";
 const parisDay = (d) => d.toLocaleDateString("fr-CA", { timeZone: "Europe/Paris" }); // AAAA-MM-JJ
 let calMonth = parisDay(new Date()).slice(0, 7);
 let calDay = null; // jour ouvert (AAAA-MM-JJ)
@@ -13,9 +13,9 @@ const calClosed = new Set();
 
 function calSeen() {
   try {
-    return Number(localStorage.getItem(CAL_SEEN_KEY)) || 0;
+    return localStorage.getItem(CAL_SEEN_KEY) ?? "";
   } catch {
-    return 0;
+    return "";
   }
 }
 
@@ -24,7 +24,9 @@ function renderCalendarCount() {
   const el = $("#calendar-count");
   if (!el) return;
   const seen = calSeen();
-  const n = (state?.calendar?.recent ?? []).filter((id) => id > seen).length;
+  // Rien encore vu (premier passage) : pas de chiffre pour tout l'historique, seulement le dernier.
+  const recent = state?.calendar?.recent ?? [];
+  const n = seen ? recent.filter((at) => at > seen).length : Math.min(recent.length, 1);
   el.hidden = n === 0 || view === "calendar";
   el.textContent = n > 9 ? "9+" : String(n);
 }
@@ -33,7 +35,7 @@ function markCalendarSeen() {
   const last = state?.calendar?.recent?.[0];
   if (!last) return;
   try {
-    localStorage.setItem(CAL_SEEN_KEY, String(Math.max(last, calSeen())));
+    if (last > calSeen()) localStorage.setItem(CAL_SEEN_KEY, last);
   } catch {
     // Stockage indisponible (navigation privée) : le nombre reviendra, rien de grave.
   }
@@ -43,7 +45,7 @@ async function loadCalendar() {
   if (calLoading) return;
   calLoading = true;
   const month = calMonth;
-  const stamp = state?.calendar?.recent?.[0] ?? 0;
+  const stamp = state?.calendar?.recent?.[0] ?? "";
   try {
     const res = await fetch(`/api/calendar?month=${month}`);
     const data = await res.json();
@@ -79,12 +81,17 @@ function calRunState(r) {
 function calRunCard(r) {
   const [label, cls] = calRunState(r);
   const at = time(parseDate(r.at));
-  const open = !calClosed.has(r.id);
-  const body = r.report
-    ? `<details class="cal-report" data-cal-run="${r.id}"${open ? " open" : ""}><summary>Compte rendu</summary><div class="prose">${md(r.report)}</div></details>`
-    : r.note
-      ? `<p class="quiet">${esc(r.note)}</p>`
-      : "";
+  const open = !calClosed.has(r.key);
+  const ideas = r.ideas?.length
+    ? `<ul class="cal-ideas">${r.ideas.map((i) => `<li><a href="#idees">${esc(i.title)}</a>${i.kind === "design" ? ` <span class="tag idea-design">Design</span>` : ""}</li>`).join("")}</ul>`
+    : "";
+  const body =
+    ideas +
+    (r.report
+      ? `<details class="cal-report" data-cal-run="${r.key}"${open ? " open" : ""}><summary>${r.kind === "ideas" ? "Ce qu'il a parcouru" : "Compte rendu"}</summary><div class="prose">${md(r.report)}</div></details>`
+      : r.note && !ideas
+        ? `<p class="quiet">${esc(r.note)}</p>`
+        : "");
   return `<article class="card cal-run">
     <div class="cal-run-head">
       <p class="card-title">${esc(r.name)}</p>
@@ -105,7 +112,7 @@ function renderCalendar() {
   if (!box || !state) return;
   markCalendarSeen();
   renderCalendarCount();
-  const stamp = state.calendar?.recent?.[0] ?? 0;
+  const stamp = state.calendar?.recent?.[0] ?? "";
   if (!calLoading && (calData?.month !== calMonth || calStamp !== stamp)) void loadCalendar();
 
   const today = parisDay(new Date());
@@ -126,7 +133,7 @@ function renderCalendar() {
     const key = `${calMonth}-${String(d).padStart(2, "0")}`;
     const list = byDay.get(key) ?? [];
     const names = [...new Set(list.map((r) => r.name))];
-    const label = `${d} ${first.toLocaleDateString("fr-FR", { month: "long", timeZone: "UTC" })}${list.length ? `, ${list.length} ${list.length > 1 ? "veilles" : "veille"}` : ""}`;
+    const label = `${d} ${first.toLocaleDateString("fr-FR", { month: "long", timeZone: "UTC" })}${list.length ? `, ${list.length} ${list.length > 1 ? "éléments" : "élément"}` : ""}`;
     cells.push(`<button type="button" class="cal-cell${key === today ? " is-today" : ""}${list.length ? " has-runs" : ""}" data-cal-day="${key}" aria-pressed="${key === calDay}" aria-label="${esc(label)}">
       <span class="cal-num">${d}</span>
       ${names.length ? `<span class="cal-names">${names.slice(0, 2).map((n) => `<span class="cal-name">${esc(n)}</span>`).join("")}${names.length > 2 ? `<span class="cal-more">+${names.length - 2}</span>` : ""}</span><span class="cal-dot" aria-hidden="true"></span>` : ""}
@@ -139,11 +146,18 @@ function renderCalendar() {
 
   const inCal = (state.automations ?? []).filter((a) => a.thread === "calendar");
   const candidates = calCandidates();
+  const hour = (h) => (h === null || h === undefined ? null : `${h} h`);
+  const fixed = [
+    hour(state.calendar?.brief) ? `le brief du matin (${hour(state.calendar.brief)})` : null,
+    hour(state.calendar?.ideasHour) ? `le tour d'idées (${hour(state.calendar.ideasHour)})` : null,
+  ].filter(Boolean);
+  const listed = [...fixed, ...inCal.map((a) => `« ${esc(a.name)} »`)];
+  const line = listed.length ? `<p class="quiet cal-line">Ici : ${listed.join(", ")}. Rien de tout ça n'arrive dans ta conversation.</p>` : "";
   const intro = inCal.length
-    ? `<p class="quiet cal-line">Dans le calendrier : ${inCal.map((a) => esc(a.name)).join(", ")}. Leurs comptes rendus n'arrivent plus dans ta conversation.</p>`
-    : `<div class="card cal-empty">
-        <p class="card-title">Aucune veille dans le calendrier pour l'instant</p>
-        <p class="quiet">Une automatisation rangée ici n'écrit plus dans ta conversation : son compte rendu s'affiche au jour où elle a tourné.</p>
+    ? line
+    : `${line}<div class="card cal-empty">
+        <p class="card-title">Aucune automatisation dans le calendrier</p>
+        <p class="quiet">Une veille rangée ici n'écrit plus dans ta conversation : son compte rendu s'affiche au jour où elle a tourné.</p>
         ${
           candidates.length
             ? `<ul class="cal-candidates">${candidates.map((a) => `<li><span>${esc(a.name)} <span class="quiet">· ${esc(a.schedule)}</span></span><button type="button" class="btn secondary" data-cal-move="${a.id}">Mettre dans le calendrier</button></li>`).join("")}</ul>`
@@ -209,8 +223,8 @@ $("#calendar").addEventListener(
   (e) => {
     const run = e.target.dataset?.calRun;
     if (!run) return;
-    if (e.target.open) calClosed.delete(Number(run));
-    else calClosed.add(Number(run));
+    if (e.target.open) calClosed.delete(run);
+    else calClosed.add(run);
   },
   true,
 );

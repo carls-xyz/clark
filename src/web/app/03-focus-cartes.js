@@ -154,6 +154,9 @@ function messagesHtml(messages) {
 }
 
 function finishThread(html, messages, nearBottom, running, approvals) {
+  // Les notes (dev, PR, souvenirs…) sont dans Activité : une ligne discrète dit combien depuis ton dernier message.
+  const notes = pastId ? 0 : notesSinceLastAsk();
+  if (notes) html += `<p class="thread-notes"><a href="#activite/notes">${notes} note${notes > 1 ? "s" : ""} dans Activité depuis ton dernier message</a></p>`;
   html += state.posts.map(renderPost).join("");
   html += state.questions.map(renderQuestion).join("");
   html += approvals.map(renderApproval).join("");

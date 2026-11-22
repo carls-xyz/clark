@@ -4,6 +4,8 @@
 // Lancer : npm run demo — repartir de zéro : npm run demo -- --reset
 import { launchAutomation } from "../src/scheduler/automation-run.ts";
 import { automationChat } from "../src/scheduler/automations.ts";
+import { BRIEF_CHAT } from "../src/scheduler/cron.ts";
+import { IDEAS_CHAT } from "../src/core/ideas.ts";
 import { startPrWatch } from "../src/dev/pr.ts";
 import { execFileSync, spawn } from "node:child_process";
 import { createLogins } from "../src/engines/login.ts";
@@ -798,6 +800,26 @@ if (!store.automations.list().some((a) => a.thread === "calendar")) {
     } else store.automations.updateRun(run, { status: "skipped", note: "Rien de neuf." });
     store.db.prepare("UPDATE automation_runs SET created_at = ? WHERE id = ?").run(stamp, run);
   });
+}
+
+// Calendrier : deux briefs du matin et un tour d'idées passés.
+if (!journal.lastCreated("brief")) {
+  const day = (n: number, h: number) => {
+    const d = new Date(Date.now() - n * 86_400_000);
+    d.setUTCHours(h, 0, 0, 0);
+    return d.toISOString().slice(0, 19).replace("T", " ");
+  };
+  const past = (chat: number, label: string, text: string, at: string) => {
+    const t = journal.create(chat, label, label);
+    journal.finish(t, "done", text, 0);
+    store.db.prepare("UPDATE tasks SET created_at = ?, updated_at = ? WHERE id = ?").run(at, at, t);
+    return t;
+  };
+  past(BRIEF_CHAT, "brief", "- **Agence Onde** : dossier à envoyer avant le 30 novembre, il manque le portfolio.\n- Rien d'urgent dans tes mails.\n\nSuggestion : bloque une heure ce matin pour le portfolio.", day(1, 8));
+  past(BRIEF_CHAT, "brief", "- **Banque du Nord** : entretien le 25 ou le 26, à confirmer avec la RH.\n- Deux mails non lus sans réponse attendue.", day(3, 8));
+  const tour = past(IDEAS_CHAT, "idees", "J'ai parcouru Show HN, r/selfhosted, Godly et Land-book. Deux idées notées, le reste déjà connu.", day(2, 14));
+  store.ideas.add({ title: "Résumé du soir des PR ouvertes", pitch: "Un message par soir avec les PR ouvertes de tes dépôts et ce qui bloque chacune.", why: "Vu sur Show HN", origin: "scroll", sourceUrl: "https://news.ycombinator.com/show", sourceLabel: "Show HN", taskId: tour });
+  store.ideas.add({ title: "Page projet en deux colonnes, texte à gauche", kind: "design", pitch: "Le texte reste fixe à gauche pendant que les captures défilent à droite.", why: "Vu sur Land-book", origin: "scroll", sourceUrl: "https://land-book.com", sourceLabel: "Land-book", taskId: tour });
 }
 
 hub.setEngine({ name: "demo", model: "faux agent", ready: true, account: null, problem: null });
