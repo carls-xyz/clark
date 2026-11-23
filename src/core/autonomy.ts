@@ -145,12 +145,17 @@ const short = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…
 /** Une proposition acceptée (par l'utilisateur ou par Clark) : ce qu'elle lance. */
 export function launchInitiative(hub: Hub, i: Initiative, onLaunched?: (ref: { type: "task" | "goal"; id: number }) => void) {
   const source = `initiative:${i.title}`;
+  // La proposition garde ce qu'elle a lancé : c'est ce qui sera mesuré (critère de réussite, ton avis).
+  const launched = (ref: { type: "task" | "goal"; id: number }) => {
+    hub.deps.store.initiatives.linkExecution(i.id, ref);
+    onLaunched?.(ref);
+  };
   if (i.mode === "goal") {
     const id = createGoal(hub, i.action, undefined, "clark");
-    onLaunched?.({ type: "goal", id });
+    launched({ type: "goal", id });
     return;
   }
-  void hub.enqueue(OWNER_CHAT, i.action, i.mode === "team" ? TEAM_LABEL : "chat", source, { onCreated: (taskId) => onLaunched?.({ type: "task", id: taskId }) });
+  void hub.enqueue(OWNER_CHAT, i.action, i.mode === "team" ? TEAM_LABEL : "chat", source, { onCreated: (taskId) => launched({ type: "task", id: taskId }) });
 }
 
 /**
@@ -171,7 +176,7 @@ export function startAutonomy(hub: Hub, now: () => Date = () => new Date()): () 
         void hub.post(OWNER_CHAT, `Je pourrais lancer « ${short(i.title, 100)} » seul, mais ${can.why} : je te le propose.`, "system");
         return false;
       }
-      if (!store.initiatives.decide(i.id, "accepted")) return false;
+      if (!store.initiatives.decide(i.id, "accepted", undefined, undefined, true)) return false;
       const id = decisions.add({ kind, title: i.title, reason: i.why });
       launchInitiative(hub, i, (ref) => decisions.setRef(id, ref.type, ref.id));
       const what = i.mode === "team" ? "J'ai lancé une équipe" : i.mode === "goal" ? "J'ai lancé un objectif" : "J'ai décidé seul";
@@ -246,6 +251,11 @@ export function undoDecision(hub: Hub, id: number): { ok: true; note: string } |
     note = "arrêté en cours de route";
   } else return { ok: false, why: "Rien à annuler" };
   decisions.markUndone(id, note);
+  // Une proposition lancée seule puis annulée par toi : comptée comme ratée dans le bilan.
+  if (d.ref_type === "task" || d.ref_type === "goal") {
+    const i = d.ref_id !== null ? store.initiatives.byExecution({ type: d.ref_type, id: d.ref_id }) : undefined;
+    if (i) store.initiatives.setOutcome(i.id, "rate", `annulée par toi (${note})`);
+  }
   void hub.post(OWNER_CHAT, `Annulé : « ${short(d.title, 120)} » (${note}).`, "system");
   hub.touch();
   return { ok: true, note };

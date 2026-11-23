@@ -275,22 +275,87 @@ function heartbeatLine(h) {
   return `<p class="quiet">Tour de veille toutes les ${h.minutes} min, de 8 h à 22 h : ${esc(when)}. <button type="button" class="link" data-heartbeat="run">Faire un tour maintenant</button></p>`;
 }
 
+const INITIATIVE_CATEGORY = { relance: "Relance", echeance: "Échéance", tri: "Tri", dev: "Dev", compte: "Compte", info: "Lire, résumer", autre: "Autre" };
+const DECLINE_KIND = [
+  ["pas_utile", "Pas utile"],
+  ["pas_maintenant", "Pas maintenant"],
+  ["deja_fait", "Déjà fait"],
+  ["autre", "Autre raison"],
+];
+const OUTCOME_LABEL = { atteint: ["Critère atteint", "idea-go"], partiel: ["En partie", "idea-later"], rate: ["Raté", "cal-failed"], termine: ["Terminé", ""] };
+
 function initiativeCards(list) {
   return list
     .map(
       (i) => `<div class="card" data-initiative="${i.id}">
-        <span class="tag">Proposition</span>
+        <div class="idea-tags"><span class="tag">Proposition</span>${i.category && i.category !== "autre" ? `<span class="tag idea-origin">${esc(INITIATIVE_CATEGORY[i.category] ?? i.category)}</span>` : ""}</div>
         <p class="card-title">${esc(i.title)}</p>
         <p class="card-note">${esc(i.why)}</p>
         ${i.source ? `<p class="auto-meta">source : ${esc(i.source)}</p>` : ""}
         <p class="auto-prompt" title="${esc(i.action)}">Si tu acceptes : ${esc(i.action)}</p>
+        ${i.success ? `<p class="auto-meta">Réussi si : ${esc(i.success)}</p>` : ""}
         <div class="card-actions">
           <button type="button" class="btn primary" data-initiative-action="accept">Accepter</button>
-          <button type="button" class="btn ghost" data-initiative-action="decline">Refuser</button>
+          <button type="button" class="btn ghost" data-initiative-decline-open aria-expanded="false">Refuser</button>
+        </div>
+        <div class="card-actions initiative-decline" role="group" aria-label="Pourquoi tu refuses" hidden>
+          ${DECLINE_KIND.map(([k, l]) => `<button type="button" class="btn ghost" data-initiative-action="decline" data-kind="${k}">${l}</button>`).join("")}
         </div>
       </div>`,
     )
     .join("");
+}
+
+/** Propositions terminées : le résultat, et ton avis en un clic (pendant 3 jours). */
+function feedbackCards(list) {
+  return list
+    .map((i) => {
+      const o = OUTCOME_LABEL[i.outcome] ?? ["Terminé", ""];
+      return `<div class="card" data-initiative="${i.id}">
+        <div class="idea-tags"><span class="tag ${o[1]}">${o[0]}</span></div>
+        <p class="card-title">${esc(i.title)}</p>
+        ${i.success ? `<p class="auto-meta">Réussi si : ${esc(i.success)}</p>` : ""}
+        ${i.note ? `<p class="card-note">${esc(i.note)}</p>` : ""}
+        <div class="card-actions">
+          <span class="quiet">C'était utile ?</span>
+          <button type="button" class="btn secondary" data-initiative-feedback="utile">Utile</button>
+          <button type="button" class="btn ghost" data-initiative-feedback="inutile">Pas utile</button>
+        </div>
+      </div>`;
+    })
+    .join("");
+}
+
+/** Activité › Bilan des propositions : par catégorie sur 30 jours, et le parcours des 10 dernières. */
+function renderInitiativeBilan() {
+  const loop = state.initiativeLoop;
+  if (!loop || (!loop.stats.length && !loop.recent.length)) return "";
+  const rate = (a, b) => (b ? `${Math.round((a / b) * 100)} %` : "—");
+  const rows = loop.stats
+    .map(
+      (c) => `<tr>
+        <th scope="row">${esc(c.label)}${c.verdict === "eviter" ? ` <span class="tag cal-failed">à éviter</span>` : c.verdict === "marche" ? ` <span class="tag idea-go">ça marche</span>` : ""}</th>
+        <td>${c.proposed}</td><td>${rate(c.accepted, c.proposed)}</td><td>${rate(c.reached, c.finished)}</td><td>${rate(c.useful, c.feedback)}</td>
+      </tr>`,
+    )
+    .join("");
+  const step = (i) => {
+    if (i.status === "pending") return "en attente";
+    if (i.status === "declined") return `refusée${i.declineKind ? ` (${(DECLINE_KIND.find(([k]) => k === i.declineKind) ?? ["", ""])[1].toLowerCase()})` : ""}`;
+    const parts = [i.auto ? "lancée seule" : "acceptée"];
+    if (i.outcome) parts.push((OUTCOME_LABEL[i.outcome] ?? ["terminé"])[0].toLowerCase());
+    // Acceptées avant la boucle d'initiatives : pas de tâche liée, rien à mesurer.
+    else if (i.taskId || i.goalId) parts.push("en cours");
+    if (i.feedback) parts.push(i.feedback === "utile" ? "utile" : "pas utile");
+    return parts.join(" · ");
+  };
+  const recent = loop.recent
+    .map((i) => `<li><span class="quiet">${shortDate(i.at)}</span><span>${esc(i.title)}</span><span class="tag">${esc(INITIATIVE_CATEGORY[i.category] ?? i.category)}</span><span class="quiet">${esc(step(i))}</span></li>`)
+    .join("");
+  return `<h2 class="activity-group" id="h-bilan">Bilan des propositions</h2>
+    ${rows ? `<table class="bilan-table"><caption class="visually-hidden">Par catégorie, sur 30 jours</caption><thead><tr><th scope="col">30 jours</th><th scope="col">Proposées</th><th scope="col">Acceptées</th><th scope="col">Critère atteint</th><th scope="col">Utiles</th></tr></thead><tbody>${rows}</tbody></table>` : ""}
+    ${recent ? `<ul class="health-list">${recent}</ul>` : ""}
+    <p class="quiet">Le tour de veille reçoit ce bilan : une catégorie « à éviter » n'est plus proposée, sauf urgence.</p>`;
 }
 
 function renderInitiatives(list, heartbeat) {
@@ -347,12 +412,33 @@ side.addEventListener("click", async (e) => {
     }
     return;
   }
+  // Refuser : les raisons apparaissent (pas utile, pas maintenant, déjà fait, autre).
+  const open = e.target.closest("[data-initiative-decline-open]");
+  if (open) {
+    const row = open.closest("[data-initiative]").querySelector(".initiative-decline");
+    row.hidden = !row.hidden;
+    open.setAttribute("aria-expanded", String(!row.hidden));
+    if (!row.hidden) row.querySelector("button")?.focus();
+    return;
+  }
+  const fb = e.target.closest("[data-initiative-feedback]");
+  if (fb) {
+    const card = fb.closest("[data-initiative]");
+    card.querySelectorAll("button").forEach((b) => (b.disabled = true));
+    try {
+      await post(`/api/initiatives/${card.dataset.initiative}`, { action: "feedback", value: fb.dataset.initiativeFeedback });
+    } catch (err) {
+      card.querySelectorAll("button").forEach((b) => (b.disabled = false));
+      card.insertAdjacentHTML("beforeend", `<p class="inline-error" role="alert">${esc(err.message)}</p>`);
+    }
+    return;
+  }
   const button = e.target.closest("[data-initiative-action]");
   if (!button) return;
   const card = button.closest("[data-initiative]");
   card.querySelectorAll("button").forEach((b) => (b.disabled = true));
   try {
-    await post(`/api/initiatives/${card.dataset.initiative}`, { action: button.dataset.initiativeAction });
+    await post(`/api/initiatives/${card.dataset.initiative}`, { action: button.dataset.initiativeAction, ...(button.dataset.kind ? { kind: button.dataset.kind } : {}) });
   } catch (err) {
     card.querySelectorAll("button").forEach((b) => (b.disabled = false));
     card.insertAdjacentHTML("beforeend", `<p class="inline-error" role="alert">${esc(err.message)}</p>`);

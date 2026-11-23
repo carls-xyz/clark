@@ -31,7 +31,7 @@ const until = async (check: () => boolean, ms = 3000) => {
   assert.ok(check(), "condition jamais atteinte");
 };
 
-const idea = (title: string) => ({ title, why: "Parce que c'est le moment", action: `Fais : ${title}`, source: "souvenir #1" });
+const idea = (title: string) => ({ title, why: "Parce que c'est le moment", action: `Fais : ${title}`, source: "souvenir #1", category: "relance" as const, success: `${title} : fait, avec une trace` });
 
 function setup() {
   const store = new Store(":memory:");
