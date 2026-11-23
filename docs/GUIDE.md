@@ -626,6 +626,8 @@ npm test
 npm run typecheck
 ```
 
+**Sur GitHub (CI).** À chaque PR et à chaque fusion sur main, `.github/workflows/ci.yml` lance le typecheck et toute la suite sur Ubuntu 24.04 (Node 26, avec ffmpeg, restic et zsh), en heure de Paris. Le contrôle s'appelle **« Typecheck et tests »** : dans le ruleset de main (Settings › Rules), « Require status checks to pass » avec ce contrôle bloque toute fusion qui casse les tests. Pour la rejouer en local sous Linux (Docker) : copier le dépôt sans `node_modules`, `data`, `workspace` ni `.env`, puis dans `node:26-bookworm` installer `ffmpeg restic zsh chromium git`, et lancer `npm ci`, `npm run typecheck` et `npm test` avec `CLARK_BROWSER_EXECUTABLE=/usr/bin/chromium` (Chrome n'existe pas sous Linux ARM).
+
 ## Tâches longues
 
 Une tâche de code peut durer :

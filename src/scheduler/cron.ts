@@ -1,5 +1,5 @@
 import type { Config } from "../config.ts";
-import { dueSlot, type Automation, type Automations } from "./automations.ts";
+import { dueSlot, parisParts, type Automation, type Automations } from "./automations.ts";
 import type { Store } from "../memory/store.ts";
 
 const BRIEF_PROMPT = `C'est l'heure du brief du matin. Sans que Charles ait rien demandé :
@@ -50,7 +50,9 @@ export function startScheduler(deps: { config: Config; store: Store; enqueue: En
   const tick = () => {
     if (automations && launch) runDueAutomations(automations, launch);
     if (config.briefHour === null) return;
-    const hour = Number(new Date().toLocaleString("fr-FR", { timeZone: "Europe/Paris", hour: "numeric" }));
+    // L'heure de Paris par parisParts : « toLocaleString(fr-FR, hour) » rend « 11 » ou « 11 h » selon les données
+    // de langue du système (« 11 h » sous Linux), et Number(« 11 h ») ne vaut rien : le brief ne partait jamais.
+    const hour = parisParts(new Date()).hour;
     if (hour !== config.briefHour || store.ranToday(BRIEF_LABEL)) return;
     // Marque le brief tout de suite pour ne pas le relancer à la minute suivante.
     store.addSpend(0, BRIEF_LABEL);
