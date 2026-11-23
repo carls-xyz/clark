@@ -775,7 +775,7 @@ async function readJson(req: IncomingMessage, limit = BODY_LIMIT): Promise<Recor
  * - un en-tête Host étranger (protection contre le DNS rebinding) ;
  * - une écriture venue d'une autre origine (une page web ouverte ailleurs ne peut rien envoyer).
  */
-export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?: WebVoice; browser?: BrowserService; messages?: MessagesService; plugins?: Plugins; settings?: Settings; notify?: NotifyStore; preview?: PreviewService; engineLogin?: EngineLogin; terminal?: Terminal; obsidian?: ObsidianLink }) {
+export function startWeb(hub: Hub, opts: { health?: (fresh?: boolean) => HealthReport; port: number; demo?: boolean; voice?: WebVoice; browser?: BrowserService; messages?: MessagesService; plugins?: Plugins; settings?: Settings; notify?: NotifyStore; preview?: PreviewService; engineLogin?: EngineLogin; terminal?: Terminal; obsidian?: ObsidianLink }) {
   // L'aperçu (mode design) s'affiche dans un cadre : seule son origine est permise.
   if (opts.preview) {
     const o = opts.preview.origin;
@@ -793,7 +793,8 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
   const hosts = new Set([`127.0.0.1:${opts.port}`, `localhost:${opts.port}`]);
   const origins = new Set([...hosts].map((h) => `http://${h}`));
   const streams = new Set<ServerResponse>();
-  const health = cachedHealth(hub, { root: paths.root, logFile: join(paths.root, "data", "logs", "clark.log"), backupDir: join(paths.root, "data", "backups") });
+  // La santé : celle de Clark (avec alertes, ping, surveillance), ou un relevé simple (tests, démo).
+  const health = opts.health ?? cachedHealth(hub, { root: paths.root, logFile: join(paths.root, "data", "logs", "clark.log"), backupDir: join(paths.root, "data", "backups") });
   const view = () => snapshot(hub, { health, demo: opts.demo, voice, voices, browser: opts.browser, messages: opts.messages, plugins: opts.plugins, settings: opts.settings, preview: opts.preview, engineLogin: opts.engineLogin, terminal: opts.terminal, obsidian: opts.obsidian });
   const state = () => JSON.stringify(view());
 
@@ -854,7 +855,18 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
       // Clark répond : lu par scripts/service.sh après un redémarrage (retour à la version précédente sinon).
       // Page Santé › Actualiser : le rapport relu tout de suite.
       if (path === "/api/sante") return json(res, 200, health(true));
-      if (path === "/api/health") return json(res, 200, { ok: true, pid: process.pid, uptime: Math.round(process.uptime()) });
+      // Toujours 200 tant que Clark répond (même si la santé est mauvaise) : le filet de service.sh et la
+      // surveillance locale ne relancent Clark que s'il ne répond plus. Niveau et points : du relevé gardé 20 s.
+      if (path === "/api/health") {
+        const h = (() => {
+          try {
+            return health();
+          } catch {
+            return null;
+          }
+        })();
+        return json(res, 200, { ok: true, pid: process.pid, uptime: Math.round(process.uptime()), level: h?.level ?? null, problems: h?.problems.map((p) => p.id) ?? [], version: h?.version.commit ?? null });
+      }
       // Calendrier des veilles : les exécutions d'un mois, avec leur compte rendu (lu à la demande, pas dans l'état poussé).
       if (path === "/api/calendar") {
         const month = url.searchParams.get("month") ?? "";

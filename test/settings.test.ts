@@ -92,7 +92,7 @@ test("notifications : réglages vérifiés, heures calmes qui passent minuit, ca
   assert.equal(p.routes.reply.telegram && p.routes.reply.imessage && p.routes.reply.browser, true);
   assert.equal(p.routes.pr.imessage, false, "par défaut, iMessage : réponses et accords seulement");
 
-  const quiet = { ...p, quiet: { on: true, from: "23:00", to: "08:00", approvals: true } };
+  const quiet = { ...p, quiet: { on: true, from: "23:00", to: "08:00", approvals: true, alerts: true } };
   const at = (h: number, m = 0) => new Date(Date.UTC(2026, 10, 19, h - 1, m)); // heure de Paris = UTC+1
   assert.equal(inQuiet(quiet, at(23, 30)), true);
   assert.equal(inQuiet(quiet, at(3)), true);

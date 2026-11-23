@@ -299,6 +299,7 @@ function buildNotify() {
       <label class="radio"><input type="checkbox" data-quiet="on"${p.quiet.on ? " checked" : ""} /> <span>Rien n'est envoyé pendant ces heures</span></label>
       <div class="quiet-hours"><label>De <input type="time" data-quiet="from" value="${esc(p.quiet.from)}" /></label><label>à <input type="time" data-quiet="to" value="${esc(p.quiet.to)}" /></label></div>
       <label class="radio"><input type="checkbox" data-quiet="approvals"${p.quiet.approvals ? " checked" : ""} /> <span>Sauf les accords et questions (une tâche t'attend)</span></label>
+      <label class="radio"><input type="checkbox" data-quiet="alerts"${p.quiet.alerts !== false ? " checked" : ""} /> <span>Sauf les alertes urgentes de santé (moteur principal déconnecté, version de secours, disque plein)</span></label>
       <p class="quiet field-hint">À la fin des heures calmes, un seul message résume ce qui n'est pas parti${n.held ? ` (${n.held} en attente)` : ""}.</p>
     </div>
     <div class="card auto-form" data-setting-row="awake">

@@ -17,23 +17,26 @@ export const NOTIFY_KINDS = [
   ["stalled", "Agents silencieux"],
   ["proposals", "Propositions du tour de veille"],
   ["system", "Autres notes (souvenirs proposés, automatisations…)"],
+  ["health", "Santé de Clark : alertes (moteur déconnecté, disque, version de secours…)"],
 ] as const;
-export type NotifyKind = (typeof NOTIFY_KINDS)[number][0] | "digest" | "quiet";
+/** « alert » : une alerte de santé urgente, envoyée comme « health » mais qui peut passer pendant les heures calmes. */
+export type NotifyKind = (typeof NOTIFY_KINDS)[number][0] | "digest" | "quiet" | "alert";
 export const NOTIFY_CHANNELS = ["telegram", "imessage", "browser"] as const;
 export type NotifyChannel = (typeof NOTIFY_CHANNELS)[number];
 export type AwakeMode = "agent" | "always" | "never";
 
 export type NotifyPrefs = {
   routes: Record<string, Record<NotifyChannel, boolean>>;
-  quiet: { on: boolean; from: string; to: string; approvals: boolean };
+  /** approvals / alerts : les accords, les alertes urgentes de santé passent quand même pendant les heures calmes. */
+  quiet: { on: boolean; from: string; to: string; approvals: boolean; alerts: boolean };
   awake: AwakeMode;
 };
 
 /** Par défaut : comme avant (tout sur Telegram ; réponses et accords sur iMessage et le navigateur). */
 export function defaultPrefs(): NotifyPrefs {
   const routes: NotifyPrefs["routes"] = {};
-  for (const [k] of NOTIFY_KINDS) routes[k] = { telegram: true, imessage: k === "reply" || k === "approval", browser: k === "reply" || k === "approval" };
-  return { routes, quiet: { on: false, from: "23:00", to: "08:00", approvals: true }, awake: "agent" };
+  for (const [k] of NOTIFY_KINDS) routes[k] = { telegram: true, imessage: k === "reply" || k === "approval", browser: k === "reply" || k === "approval" || k === "health" };
+  return { routes, quiet: { on: false, from: "23:00", to: "08:00", approvals: true, alerts: true }, awake: "agent" };
 }
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -50,7 +53,7 @@ export function checkPrefs(raw: unknown): { error: string } | { prefs: NotifyPre
   if (p.quiet) {
     if (p.quiet.from !== undefined && !HHMM.test(p.quiet.from)) return { error: "Début des heures calmes : HH:MM" };
     if (p.quiet.to !== undefined && !HHMM.test(p.quiet.to)) return { error: "Fin des heures calmes : HH:MM" };
-    base.quiet = { on: p.quiet.on === true, from: p.quiet.from ?? base.quiet.from, to: p.quiet.to ?? base.quiet.to, approvals: p.quiet.approvals !== false };
+    base.quiet = { on: p.quiet.on === true, from: p.quiet.from ?? base.quiet.from, to: p.quiet.to ?? base.quiet.to, approvals: p.quiet.approvals !== false, alerts: p.quiet.alerts !== false };
   }
   if (p.awake !== undefined) {
     if (!["agent", "always", "never"].includes(p.awake)) return { error: "Mode inconnu" };
@@ -108,9 +111,12 @@ export function notifyAllowed(channel: string, kind: NotifyKind, text?: string, 
   if (!store || kind === "digest") return true;
   if (!(NOTIFY_CHANNELS as readonly string[]).includes(channel)) return true;
   const prefs = store.get();
-  if (!prefs.routes[kind]?.[channel as NotifyChannel]) return false;
-  if (inQuiet(prefs, now) && !(kind === "approval" && prefs.quiet.approvals)) {
-    if (text !== undefined && channel === firstRoutedChannel(prefs, kind)) held.push({ kind, text });
+  // Une alerte urgente suit les canaux réglés pour « Santé de Clark ».
+  const route = kind === "alert" ? "health" : kind;
+  if (!prefs.routes[route]?.[channel as NotifyChannel]) return false;
+  const passes = (kind === "approval" && prefs.quiet.approvals) || (kind === "alert" && prefs.quiet.alerts);
+  if (inQuiet(prefs, now) && !passes) {
+    if (text !== undefined && channel === firstRoutedChannel(prefs, route)) held.push({ kind: route, text });
     return false;
   }
   return true;

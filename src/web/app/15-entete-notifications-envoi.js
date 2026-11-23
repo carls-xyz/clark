@@ -73,8 +73,9 @@ function notifyNew() {
   const prefs = state.notify?.prefs;
   const wants = (kind) => {
     if (!prefs) return true;
-    if (!prefs.routes[kind]?.browser) return false;
-    return !(quietNow(prefs) && !(kind === "approval" && prefs.quiet.approvals));
+    const route = kind === "alert" ? "health" : kind;
+    if (!prefs.routes[route]?.browser) return false;
+    return !(quietNow(prefs) && !((kind === "approval" && prefs.quiet.approvals) || (kind === "alert" && prefs.quiet.alerts !== false)));
   };
   const show = (title, body, tag, kind = "approval") => {
     if (!wants(kind)) return;

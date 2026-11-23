@@ -1,6 +1,7 @@
 #!/bin/bash
 # Clark en service : launchd sur le Mac (agent « local.clark »), systemd sur Linux (unité utilisateur « clark »).
-#   scripts/service.sh install    installe et démarre (puis démarre tout seul : ouverture de session, ou démarrage du serveur)
+#   scripts/service.sh install    installe et démarre (puis démarre tout seul : ouverture de session, ou démarrage du serveur),
+#                                 avec la surveillance locale (scripts/watchdog.sh toutes les 5 minutes)
 #   scripts/service.sh uninstall  arrête et retire
 #   scripts/service.sh restart    redémarre (après une modification de .env ou du code), puis vérifie que Clark répond
 #   scripts/service.sh status     état du service
@@ -79,6 +80,67 @@ Nice=5
 [Install]
 WantedBy=default.target
 UNIT
+}
+
+# ── Surveillance locale (scripts/watchdog.sh, toutes les 5 minutes) ──
+WD_LABEL="local.clark.watchdog"
+WD_PLIST="$HOME/Library/LaunchAgents/$WD_LABEL.plist"
+WD_UNIT_DIR="$HOME/.config/systemd/user"
+
+watchdog_install() {
+  if [ "$OS" = "Darwin" ]; then
+    cat > "$WD_PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$WD_LABEL</string>
+  <key>ProgramArguments</key><array><string>$ROOT/scripts/watchdog.sh</string></array>
+  <key>WorkingDirectory</key><string>$ROOT</string>
+  <key>StartInterval</key><integer>300</integer>
+  <key>StandardErrorPath</key><string>$ROOT/data/logs/watchdog.log</string>
+</dict>
+</plist>
+PLIST
+    plutil -lint "$WD_PLIST" >/dev/null
+    launchctl bootout "$DOMAIN/$WD_LABEL" 2>/dev/null || true
+    launchctl bootstrap "$DOMAIN" "$WD_PLIST"
+  else
+    mkdir -p "$WD_UNIT_DIR"
+    cat > "$WD_UNIT_DIR/clark-watchdog.service" <<UNIT
+[Unit]
+Description=Clark : vérifie qu'il répond
+
+[Service]
+Type=oneshot
+WorkingDirectory=$ROOT
+ExecStart=$ROOT/scripts/watchdog.sh
+UNIT
+    cat > "$WD_UNIT_DIR/clark-watchdog.timer" <<UNIT
+[Unit]
+Description=Clark : vérification toutes les 5 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target
+UNIT
+    systemctl --user daemon-reload
+    systemctl --user enable --now clark-watchdog.timer
+  fi
+}
+
+watchdog_remove() {
+  if [ "$OS" = "Darwin" ]; then
+    launchctl bootout "$DOMAIN/$WD_LABEL" 2>/dev/null || true
+    rm -f "$WD_PLIST"
+  else
+    systemctl --user disable --now clark-watchdog.timer 2>/dev/null || true
+    rm -f "$WD_UNIT_DIR/clark-watchdog.service" "$WD_UNIT_DIR/clark-watchdog.timer"
+    systemctl --user daemon-reload 2>/dev/null || true
+  fi
 }
 
 # ── Commun ───────────────────────────────────────────────────────────
@@ -162,6 +224,7 @@ check_or_rollback() {
 case "${1:-status}" in
   install)
     svc_start_fresh
+    watchdog_install
     if [ "$OS" = "Darwin" ]; then
       echo "Clark est installé et démarre maintenant. Il redémarrera à chaque ouverture de session."
     else
@@ -172,10 +235,13 @@ case "${1:-status}" in
     echo "Journal : scripts/service.sh logs"
     ;;
   uninstall)
+    watchdog_remove
     svc_stop_remove
     echo "Clark est arrêté et ne démarrera plus tout seul."
     ;;
   restart)
+    # Installé avant la surveillance locale : elle est ajoutée au passage.
+    if [ -z "$FAKE" ] && [ ! -f "$WD_PLIST" ] && [ ! -f "$WD_UNIT_DIR/clark-watchdog.timer" ]; then watchdog_install && echo "Surveillance locale ajoutée (toutes les 5 minutes)."; fi
     svc_restart
     echo "Clark redémarre."
     check_or_rollback
@@ -196,6 +262,7 @@ case "${1:-status}" in
         echo "Clark : pas installé comme service (scripts/service.sh install)."
       fi
     fi
+    if [ -f "$WD_PLIST" ] || [ -f "$WD_UNIT_DIR/clark-watchdog.timer" ]; then echo "Surveillance locale : active (toutes les 5 minutes)."; else echo "Surveillance locale : absente (scripts/service.sh install)."; fi
     [ -f "$GOOD" ] && echo "Dernière version qui a démarré : $(cut -c1-7 "$GOOD")."
     [ -f "$LOG" ] && { echo "Dernières lignes du journal :"; tail -n 5 "$LOG"; }
     ;;
