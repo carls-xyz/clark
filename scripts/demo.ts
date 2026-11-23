@@ -4,6 +4,7 @@
 // Lancer : npm run demo — repartir de zéro : npm run demo -- --reset
 import { launchAutomation } from "../src/scheduler/automation-run.ts";
 import { automationChat } from "../src/scheduler/automations.ts";
+import { startInitiativeLoop } from "../src/core/initiative-loop.ts";
 import { BRIEF_CHAT } from "../src/scheduler/cron.ts";
 import { IDEAS_CHAT } from "../src/core/ideas.ts";
 import { startPrWatch } from "../src/dev/pr.ts";
@@ -440,12 +441,16 @@ async function fakeHeartbeat(
       why: "Le devis demandé le 7 octobre n'a pas de réponse, et c'est la première étape avant de calculer la marge.",
       action: "Rédige un brouillon de relance courte pour le fournisseur du coussin de grossesse, sans l'envoyer.",
       source: "souvenir : devis demandé le 7 octobre",
+      category: "relance" as const,
+      success: "Un brouillon de relance au fournisseur, prêt à envoyer",
     },
     {
       title: "Préparer le rendu Java Club",
       why: "Le rendu est prévu fin novembre : une liste de ce qui reste évite la course la veille.",
       action: "Fais la liste de ce qui reste à faire pour le rendu Java Club, d'après le dépôt et mes notes.",
       source: "souvenir : rendu prévu fin novembre",
+      category: "echeance" as const,
+      success: "La liste de ce qui reste pour le rendu Java Club, rangée par priorité",
     },
   ];
   const outcomes: string[] = [];
@@ -969,6 +974,8 @@ const previewReady = await preview.listen().then(
 );
 // Autonomie : mêmes règles qu'en vrai (Réglages › Général › Autonomie).
 startAutonomy(hub);
+// Boucle d'initiatives : mesure des propositions lancées (faux juge : critère atteint).
+startInitiativeLoop(hub, async () => '{"verdict":"atteint","note":"Fait (démo)."}');
 
 // Fausse connexion : un petit programme qui imite la commande (lien, code à coller pour Claude).
 const demoLogins = createLogins({

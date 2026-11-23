@@ -48,6 +48,7 @@ import { Settings } from "./core/settings.ts";
 import { NotifyStore, setNotifyStore, startAwake, startQuietDigest } from "./core/notify.ts";
 import { takeRollbackNote } from "./core/platform.ts";
 import { AlertStore, startAlerts } from "./core/alerts.ts";
+import { startInitiativeLoop } from "./core/initiative-loop.ts";
 import { createPinger } from "./core/ping.ts";
 import { cachedHealth } from "./core/health.ts";
 
@@ -380,6 +381,8 @@ if (existsSync(watchdogNote)) {
   void hub.post(OWNER_CHAT, `Je ne répondais plus : la surveillance locale m'a relancé${at ? ` (${new Date(at).toLocaleString("fr-FR", { timeZone: "Europe/Paris" })})` : ""}. Le journal dit peut-être pourquoi (scripts/service.sh logs).`, "system", "health");
 }
 // Alertes de santé (Telegram, selon Réglages › Notifications) et ping externe (CLARK_PING_URL).
+// Boucle d'initiatives : chaque proposition lancée est mesurée contre son critère, puis bilan par catégorie.
+const stopInitiatives = startInitiativeLoop(hub, claude.mode !== "none" ? claudeJudge : undefined);
 const stopAlerts = startAlerts({ store: alertStore, report: () => health(true), post: (text, urgent) => void hub.post(OWNER_CHAT, text, "system", urgent ? "alert" : "health") });
 const stopPing = pinger.start();
 const stopAutomations = startScheduler({ config, store, enqueue: hub.enqueue, automations: store.automations, launch: (a, slot) => launchAutomation(hub, a, { slot }) });
@@ -425,6 +428,7 @@ stopScheduler = () => {
   stopSweep();
   stopAlerts();
   stopPing();
+  stopInitiatives();
 };
 
 console.log(`[clark] démarré — moteur ${hub.engine().name} (${hub.engine().model}), ${store.count()} souvenirs`);

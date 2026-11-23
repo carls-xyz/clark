@@ -7097,3 +7097,46 @@ ui-menu-separator {
   padding: 0 10px;
   font-size: var(--fs-small);
 }
+
+/* ── Bilan des propositions ─────────────────────────────────────────── */
+
+.bilan-table {
+  width: 100%;
+  margin: 0 0 12px;
+  border-collapse: collapse;
+  font-size: var(--fs-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.bilan-table th,
+.bilan-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+}
+
+.bilan-table th[scope="row"],
+.bilan-table thead th:first-child {
+  text-align: left;
+  font-weight: 500;
+}
+
+.bilan-table thead th {
+  color: var(--text-2);
+  font-weight: 400;
+}
+
+.initiative-decline {
+  margin-top: 6px;
+}
+
+.initiative-decline[hidden] {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .bilan-table th,
+  .bilan-table td {
+    padding: 6px 4px;
+  }
+}

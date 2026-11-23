@@ -571,13 +571,20 @@ Clark lit tes mails (Gmail) et ton agenda (Google Agenda), et peut envoyer des m
 
 Le jeton est rangé dans `data/google/token.json` (lisible par toi seul, hors de portée du bac à sable de Codex) et se rafraîchit tout seul. Pour débrancher : supprime ce fichier, ou retire l'accès de « Clark » dans la page « Sécurité » de ton compte Google.
 
-## Tour de veille (heartbeat)
+## Tour de veille et propositions
 
 Toutes les 2 heures (`CLARK_HEARTBEAT_MINUTES`), de 8 h à 22 h, Clark fait un tour de veille sans que tu demandes rien. Il cherche dans sa mémoire et dans ses notes ce qui mérite ton attention : une échéance qui approche, une relance en retard, un oubli probable. Il te fait au plus deux propositions avec `propose_initiative`.
 
 Le tour se fait **en lecture seule**, dans une conversation à part : rien n'apparaît dans ton fil à part ses propositions, et il ne reprend jamais ta session. Chaque proposition arrive dans « Propositions de Clark » (et sur Telegram), avec sa raison et sa source. Tu choisis :
 - **Accepter** : la consigne part comme un message à Clark, dans ta conversation. Les écritures demandent ton accord comme d'habitude.
-- **Refuser** : il ne la refait pas pendant 30 jours, et le tour suivant voit ton refus.
+- **Refuser**, en disant pourquoi (un clic, ici ou sur Telegram) : **Pas utile** ou **Autre raison**, il ne la refait pas pendant 30 jours ; **Pas maintenant**, il peut la reproposer dans 3 jours ; **Déjà fait**, il note que tu t'en occupes. Le tour suivant voit ton refus et sa raison.
+
+**La boucle complète** : observer (le tour) → proposer → décider → exécuter → **mesurer** → **apprendre**.
+- Chaque proposition a une **catégorie** (relance, échéance, tri, dev, compte, lire/résumer, autre) et un **critère de réussite** vérifiable (« la PR #3 relue avec un avis clair »), affiché sur la carte (« Réussi si : … »). Sans critère, l'outil refuse la proposition.
+- Acceptée (par toi, ou lancée seule en autonomie), elle garde la tâche ou l'objectif qu'elle lance. Une fois fini, un modèle rapide compare le résultat au critère : **critère atteint**, **en partie**, ou **raté** (une tâche en échec ou arrêtée, un objectif arrêté, une action en autonomie que tu annules : raté, sans appel). Sans Claude connecté : « terminé », sans évaluation.
+- Pendant 3 jours, Activité te demande **« C'était utile ? »** (Utile / Pas utile).
+- **Bilan des propositions** (Activité) : par catégorie sur 30 jours, proposées, acceptées, critère atteint, utiles, et le parcours des 10 dernières. Règles fixes, calculées par Clark : une catégorie est **à éviter** avec 2 refus « pas utile », ou au moins 3 avis dont moins d'un tiers utiles, ou au moins 3 propositions dont moins d'un tiers acceptées ; elle **marche** avec au moins 3 avis dont deux tiers utiles. Le tour de veille reçoit ce bilan, les derniers refus et ce qui a raté, et ne propose plus une catégorie à éviter, sauf urgence réelle.
+- Chaque dimanche à 20 h, un bilan de la semaine va au **Calendrier** (pas dans ta conversation).
 
 Il ne tourne pas sans moteur connecté, la nuit, pendant une autre tâche, avec un quota à 90 % ou plus, ou s'il a déjà 3 propositions en attente de toi. La raison s'affiche sous le bloc, avec un lien « Faire un tour maintenant ». Un tour coupé par un redémarrage est abandonné, pas repris.
 

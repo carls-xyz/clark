@@ -27,6 +27,7 @@ import { ENGINE_ROLES, type EngineName, type EngineRole } from "../config.ts";
 import { canStop, stopRunning } from "./stops.ts";
 import { notifyAllowed, type NotifyKind } from "./notify.ts";
 import { AUTOMATION_CHAT_BASE, isAutomationChat } from "../scheduler/automations.ts";
+import { DECLINE_LABEL, SNOOZE_DAYS, type DeclineKind } from "./initiatives.ts";
 
 /** Clark n'a qu'un interlocuteur : l'utilisateur. Une seule conversation, quel que soit le canal. */
 export const OWNER_CHAT = 1;
@@ -903,18 +904,19 @@ export function createHub(
     initiatives: () => store.initiatives.pending(),
 
     /** Décision de l'utilisateur sur une proposition : acceptée, elle devient une tâche ; refusée, Clark s'en souvient. */
-    decideInitiative(id: number, action: "accept" | "decline", reason?: string): "done" | "already" {
+    decideInitiative(id: number, action: "accept" | "decline", reason?: string, kind?: DeclineKind): "done" | "already" {
       const i = store.initiatives.get(id);
       if (!i || i.status !== "pending") return "already";
       if (action === "decline") {
-        if (!store.initiatives.decide(id, "declined", reason)) return "already";
-        void say(OWNER_CHAT, `Proposition refusée : « ${short(i.title, 120)} ». Je ne la referai pas.`, "system");
+        if (!store.initiatives.decide(id, "declined", reason, kind ?? "autre")) return "already";
+        const next = kind === "pas_maintenant" ? `Je pourrai la reproposer dans ${SNOOZE_DAYS} jours.` : kind === "deja_fait" ? "Noté : tu t'en es déjà occupé." : "Je ne la referai pas.";
+        void say(OWNER_CHAT, `Proposition refusée${kind ? ` (${DECLINE_LABEL[kind].toLowerCase()})` : ""} : « ${short(i.title, 120)} ». ${next}`, "system");
         return "done";
       }
       if (!store.initiatives.decide(id, "accepted")) return "already";
       // Une proposition d'équipe ou d'objectif lance l'équipe ou l'objectif (module d'autonomie).
       if (autonomy.launch) autonomy.launch(i);
-      else void enqueue(OWNER_CHAT, i.action, "chat", `initiative:${i.title}`);
+      else void enqueue(OWNER_CHAT, i.action, "chat", `initiative:${i.title}`, { onCreated: (taskId) => store.initiatives.linkExecution(i.id, { type: "task", id: taskId }) });
       return "done";
     },
 

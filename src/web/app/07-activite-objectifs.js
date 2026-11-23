@@ -383,6 +383,8 @@ function renderInbox() {
   if (proposals.length) html += sub("proposals", "Souvenirs à confirmer", proposals.length, proposals.map(renderProposal).join(""));
   const initiatives = state.initiatives ?? [];
   if (initiatives.length) html += sub("initiatives", "Propositions de Clark", initiatives.length, initiativeCards(initiatives));
+  const toRate = state.initiativeLoop?.feedback ?? [];
+  if (toRate.length) html += sub("initiatives-feedback", "C'était utile ?", toRate.length, feedbackCards(toRate));
   // Le filtre écarte des tâches dev : le compte suit ce qui est affiché.
   const shown = waitingCount() - (allReview.length - review.length) - (allStopped.length - stopped.length);
   if (!waitingCount()) html = `<p class="empty-note">Rien ne t'attend. Les accords, questions, propositions et relectures arrivent ici.</p>${html}`;
@@ -394,6 +396,7 @@ function renderInbox() {
     live.length ? `<ul class="link-list">${live.map((r) => `<li><a href="${r.href}"><span class="dot" data-s="${r.s}"></span><span class="ll-label">${esc(r.label)}</span><span class="quiet">${esc(r.meta)}</span></a></li>`).join("")}</ul>` : `<p class="quiet">${allLive.length ? `Rien ne correspond à « ${esc(activityFilter)} ».` : "Aucun agent ne travaille."}</p>`
   }`;
   html += renderNotes();
+  html += renderInitiativeBilan();
   html += renderDecisions();
   html += `<h2 class="activity-group" id="h-history">Historique</h2>${renderHistory()}`;
   // Sommaire en tête : où en est chaque partie, d'un coup d'œil (et un clic pour y aller).

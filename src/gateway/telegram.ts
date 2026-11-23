@@ -142,7 +142,8 @@ export function createTelegram(hub: Hub, opts: { token: string; ownerId: number;
       if (wantsVoice(m)) void sendSpoken(m.text);
     },
     proposeInitiative: async (i) => {
-      const keyboard = new InlineKeyboard().text("Accepter", `ini:ok:${i.id}`).text("Refuser", `ini:no:${i.id}`);
+      // Refuser dit pourquoi, en un appui : le bilan des propositions en tient compte.
+      const keyboard = new InlineKeyboard().text("Accepter", `ini:ok:${i.id}`).row().text("Pas utile", `ini:pu:${i.id}`).text("Pas maintenant", `ini:pm:${i.id}`).text("Déjà fait", `ini:df:${i.id}`);
       await bot.api.sendMessage(chat, `Clark te propose : ${i.title}\n\n${i.why}${i.source ? `\n(source : ${i.source})` : ""}`, { reply_markup: keyboard });
     },
     askMail: async (m) => {
@@ -302,10 +303,12 @@ export function createTelegram(hub: Hub, opts: { token: string; ownerId: number;
     await ctx.answerCallbackQuery({ text });
   });
 
-  bot.callbackQuery(/^ini:(ok|no):(\d+)$/, async (ctx) => {
+  bot.callbackQuery(/^ini:(ok|no|pu|pm|df):(\d+)$/, async (ctx) => {
     const [, verdict, id] = ctx.match;
     await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
-    const outcome = hub.decideInitiative(Number(id), verdict === "ok" ? "accept" : "decline");
+    // « no » : les anciens messages (avant les raisons de refus).
+    const kind = ({ pu: "pas_utile", pm: "pas_maintenant", df: "deja_fait", no: "autre" } as const)[verdict as "pu" | "pm" | "df" | "no"];
+    const outcome = hub.decideInitiative(Number(id), verdict === "ok" ? "accept" : "decline", undefined, kind);
     await ctx.answerCallbackQuery({ text: outcome === "done" ? (verdict === "ok" ? "Accepté : je m'y mets" : "Refusé") : "Déjà traité." });
   });
 

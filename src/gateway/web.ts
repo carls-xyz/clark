@@ -30,6 +30,8 @@ import { inThread, noteCategory } from "../core/thread.ts";
 import { platformInfo } from "../core/platform.ts";
 import { cachedHealth, type HealthReport } from "../core/health.ts";
 import { paths } from "../config.ts";
+import { CATEGORY_LABEL, DECLINE_KINDS, type DeclineKind } from "../core/initiatives.ts";
+import { verdictOf } from "../core/initiative-loop.ts";
 import { accessRules, refusal, tailscaleInfo } from "./access.ts";
 import type { Message } from "../core/conversation.ts";
 import { launchAutomation } from "../scheduler/automation-run.ts";
@@ -131,6 +133,7 @@ export function historyTitle(t: Pick<Task, "label" | "prompt"> & { id?: number; 
   const asked = t.prompt.match(/\nMessage de Charles : «?\s*([\s\S]+?)\s*»?\s*$/);
   if (asked) return asked[1].replace(/\s+/g, " ").trim();
   if (t.label === "brief") return "Brief du matin";
+  if (t.label === "bilan") return "Bilan des propositions";
   const goal = t.prompt.match(/tour (\d+) sur \d+\]\nObjectif de Charles : (.*)/);
   if (goal) return `Tour ${goal[1]} · ${goal[2]}`;
   const dev = devOfLabel(t.label);
@@ -161,6 +164,7 @@ export function originOf(t: Pick<Task, "label" | "chat_id"> & { source?: string 
   if (t.label === HEARTBEAT_LABEL) return "Tour de veille";
   if (t.label === IDEAS_TOUR_LABEL || t.label === IDEA_DIG_LABEL) return "Idées";
   if (t.label === "brief") return "Brief du matin";
+  if (t.label === "bilan") return "Bilan des propositions";
   const src = t.source ?? "";
   if (src.startsWith("automation:")) return `Automatisation « ${src.slice(11)} »`;
   if (src.startsWith("initiative:")) return "Proposition acceptée";
@@ -531,7 +535,13 @@ export function snapshot(hub: Hub, opts: { remote?: unknown; health?: () => Heal
     })(),
     mails: hub.mails().map((m) => ({ id: m.id, to: m.to_addr, cc: m.cc, subject: m.subject, body: m.body, reply: Boolean(m.thread_id), at: m.created_at })),
     // Tour de veille : ses propositions en attente, et où il en est.
-    initiatives: hub.initiatives().map((i) => ({ id: i.id, title: i.title, why: i.why, action: i.action, source: i.source, at: i.created_at })),
+    initiatives: hub.initiatives().map((i) => ({ id: i.id, title: i.title, why: i.why, action: i.action, source: i.source, at: i.created_at, category: i.category, success: i.success })),
+    // Boucle d'initiatives : ton avis attendu, le parcours des dernières, et le bilan par catégorie (30 jours).
+    initiativeLoop: {
+      feedback: store.initiatives.awaitingFeedback().map((i) => ({ id: i.id, title: i.title, success: i.success, outcome: i.outcome, note: i.outcome_note, at: i.outcome_at })),
+      recent: store.initiatives.recent(10).map((i) => ({ id: i.id, title: i.title, category: i.category, status: i.status, auto: i.auto === 1, declineKind: i.decline_kind, outcome: i.outcome, note: i.outcome_note, feedback: i.feedback, at: i.created_at, taskId: i.exec_task_id, goalId: i.exec_goal_id })),
+      stats: store.initiatives.stats(30).map((c) => ({ ...c, label: CATEGORY_LABEL[c.category], verdict: verdictOf(c) })),
+    },
     heartbeat: (() => {
       const s = heartbeatStatus(hub);
       return { minutes: config.heartbeatMinutes, why: s.why, next: s.next };
@@ -617,7 +627,7 @@ export function snapshot(hub: Hub, opts: { remote?: unknown; health?: () => Heal
  * besoin pour lire et avancer dans une vidéo. Seuls les fichiers des brouillons sont servis.
  */
 /** Ce que le calendrier range, en plus des automatisations : le brief du matin et le tour d'idées. */
-const CALENDAR_TASKS: Record<string, string> = { brief: "Brief du matin", idees: "Tour d'idées" };
+const CALENDAR_TASKS: Record<string, string> = { brief: "Brief du matin", idees: "Tour d'idées", bilan: "Bilan des propositions" };
 
 /**
  * Un mois du calendrier (« AAAA-MM ») : les exécutions des automatisations rangées dans
@@ -669,7 +679,7 @@ export function calendarMonth(hub: Hub, month: string) {
     const ideas = row.label === "idees" ? (store.db.prepare("SELECT id, title, kind, status FROM ideas WHERE task_id = ? ORDER BY id").all(row.id) as { id: number; title: string; kind: string; status: string }[]) : [];
     return {
       key: `t${row.id}`,
-      kind: row.label === "brief" ? ("brief" as const) : ("ideas" as const),
+      kind: row.label === "brief" ? ("brief" as const) : row.label === "bilan" ? ("bilan" as const) : ("ideas" as const),
       name: CALENDAR_TASKS[row.label],
       at: row.created_at,
       manual: false,
@@ -1418,9 +1428,17 @@ export function startWeb(hub: Hub, opts: { health?: (fresh?: boolean) => HealthR
 
     const initiative = path.match(/^\/api\/initiatives\/(\d+)$/);
     if (initiative) {
+      // Ton avis sur une proposition terminée : Utile / Pas utile (dans les 3 jours).
+      if (body.action === "feedback") {
+        if (body.value !== "utile" && body.value !== "inutile") throw new HttpError(400, "Avis attendu : utile ou inutile");
+        if (!store.initiatives.setFeedback(Number(initiative[1]), body.value)) throw new HttpError(409, "Cette proposition n'attend plus d'avis.");
+        hub.touch();
+        return json(res, 200, { ok: true });
+      }
       if (body.action !== "accept" && body.action !== "decline") throw new HttpError(400, "Action inconnue");
       const reason = typeof body.reason === "string" ? body.reason.slice(0, 300) : undefined;
-      const outcome = hub.decideInitiative(Number(initiative[1]), body.action, reason);
+      const kind = (DECLINE_KINDS as readonly string[]).includes(String(body.kind)) ? (body.kind as DeclineKind) : undefined;
+      const outcome = hub.decideInitiative(Number(initiative[1]), body.action, reason, kind);
       return json(res, outcome === "already" ? 409 : 200, outcome === "already" ? { error: "Cette proposition a déjà été traitée." } : { ok: true });
     }
 
