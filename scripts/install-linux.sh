@@ -17,9 +17,9 @@ if [ "$(uname -s)" != "Linux" ] || [ "$(uname -m)" != "x86_64" ]; then
   exit 1
 fi
 
-step "Paquets système (shell, git, compilation de whisper, vidéo, bac à sable de Claude, sqlite)"
+step "Paquets système (shell, git, compilation de whisper, vidéo, bac à sable de Claude, sqlite, sauvegardes restic)"
 sudo apt-get update
-sudo apt-get install -y git zsh curl ca-certificates build-essential cmake ffmpeg bubblewrap socat sqlite3 unzip rsync fonts-dejavu-core
+sudo apt-get install -y git zsh curl ca-certificates build-essential cmake ffmpeg bubblewrap socat sqlite3 unzip rsync fonts-dejavu-core restic
 
 step "Node 26"
 if ! has node || [ "$(node -p 'process.versions.node.split(".")[0]')" -lt 26 ]; then

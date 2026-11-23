@@ -3,6 +3,7 @@
 #   scripts/service.sh install    installe et démarre (puis démarre tout seul : ouverture de session, ou démarrage du serveur),
 #                                 avec la surveillance locale (scripts/watchdog.sh toutes les 5 minutes)
 #   scripts/service.sh uninstall  arrête et retire
+#   scripts/service.sh stop|start arrête / relance sans désinstaller (restauration, maintenance)
 #   scripts/service.sh restart    redémarre (après une modification de .env ou du code), puis vérifie que Clark répond
 #   scripts/service.sh status     état du service
 #   scripts/service.sh logs       suit le journal (Ctrl+C pour quitter)
@@ -239,6 +240,22 @@ case "${1:-status}" in
     svc_stop_remove
     echo "Clark est arrêté et ne démarrera plus tout seul."
     ;;
+  stop)
+    # Arrêt sans désinstaller (restauration, maintenance) : la surveillance locale le laisse arrêté.
+    if [ -n "$FAKE" ]; then "$FAKE" stop
+    elif [ "$OS" = "Darwin" ]; then launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+    else systemctl --user stop clark.service
+    fi
+    echo "Clark est arrêté (scripts/service.sh start pour le relancer)."
+    ;;
+  start)
+    if [ -n "$FAKE" ]; then "$FAKE" start
+    elif [ "$OS" = "Darwin" ]; then [ -f "$PLIST" ] || write_plist; launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null || launchctl kickstart -k "$DOMAIN/$LABEL"
+    else systemctl --user start clark.service
+    fi
+    echo "Clark démarre."
+    healthy && echo "Clark répond (http://localhost:$PORT)." || { echo "Clark ne répond pas : scripts/service.sh logs"; exit 1; }
+    ;;
   restart)
     # Installé avant la surveillance locale : elle est ajoutée au passage.
     if [ -z "$FAKE" ] && [ ! -f "$WD_PLIST" ] && [ ! -f "$WD_UNIT_DIR/clark-watchdog.timer" ]; then watchdog_install && echo "Surveillance locale ajoutée (toutes les 5 minutes)."; fi
@@ -270,6 +287,6 @@ case "${1:-status}" in
     mkdir -p "$(dirname "$LOG")"; touch "$LOG"; tail -n 50 -f "$LOG"
     ;;
   *)
-    echo "usage : scripts/service.sh install | uninstall | restart | status | logs"; exit 2
+    echo "usage : scripts/service.sh install | uninstall | start | stop | restart | status | logs"; exit 2
     ;;
 esac

@@ -61,11 +61,18 @@ function renderHealth() {
     })
     .join("");
   const b = h.backup;
+  const ago = (at) => (at ? `il y a ${hours(Math.max(0, Math.round((Date.now() - Date.parse(at)) / 3600000)))}` : "");
+  const r = b.remote ?? { configured: false };
+  const d = b.drill;
   const backup = healthTile(
     "Sauvegarde",
     b.last ? `Il y a ${hours(b.hoursAgo)}` : "Aucune",
-    b.last ? `${b.count} gardée${b.count > 1 ? "s" : ""} · chaque nuit à 3 h` : "Elle se fait chaque nuit à 3 h.",
-    b.hoursAgo === null || b.hoursAgo >= 36 ? "warn" : "ok",
+    [
+      b.last ? `locale : ${b.count} gardée${b.count > 1 ? "s" : ""}` : "locale : chaque nuit à 3 h",
+      !r.configured ? (r.detail ? `distante : ${esc(r.detail)}` : "distante : pas configurée") : r.ok === false ? `distante en échec : ${esc(r.detail ?? "")}` : r.at ? `distante : ${ago(r.at)}${r.snapshots ? `, ${r.snapshots} gardées` : ""}` : "distante : cette nuit",
+      d === null ? "exercice : coupé" : d.ok === null ? "exercice : pas encore" : d.ok ? `exercice réussi ${ago(d.at)} (${d.source})` : `exercice en échec : ${esc(d.detail ?? "")}`,
+    ].join(" · "),
+    b.hoursAgo === null || b.hoursAgo >= 36 || r.ok === false || (r.detail && !r.configured) || d?.ok === false ? "warn" : "ok",
   );
   const v = h.version;
   const version = healthTile(

@@ -4,6 +4,7 @@ import { closeSync, existsSync, fstatSync, openSync, readdirSync, readFileSync, 
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { AlertState } from "./alerts.ts";
+import { DRILL_MAX_DAYS, drillDay, remoteConfig, type BackupStatus } from "./backup.ts";
 import type { PingStatus } from "./ping.ts";
 import { tightest } from "../engines/quota.ts";
 import type { Hub } from "./hub.ts";
@@ -33,6 +34,9 @@ export type HealthSources = {
   git?: (args: string[]) => string | null;
   /** Place libre du disque, en octets (remplacée dans les tests). */
   freeBytes?: (path: string) => number | null;
+  /** État des sauvegardes (locale, distante, exercice) et réglage du dépôt (remplacé dans les tests). */
+  backup?: () => BackupStatus;
+  remoteConfig?: () => ReturnType<typeof remoteConfig>;
   /** Alertes en cours et dernières envoyées ; ping externe ; surveillance locale installée. */
   alerts?: () => AlertState;
   ping?: () => PingStatus;
@@ -186,6 +190,19 @@ export function healthReport(hub: Hub, src: HealthSources) {
   const backupHours = backupAt ? Math.round((now.getTime() - backupAt) / HOUR) : null;
   if (backupHours === null) problems.push({ id: "sauvegarde", level: "warn", text: "Aucune sauvegarde de la base pour l'instant (elle se fait chaque nuit à 3 h)." });
   else if (backupHours >= LIMITS.backupHours) problems.push({ id: "sauvegarde", level: "warn", text: `Dernière sauvegarde il y a ${backupHours} h.` });
+  const bs = src.backup?.() ?? { local: null, remote: null, drill: null };
+  if (bs.local && !bs.local.ok && Date.parse(bs.local.at) > (backupAt ?? 0)) problems.push({ id: "sauvegarde", level: "warn", text: `Dernière sauvegarde locale en échec : ${bs.local.detail ?? "raison inconnue"}.` });
+  // Hors machine : seulement si CLARK_BACKUP_REPO est réglé.
+  const remoteCfg = (src.remoteConfig ?? remoteConfig)();
+  const hoursSince = (at: string) => Math.round((now.getTime() - Date.parse(at)) / HOUR);
+  if (remoteCfg && "error" in remoteCfg) problems.push({ id: "sauvegarde-distante", alert: "normal", level: "warn", text: `Sauvegarde distante mal réglée : ${remoteCfg.error}.` });
+  else if (remoteCfg && bs.remote && !bs.remote.ok) problems.push({ id: "sauvegarde-distante", alert: "normal", level: "warn", text: `Sauvegarde distante en échec : ${bs.remote.detail ?? "raison inconnue"}.` });
+  else if (remoteCfg && bs.remote?.ok && hoursSince(bs.remote.at) >= LIMITS.backupHours) problems.push({ id: "sauvegarde-distante", alert: "normal", level: "warn", text: `Dernière sauvegarde distante il y a ${hoursSince(bs.remote.at)} h.` });
+  // Exercice de restauration : en échec, ou pas réussi depuis 8 jours.
+  if (drillDay() !== null && bs.drill) {
+    if (!bs.drill.ok) problems.push({ id: "exercice-sauvegarde", alert: "normal", level: "warn", text: `Exercice de restauration en échec (sauvegarde ${bs.drill.source}) : ${bs.drill.detail ?? "raison inconnue"}.` });
+    else if (hoursSince(bs.drill.at) >= DRILL_MAX_DAYS * 24) problems.push({ id: "exercice-sauvegarde", alert: "normal", level: "warn", text: `Pas d'exercice de restauration réussi depuis ${Math.round(hoursSince(bs.drill.at) / 24)} jours.` });
+  }
 
   // Version : le commit qui tourne, sa branche, la dernière version qui a démarré (scripts/service.sh).
   const commit = git(["rev-parse", "HEAD"]);
@@ -216,7 +233,13 @@ export function healthReport(hub: Hub, src: HealthSources) {
     engines,
     failures: failures.map((f) => ({ id: f.id, label: f.label, title: redactSecrets(askedText(f.prompt).replace(/\s+/g, " ")).slice(0, 120), status: f.status, at: f.updated_at })),
     errors,
-    backup: { last: lastBackup, hoursAgo: backupHours, count: backups.length },
+    backup: {
+      last: lastBackup,
+      hoursAgo: backupHours,
+      count: backups.length,
+      remote: { configured: Boolean(remoteCfg && !("error" in remoteCfg)), at: bs.remote?.at ?? null, ok: bs.remote?.ok ?? null, detail: bs.remote?.detail ?? (remoteCfg && "error" in remoteCfg ? remoteCfg.error : null), snapshots: bs.remote?.snapshots ?? null },
+      drill: drillDay() === null ? null : (bs.drill ?? { at: null, ok: null, detail: null, source: null }),
+    },
     version: { commit: commit?.slice(0, 7) ?? null, branch, lastGood: lastGood?.slice(0, 7) ?? null, uptimeMinutes: Math.round(process.uptime() / 60), node: process.version, system: platformInfo().name },
     alerts: src.alerts ? { active: Object.values(src.alerts().active), history: [...src.alerts().history].reverse() } : { active: [], history: [] },
     ping: src.ping?.() ?? { configured: false, lastOk: null, failing: false, lastError: null },
