@@ -270,6 +270,16 @@ Pour voir l'interface sans clé API, lance `npm run demo` puis ouvre http://loca
 
 **Hors Mac.** Quelques morceaux ne marchent que sur un Mac : iMessage, la fenêtre de choix de fichier, garder la machine éveillée, la voix du système. Ailleurs, ils sont simplement absents (la carte iMessage le dit, les entrées « Joindre un fichier » et « Parcourir… » disparaissent ; le chemin s'écrit à la main). Tout le reste ne dépend pas du système.
 
+## Alertes et surveillance
+
+**Alertes Telegram.** Chaque minute, Clark relit sa page Santé. Un point qui mérite une alerte (moteur principal déconnecté ou quota atteint, version de secours, disque sous 2 Go, une même erreur 20 fois depuis le démarrage) part en un message, s'il est vu deux relevés de suite ; une seule fois tant qu'il dure ; « revenu à la normale » quand il a disparu deux relevés de suite. Plusieurs points ensemble : un seul message. Ce qui a été signalé est gardé dans la base : un redémarrage ne renvoie rien. Les canaux se règlent dans Réglages › Notifications › **Santé de Clark** (par défaut Telegram et navigateur). Pendant les heures calmes, seules les alertes urgentes passent (moteur principal, version de secours, disque presque plein), si la case « Sauf les alertes urgentes de santé » est cochée ; le reste part dans le résumé de fin des heures calmes. Les alertes s'affichent aussi dans Activité (rubrique Santé) et sur la page Santé (en cours, et les 10 dernières). `CLARK_ALERTS=off` les coupe.
+
+**Surveillance locale.** `scripts/service.sh install` installe `scripts/watchdog.sh`, lancé toutes les 5 minutes (minuteur systemd `clark-watchdog.timer` sur Linux, agent launchd `local.clark.watchdog` sur le Mac ; `restart` l'ajoute s'il manque). Il appelle `/api/health` ; si Clark ne répond pas deux fois de suite (figé sans avoir planté), il le relance, et Clark le dit au redémarrage. Rien pendant les 3 minutes après un démarrage, ni si le service a été arrêté exprès. Son journal : `data/logs/watchdog.log`. Vérifier sur Linux : `systemctl --user list-timers`.
+
+**Surveillance externe** (le seul moyen d'être prévenu si Clark est complètement mort, ou le serveur coupé) : crée un check sur healthchecks.io (période 5 min, tolérance 10 min) et choisis-y comment être prévenu (mail, Telegram, application). Mets son adresse dans `.env` : `CLARK_PING_URL=https://hc-ping.com/<ton-id>`, puis redémarre. Clark l'appelle toutes les 5 minutes, sans rien envoyer d'autre. Avec `CLARK_PING_FAIL_ON_BAD=1` (désactivé par défaut), une santé « À régler » appelle `<adresse>/fail` : healthchecks.io te prévient aussi, même si Telegram est en panne.
+
+`/api/health` répond toujours 200 tant que Clark tourne, avec `level`, les identifiants des points (`problems`) et la version.
+
 ## Serveur Linux (VPS)
 
 Cible : **Ubuntu 24.04, x86_64** (Chrome n'existe pas en ARM sous Linux), au moins 4 Go de mémoire, 8 conseillés.
