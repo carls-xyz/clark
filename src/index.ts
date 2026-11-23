@@ -152,7 +152,7 @@ onClaudeLimit((info) => {
 // Le navigateur de Clark : un seul, tenu ici, pour les deux moteurs (Codex passe par l'adresse interne).
 const browser = new BrowserService({
   driver: new ChromeDriver(),
-  approve: (taskId, req) => hub.approveTask(taskId, req),
+  approve: (taskId, req) => hub.approveTaskOutcome(taskId, req),
   taskAlive: (id) => !wasStopped(id) && ["queued", "running"].includes(journal.get(id)?.status ?? ""),
   readOnly: (id) => journal.get(id)?.access !== "write",
   onChange: () => hub.touch(),

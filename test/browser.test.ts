@@ -556,7 +556,8 @@ test("adresse interne (Codex) : jeton exigé, l'accord passe par tes boutons ; c
     const state = (await call(port, "/api/state", {})).body;
     assert.equal(state.browser.running, true);
     assert.equal(state.browser.lastAction, "clique « Envoyer »");
-    assert.equal((await call(port, "/api/browser/screenshot", auth)).status, 200);
+    // Le jeton interne (l'agent) n'a que sa propre capture vision : jamais celle de la vue distante ou de la page lue.
+    assert.equal((await call(port, "/api/browser/screenshot", auth)).status, 404);
     const origin = { ...json, Origin: `http://localhost:${port}` };
     assert.equal((await call(port, "/api/browser", origin, { action: "show" })).status, 200);
     assert.equal(driver.visible(), true);

@@ -157,7 +157,8 @@ export function createTelegram(hub: Hub, opts: { token: string; ownerId: number;
       await bot.api.sendMessage(chat, text, { reply_markup: keyboard });
     },
     askApproval: async (a) => {
-      const keyboard = new InlineKeyboard().text("Valider", `ok:${a.id}`).text("Refuser", `no:${a.id}`);
+      // « Arrêter l'agent » à côté de chaque accord : arrête la tâche, et annule ses autres accords en attente.
+      const keyboard = new InlineKeyboard().text("Valider", `ok:${a.id}`).text("Refuser", `no:${a.id}`).row().text("Arrêter l'agent", `stop:${a.taskId}`);
       await bot.api.sendMessage(chat, `Je peux ?\n\n${a.summary.slice(0, 3500)}`, { reply_markup: keyboard });
     },
     alert: (task, text) => sendAlert(task.id, text),
@@ -211,7 +212,7 @@ export function createTelegram(hub: Hub, opts: { token: string; ownerId: number;
 
   bot.command("start", (ctx) =>
     ctx.reply(
-      "Salut, c'est Clark. Écris-moi normalement, ou envoie-moi un vocal.\n\n/nouveau : nouvelle conversation\n/memoire : ce que je retiens\n/budget : dépense du jour\n/taches : avancement et tâches à vérifier\n/equipe : confier une demande à l'équipe\n/objectif : donner un objectif que je poursuis sur plusieurs tours\n/idee : me lancer une idée de projet (ou « /idee design : … »), je la creuse",
+      "Salut, c'est Clark. Écris-moi normalement, ou envoie-moi un vocal.\n\n/nouveau : nouvelle conversation\n/memoire : ce que je retiens\n/budget : dépense du jour\n/taches : avancement et tâches à vérifier\n/stop : arrêter un agent en cours (tu confirmes d'un bouton)\n/equipe : confier une demande à l'équipe\n/objectif : donner un objectif que je poursuis sur plusieurs tours\n/idee : me lancer une idée de projet (ou « /idee design : … »), je la creuse",
     ),
   );
 
@@ -244,6 +245,17 @@ export function createTelegram(hub: Hub, opts: { token: string; ownerId: number;
   });
 
   bot.command("nouveau", () => hub.newConversation());
+
+  // /stop n'arrête rien tout seul : il montre chaque tâche en cours avec son bouton « Arrêter ».
+  bot.command("stop", async (ctx) => {
+    const tasks = hub.stoppable();
+    if (!tasks.length) return void (await ctx.reply("Aucun agent en cours."));
+    const keyboard = new InlineKeyboard();
+    for (const t of tasks.slice(0, 10)) keyboard.text(`Arrêter #${t.id}`, `stop:${t.id}`).row();
+    const lines = tasks.slice(0, 10).map((t) => `#${t.id} · ${t.title}`);
+    const head = tasks.length === 1 ? "Un agent est en cours :" : `${tasks.length} agents sont en cours :`;
+    await ctx.reply(`${head}\n\n${lines.join("\n")}\n\nTouche le bouton de celui à arrêter.`, { reply_markup: keyboard });
+  });
 
   // /objectif <but> : Clark enchaîne les tours jusqu'à l'atteindre ; le suivi arrive ici.
   bot.command("objectif", async (ctx) => {
@@ -317,6 +329,15 @@ export function createTelegram(hub: Hub, opts: { token: string; ownerId: number;
     await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
     const outcome = hub.decidePost(Number(id), verdict === "ok" ? "approve" : "reject");
     await ctx.answerCallbackQuery({ text: outcome === "done" ? (verdict === "ok" ? "Validé" : "Jeté") : "Déjà traité." });
+  });
+
+  // Arrêter un agent (bouton de /stop ou d'un accord). Réservé au propriétaire, comme tous les boutons.
+  bot.callbackQuery(/^stop:(\d+)$/, async (ctx) => {
+    if (ctx.from?.id !== opts.ownerId) return void (await ctx.answerCallbackQuery());
+    const outcome = hub.stopTask(Number(ctx.match[1]));
+    // Boutons retirés seulement si l'arrêt a eu lieu : sinon l'accord affiché reste utilisable.
+    if (outcome === "stopped") await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+    await ctx.answerCallbackQuery({ text: outcome === "stopped" ? "Agent arrêté" : "Cet agent ne tourne plus." });
   });
 
   // Boutons durables : l'id de tâche suffit, ils marchent même après un redémarrage.
