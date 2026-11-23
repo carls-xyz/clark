@@ -215,6 +215,8 @@ CLARK_ENGINE=                 # codex ou claude ; vide = claude si une clé API 
 CLARK_CODEX_MODEL=            # facultatif : modèle Codex (vide = celui par défaut)
 CLARK_ROLE_ENGINES=           # facultatif : moteur par rôle, ex. redacteur=codex,relecteur=claude
 ANTHROPIC_API_KEY=            # console.anthropic.com (moteur Claude seulement)
+OPENAI_API_KEY=               # facultatif : Codex par clé d'API au lieu du compte ChatGPT
+OPENROUTER_API_KEY=           # facultatif : autres IA (aussi MISTRAL_API_KEY, GEMINI_API_KEY, GROQ_API_KEY ; Ollama sans clé)
 TELEGRAM_BOT_TOKEN=           # facultatif : donné par @BotFather
 TELEGRAM_OWNER_ID=            # facultatif : ton id numérique, via @userinfobot
 CLARK_WEB_PORT=4310           # port de l'interface
@@ -330,6 +332,8 @@ Tout le reste te demande une validation par bouton, dans l'interface ou sur Tele
 **Choisir l'IA et le modèle.** Le menu « Modèle » (en bas de la barre de gauche, et dans la fenêtre du moteur) liste les modèles de **toutes les IA connectées** (Claude, Codex), groupés par IA. Choisir un modèle d'une autre IA en fait le **moteur principal tout de suite**, sans redémarrer : les prochaines tâches partent dessus, celles en cours gardent le leur. Le choix est gardé (Réglages › Moteurs › Moteur principal) ; on peut aussi cliquer « En faire le moteur principal » sur la carte d'une IA. Sans choix, c'est celle qui est connectée (Claude si les deux le sont).
 
 **Se connecter : compte ou clé d'API.** Chaque IA se connecte avec ton compte (bouton « Connecter », abonnement Claude ou ChatGPT) ou avec une clé d'API facturée à l'usage : `ANTHROPIC_API_KEY` pour Claude, `OPENAI_API_KEY` pour Codex, dans `.env`, puis redémarrage (Codex se connecte alors tout seul avec la clé). Les clés restent dans `.env`, jamais dans l'interface.
+
+**Autres IA (clé d'API).** OpenRouter, Mistral, Gemini, Groq : mets leur clé dans `.env` (`OPENROUTER_API_KEY`, `MISTRAL_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`) et redémarre ; Ollama, s'il tourne sur ce Mac, est trouvé tout seul (`OLLAMA_HOST` pour une autre adresse). Leurs modèles apparaissent dans le menu « Modèle » (40 au plus par fournisseur ; pour OpenRouter, seulement ceux qui savent appeler des outils). Elles n'ont pas d'agent tout fait : Clark fait tourner lui-même la boucle (le modèle demande un outil, Clark le vérifie avec les mêmes règles et accords que pour Claude, l'exécute, rend le résultat), avec ses outils à lui : mémoire, mails, agenda, coffre, navigateur, délégation, rappels… Pas d'outils de code : une tâche de code part toujours sur Claude ou Codex. La conversation avec le modèle est gardée par Clark (60 messages au plus) d'un message à l'autre.
 
 **Réglages › Moteurs** (et, pour le moteur principal, la puce du composeur) montre, pour Claude et pour Codex :
 - **le quota de ton abonnement** : fenêtres de 5 h et de 7 jours, pourcentage utilisé, heure de remise à zéro. Clark lit ce que disent Claude Code (comme `/usage`) et Codex, sans envoyer de message au modèle, donc sans rien consommer. Relu au démarrage, tous les quarts d'heure et avec « Actualiser ». Si une tâche Claude bute sur la limite, c'est noté tout de suite. Côté Claude, l'usage passe par une API que le SDK marque comme expérimentale : si elle change, le quota s'affiche « pas encore donné », le reste marche ;

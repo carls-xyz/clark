@@ -845,6 +845,8 @@ hub.setEngine({ name: "demo", model: "faux agent", ready: true, account: null, p
       { id: "haiku", name: "Haiku", description: "le plus rapide (démo)", efforts: [], defaultEffort: null },
     ],
   });
+  // Autres IA : pas de clé dans la démo, la carte montre comment en ajouter.
+  hub.setConnection("api", { ready: false, account: null, problem: "aucune clé dans .env" });
   hub.setConnection("codex", DEMO_LOGIN ? { ready: false, account: null, problem: "pas connecté. Lance une fois : codex login" } : { ready: true, account: "ChatGPT plus", problem: null });
   hub.setCatalog("codex", {
     readAt: Date.now(),

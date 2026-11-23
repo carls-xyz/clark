@@ -30,6 +30,7 @@ import { inThread, noteCategory } from "../core/thread.ts";
 import { platformInfo } from "../core/platform.ts";
 import { cachedHealth, type HealthReport } from "../core/health.ts";
 import { paths } from "../config.ts";
+import { PROVIDERS } from "../engines/providers.ts";
 import type { Message } from "../core/conversation.ts";
 import { launchAutomation } from "../scheduler/automation-run.ts";
 import { TEAM_LABEL } from "../core/team.ts";
@@ -394,7 +395,7 @@ export function snapshot(hub: Hub, opts: { health?: () => HealthReport; demo?: b
     budget: { spent: store.spentToday(), max: config.maxUsdPerDay, perTask: config.maxUsdPerTask },
     quota: hub.quota(),
     // Moteurs : connexion, quota, modèles proposés et choix en cours, pour chacun.
-    engines: (["claude", "codex"] as const)
+    engines: (["claude", "codex", "api"] as const)
       .map((name) => {
         const conn = hub.connection(name);
         const cat = hub.catalog(name);
@@ -411,10 +412,12 @@ export function snapshot(hub: Hub, opts: { health?: () => HealthReport; demo?: b
           modelsError: cat?.error ?? null,
           choice,
           // Ce qui tourne si rien n'est choisi : .env, sinon le défaut du moteur.
-          fallbackModel: name === "claude" ? config.model : config.codexModel,
+          fallbackModel: name === "claude" ? config.model : name === "codex" ? config.codexModel : null,
           // Connexion par le bouton : où elle en est, et si Clark doit redémarrer pour s'en servir.
-          login: loginView(name, conn?.ready ?? null),
-          restartNeeded: Boolean(opts.engineLogin && conn?.ready && !opts.engineLogin.readyAtStart[name]),
+          // Autres IA : pas de connexion par compte, seulement des clés dans .env.
+          login: name === "api" ? null : loginView(name, conn?.ready ?? null),
+          restartNeeded: name === "api" ? false : Boolean(opts.engineLogin && conn?.ready && !opts.engineLogin.readyAtStart[name]),
+          ...(name === "api" ? { providers: PROVIDERS.map((p) => ({ id: p.id, label: p.label, keyEnv: p.keyEnv, site: p.site, active: Boolean(conn?.account?.split(", ").includes(p.label)) })) } : {}),
           canRestart: Boolean(opts.engineLogin?.restart),
         };
       })
@@ -1198,7 +1201,7 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
       if (!opts.settings) throw new HttpError(409, "Réglages indisponibles");
       const key = String(body.key ?? "");
       // Moteur principal : vérifié d'abord (connecté ?), puis appliqué tout de suite.
-      if (key === "engine" && (body.value === "claude" || body.value === "codex")) {
+      if (key === "engine" && (body.value === "claude" || body.value === "codex" || body.value === "api")) {
         const error = hub.setMainEngine(body.value);
         if (error) throw new HttpError(409, error);
       }
@@ -1663,7 +1666,7 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
     // Sélecteur de modèle : n'importe quel modèle d'une IA connectée. Si elle n'est pas le moteur principal,
     // elle le devient tout de suite (sans redémarrer), et le choix est gardé (Réglages › Moteurs).
     if (path === "/api/engines/main") {
-      const name = body.engine === "claude" || body.engine === "codex" ? body.engine : null;
+      const name = body.engine === "claude" || body.engine === "codex" || body.engine === "api" ? body.engine : null;
       if (!name) throw new HttpError(400, "Moteur inconnu");
       const model = typeof body.model === "string" && body.model ? body.model : null;
       const from = typeof body.from === "string" ? body.from.slice(0, 40) : "interface";
@@ -1677,13 +1680,13 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
       return json(res, 200, { ok: true });
     }
 
-    const engineChoice = path.match(/^\/api\/engines\/(claude|codex)$/);
+    const engineChoice = path.match(/^\/api\/engines\/(claude|codex|api)$/);
     if (engineChoice) {
       const model = typeof body.model === "string" && body.model ? body.model : null;
       const effort = typeof body.effort === "string" && body.effort ? body.effort : null;
       const reason = body.reason === "model" ? "model" : "effort";
       const from = typeof body.from === "string" ? body.from.slice(0, 40) : "interface";
-      const error = hub.setChoice(engineChoice[1] as "claude" | "codex", { model, effort }, reason, from);
+      const error = hub.setChoice(engineChoice[1] as "claude" | "codex" | "api", { model, effort }, reason, from);
       if (error) throw new HttpError(400, error);
       return json(res, 200, { ok: true });
     }

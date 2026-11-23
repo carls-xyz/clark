@@ -24,7 +24,7 @@ export const paths = {
   claudeHome: resolve(ROOT, "data/claude-home"),
 };
 
-export type EngineName = "claude" | "codex";
+export type EngineName = "claude" | "codex" | "api";
 
 /** Rôles auxquels on peut attribuer un moteur : ceux du catalogue, plus le plan et la synthèse de Clark. */
 export const ENGINE_ROLES = ["plan", "chercheur", "contenu", "redacteur", "relecteur", "temporaire", "synthese"] as const;
@@ -52,8 +52,8 @@ function engine(hasApiKey: boolean): EngineName {
   const raw = process.env.CLARK_ENGINE?.trim().toLowerCase();
   // Vide : Claude avec une clé API ; sinon Codex, à moins que le démarrage ne trouve ton compte Claude connecté.
   if (!raw) return hasApiKey ? "claude" : "codex";
-  if (raw === "claude" || raw === "codex") return raw;
-  throw new Error(`CLARK_ENGINE doit valoir « claude » ou « codex » (reçu : ${raw})`);
+  if (raw === "claude" || raw === "codex" || raw === "api") return raw;
+  throw new Error(`CLARK_ENGINE doit valoir « claude », « codex » ou « api » (reçu : ${raw})`);
 }
 
 /** Telegram est facultatif : il faut les deux variables, ou aucune. */

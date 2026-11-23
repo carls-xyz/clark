@@ -7,6 +7,7 @@ import { Conversation } from "./core/conversation.ts";
 import { executeTask } from "./core/agent.ts";
 import { createHub, OWNER_CHAT } from "./core/hub.ts";
 import { createCodexEngine, LOGIN_COMMAND, loginCodexWithKey } from "./engines/codex.ts";
+import { createApiEngine } from "./engines/api-agent.ts";
 import { checkClaudeAuth, CLAUDE_LOGIN_COMMAND, setClaudeAuth } from "./engines/claude-auth.ts";
 import { onClaudeLimit, probeClaude } from "./engines/claude-probe.ts";
 import { canRestart, createLogins, RESTART_EXIT_CODE } from "./engines/login.ts";
@@ -81,13 +82,16 @@ if (!codexStatus.ready && codexStatus.problem === "not_logged_in" && process.env
 
 // Pas de moteur choisi (sélecteur de modèle, ou CLARK_ENGINE) : celui qui est connecté. Les deux le sont :
 // Claude, jusqu'à ce que tu en choisisses un autre (le choix est gardé). Aucun : Claude, l'interface propose les deux connexions.
-if (config.engineAuto) config.engine = claude.mode !== "none" ? "claude" : codexStatus.ready ? "codex" : "claude";
+// Autres IA par clé d'API (OpenRouter, Mistral, Gemini, Groq, Ollama…) : Clark fait tourner lui-même la boucle d'outils.
+const api = createApiEngine();
+const apiStatus = await api.status();
+if (config.engineAuto) config.engine = claude.mode !== "none" ? "claude" : codexStatus.ready ? "codex" : apiStatus.ready ? "api" : "claude";
 
 // Mac de 8 Go : Codex ni connecté ni demandé par un rôle → son processus ne reste pas en mémoire.
 // (Il se relancerait tout seul au premier usage.)
 if (!codexStatus.ready && config.engine !== "codex" && !Object.values(config.roleEngines).includes("codex")) codex.close();
 // Claude n'est disponible qu'avec une clé API ; sinon les rôles qui le demandent prennent le moteur principal.
-const executors = { ...(claude.mode !== "none" ? { claude: executeTask } : {}), codex: codex.execute };
+const executors = { ...(claude.mode !== "none" ? { claude: executeTask } : {}), codex: codex.execute, api: api.execute };
 /** Claude : modèles proposés et usage du forfait, lus sans envoyer de message. */
 const refreshClaude = async (): Promise<Quota | null> => {
   const auth = checkClaudeAuth(config.hasApiKey);
@@ -121,8 +125,19 @@ const refreshCodex = async (): Promise<void> => {
   // Codex pas connecté et pas utilisé : on ne le garde pas lancé entre deux relectures.
   if (!s.ready && config.engine !== "codex" && !Object.values(config.roleEngines).includes("codex")) codex.close();
 };
+/** Autres IA : fournisseurs actifs (clés dans .env, Ollama qui répond) et leurs modèles. */
+const refreshApi = async (): Promise<void> => {
+  const s = await api.status();
+  hub.setConnection("api", s);
+  if (!s.ready) return void hub.setCatalog("api", { models: [], readAt: Date.now() });
+  try {
+    hub.setCatalog("api", { models: await api.models(), readAt: Date.now() });
+  } catch (err) {
+    hub.setCatalog("api", null, err instanceof Error ? err.message : String(err));
+  }
+};
 const refreshEngines = async () => {
-  await Promise.all([refreshClaude().catch((err) => console.warn("[clark] Claude non relu :", err instanceof Error ? err.message : err)), refreshCodex()]);
+  await Promise.all([refreshClaude().catch((err) => console.warn("[clark] Claude non relu :", err instanceof Error ? err.message : err)), refreshCodex(), refreshApi()]);
 };
 
 const hub = createHub(
@@ -131,7 +146,7 @@ const hub = createHub(
     execute: config.engine === "codex" ? codex.execute : executeTask,
     executors,
     // Quota du moteur principal du moment (il peut changer à chaud).
-    refreshQuota: async () => (config.engine === "codex" ? codex.quota() : claude.mode === "subscription" ? refreshClaude() : null),
+    refreshQuota: async () => (config.engine === "codex" ? codex.quota() : config.engine === "claude" && claude.mode === "subscription" ? refreshClaude() : null),
     refreshEngines,
     // Vérification de fin de tâche : un petit modèle Claude, si Claude est disponible.
     ...(claude.mode !== "none" ? { judge: claudeJudge, titler: claudeJudge } : {}),
@@ -312,7 +327,10 @@ process.on("SIGINT", () => void shutdown());
 process.on("SIGTERM", () => void shutdown());
 
 // Moteur : vérifié avant la reprise, pour que l'interface dise tout de suite ce qui bloque.
-if (config.engine === "codex") {
+if (config.engine === "api") {
+  hub.setEngine({ name: "api", model: "modèle choisi", ready: apiStatus.ready, account: apiStatus.account, problem: apiStatus.problem });
+  console.log(apiStatus.ready ? `[clark] moteur : autres IA (${apiStatus.account})` : `[clark] moteur : autres IA, ${apiStatus.problem}`);
+} else if (config.engine === "codex") {
   const s = codexStatus;
   const problem = s.ready
     ? null

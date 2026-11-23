@@ -1,6 +1,6 @@
 // ── Moteurs : quota, modèle et niveau d’effort, pour Claude et Codex ──
 
-const ENGINE_NAMES = { claude: "Claude", codex: "Codex" };
+const ENGINE_NAMES = { claude: "Claude", codex: "Codex", api: "Autres IA" };
 const EFFORT_LABELS = { none: "aucune", minimal: "minimale", low: "faible", medium: "moyenne", high: "élevée", xhigh: "très élevée", max: "maximale", ultra: "ultra" };
 const claudePlans = { pro: "Claude Pro", max: "Claude Max", team: "Claude Team", enterprise: "Claude Enterprise" };
 
@@ -160,6 +160,20 @@ function renderLogin(e) {
   </div>`;
 }
 
+/** Autres IA : les fournisseurs, lesquels sont actifs, et comment en ajouter un (une clé dans .env). */
+function renderProviders(e) {
+  const list = e.providers ?? [];
+  return `<div class="engine-login">
+    <p class="quiet">Des IA par clé d'API, pour discuter, la veille, les résumés, avec les outils de Clark (mémoire, mails, agenda, navigateur…). Le code reste à Claude ou Codex.</p>
+    <ul class="provider-list">${list
+      .map(
+        (p) => `<li><span class="provider-name">${esc(p.label)}</span>${p.active ? `<span class="tag">connecté</span>` : p.keyEnv ? `<span class="quiet"><code>${esc(p.keyEnv)}=</code> dans .env · clé sur ${esc(p.site)}</span>` : `<span class="quiet">lance Ollama sur ce Mac (${esc(p.site)})</span>`}</li>`,
+      )
+      .join("")}</ul>
+    <p class="quiet">Ajoute la clé dans le fichier <code>.env</code> de Clark, puis redémarre-le. Elle ne passe jamais par cette page.${e.modelsError ? ` <span class="inline-error">${esc(e.modelsError)}</span>` : ""}</p>
+  </div>`;
+}
+
 /** Autre façon de connecter : une clé d'API dans .env (elle ne passe jamais par l'interface). */
 const API_KEYS = { claude: ["ANTHROPIC_API_KEY", "console.anthropic.com", "facturée à l'usage, à la place de ton abonnement"], codex: ["OPENAI_API_KEY", "platform.openai.com", "facturée à l'usage, à la place de ton compte ChatGPT"] };
 function apiKeyHelp(name) {
@@ -220,7 +234,7 @@ function renderEngine(e, { compact = false, idp = "", bare = false } = {}) {
   const head = compact
     ? `<div class="engine-head"><span class="engine-name">${title}</span>${plan ? `<span class="engine-plan">${esc(plan)}</span>` : ""}</div>`
     : `<div class="engine-head"><h3 class="engine-name">${title}</h3>${e.main ? `<span class="tag">principal</span>` : ""}${plan ? `<span class="engine-plan">${esc(plan)}</span>` : ""}${!e.main && e.ready ? `<button type="button" class="btn ghost engine-make-main" data-engine-main="${e.name}">En faire le moteur principal</button>` : ""}</div>`;
-  const problem = e.ready === false && compact ? `<p class="quiet">Pas connecté : <a href="#reglages/moteurs">connecter ${title}</a>.</p>` : compact ? "" : renderLogin(e);
+  const problem = e.ready === false && compact ? `<p class="quiet">Pas connecté : <a href="#reglages/moteurs">connecter ${title}</a>.</p>` : compact ? "" : e.name === "api" ? renderProviders(e) : renderLogin(e);
 
   let quota = "";
   if (e.quota && e.quota.windows.length) {
@@ -245,7 +259,7 @@ function renderEngine(e, { compact = false, idp = "", bare = false } = {}) {
            .map(
              (x) => `<optgroup label="${esc(ENGINE_NAMES[x.name] ?? x.name)}">
                <option value="${x.name}|"${x.name === e.name && !e.choice.model ? " selected" : ""}>${esc(ENGINE_NAMES[x.name] ?? x.name)} · par défaut</option>
-               ${(x.models ?? []).map((m) => `<option value="${x.name}|${esc(m.id)}"${x.name === e.name && m.id === e.choice.model ? " selected" : ""}>${esc(ENGINE_NAMES[x.name] ?? x.name)} · ${esc(m.name)}</option>`).join("")}
+               ${(x.models ?? []).map((m) => `<option value="${x.name}|${esc(m.id)}"${x.name === e.name && m.id === e.choice.model ? " selected" : ""}>${x.name === "api" ? "" : `${esc(ENGINE_NAMES[x.name] ?? x.name)} · `}${esc(m.name)}</option>`).join("")}
              </optgroup>`,
            )
            .join("")}
@@ -259,7 +273,7 @@ function renderEngine(e, { compact = false, idp = "", bare = false } = {}) {
          <option value="">${fallback}</option>
          ${models.map((m) => `<option value="${esc(m.id)}"${m.id === e.choice.model ? " selected" : ""}>${esc(m.name)}</option>`).join("")}
        </select>`
-    : compact
+    : compact || (e.name === "api" && e.ready === false)
       ? ""
       : `<p class="quiet">${e.modelsError ? `Liste des modèles indisponible : ${esc(e.modelsError)}` : "Liste des modèles pas encore lue."}</p>`;
   const about = !compact && current?.description ? `<p class="quiet engine-about">${esc(current.description)}</p>` : "";

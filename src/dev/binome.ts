@@ -17,7 +17,7 @@ import { DEV_LABEL_PREFIX, DEV_REVIEW_PREFIX, devReviewChat, type DevTask } from
  */
 
 export const BINOME_ROUNDS = 3;
-export const ENGINE_NAME: Record<EngineName, string> = { claude: "Claude", codex: "Codex" };
+export const ENGINE_NAME: Record<EngineName, string> = { claude: "Claude", codex: "Codex", api: "Autres IA" };
 export const otherEngine = (e: EngineName): EngineName => (e === "claude" ? "codex" : "claude");
 /** Auteur de la sous-tâche n (0, 1, 2…) : on alterne, en commençant par celui qui a fait le plan. */
 export const authorOf = (index: number, first: EngineName = "claude"): EngineName => (index % 2 === 0 ? first : otherEngine(first));

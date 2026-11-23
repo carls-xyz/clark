@@ -83,7 +83,7 @@ export type AutonomyHooks = {
 
 /** Moteur d'agent en service, tel qu'affiché dans l'interface. */
 export type EngineInfo = {
-  name: "claude" | "codex" | "demo";
+  name: EngineName | "demo";
   model: string;
   /** null = pas encore vérifié. */
   ready: boolean | null;
@@ -405,7 +405,7 @@ export function createHub(
   };
 
   // Moteur de secours (idée reprise d'OpenBot) : quota à jour atteint → l'autre moteur, s'il est connecté.
-  const ENGINE_LABEL: Record<EngineName, string> = { claude: "Claude", codex: "Codex" };
+  const ENGINE_LABEL: Record<EngineName, string> = { claude: "Claude", codex: "Codex", api: "Autres IA" };
   const limited = (name: EngineName) => {
     const q = quotas[name];
     return Boolean(q?.reached) && !isStale(q ?? null);
@@ -496,6 +496,10 @@ export function createHub(
     journal.setSource(taskId, source);
     // Le moteur est noté dès le départ : une reprise après redémarrage se fait sur le même.
     let engine: EngineName = opts.engine && executors[opts.engine] ? opts.engine : mainEngine();
+    // Les autres IA n'ont pas d'outils de code : une tâche de code (et son plan, sa relecture) part sur Claude ou Codex.
+    if (engine === "api" && (devOfLabel(label) || devPlanOfLabel(label) || devReviewOfLabel(label) || devCritiqueOfLabel(label))) {
+      engine = executors.claude && connections.claude?.ready !== false ? "claude" : "codex";
+    }
     // Moteur de secours : quota atteint sur celui-ci, l'autre prend le relais jusqu'à la remise à zéro.
     if (label !== HEARTBEAT_LABEL && limited(engine)) {
       const backup = backupOf(engine);
@@ -795,14 +799,14 @@ export function createHub(
      * gardent le leur. Refusé si ce moteur n'est pas là ou pas connecté. Renvoie l'erreur, ou null.
      */
     setMainEngine(name: EngineName): string | null {
-      if (!executors[name]) return `${name === "codex" ? "Codex" : "Claude"} n'est pas disponible.`;
+      if (!executors[name]) return `${ENGINE_LABEL[name]} n'est pas disponible.`;
       const conn = connections[name];
-      if (conn?.ready === false) return `${name === "codex" ? "Codex" : "Claude"} n'est pas connecté.`;
+      if (conn?.ready === false) return `${ENGINE_LABEL[name]} n'est pas connecté.`;
       if (deps.config.engine === name) return null;
       const before = deps.config.engine;
       deps.config.engine = name;
       const choice = store.choices.get(name);
-      engine = { name, model: choice.model ?? (name === "claude" ? deps.config.model : (deps.config.codexModel ?? "modèle Codex par défaut")), ready: conn?.ready ?? null, account: conn?.account ?? null, problem: conn?.problem ?? null };
+      engine = { name, model: choice.model ?? (name === "claude" ? deps.config.model : name === "codex" ? (deps.config.codexModel ?? "modèle Codex par défaut") : "premier modèle proposé"), ready: conn?.ready ?? null, account: conn?.account ?? null, problem: conn?.problem ?? null };
       store.audit("engine_main", "switch", { before, after: name });
       changed();
       return null;

@@ -42,6 +42,7 @@ export const SETTINGS: SettingDef[] = [
       ["", "Celui qui est connecté"],
       ["claude", "Claude"],
       ["codex", "Codex"],
+      ["api", "Autres IA (clé d'API)"],
     ],
     fallback: "",
     apply: "now",

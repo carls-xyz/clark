@@ -47,13 +47,13 @@ function renderFoot() {
   let html;
   if (e) html = renderEngine(e, { compact: true, idp: "pop-" });
   else if (engine.name === "demo") html = `<div class="engine compact"><div class="engine-head"><span class="engine-name">Démo</span><span class="engine-plan">faux agent</span></div></div>`;
-  else html = `<div class="engine compact"><div class="engine-head"><span class="engine-name">${engine.name === "codex" ? "Codex" : "Claude"}</span><span class="engine-plan">${esc(engine.account ?? "non connecté")}</span></div></div>`;
+  else html = `<div class="engine compact"><div class="engine-head"><span class="engine-name">${ENGINE_NAMES[engine.name] ?? "Claude"}</span><span class="engine-plan">${esc(engine.account ?? "non connecté")}</span></div></div>`;
   swap(pop, `${html}<a class="link pop-more" href="#reglages/moteurs">Tous les moteurs</a>`, engineKeep(pop));
   // Bas de la barre latérale : le même réglage (modèle, puis effort), synchronisé par l'état du serveur.
   const sideBox = $("#engine-side");
   swap(sideBox, e ? renderEngine(e, { bare: true, idp: "side-" }) : "", engineKeep(sideBox));
   // Le bouton dit ce qui tournera : moteur, modèle, effort.
-  const name = e ? ENGINE_NAMES[e.name] : engine.name === "demo" ? "Démo" : engine.name === "codex" ? "Codex" : "Claude";
+  const name = e ? ENGINE_NAMES[e.name] : engine.name === "demo" ? "Démo" : (ENGINE_NAMES[engine.name] ?? "Claude");
   const model = e?.choice.model ? (e.models.find((m) => m.id === e.choice.model)?.name ?? e.choice.model) : null;
   const effort = e?.choice.effort ? EFFORT_LABELS[e.choice.effort] ?? e.choice.effort : null;
   $("#engine-chip").innerHTML = `${esc(model ?? name)}<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" /></svg>`;
