@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -36,8 +36,22 @@ const config: Config = {
 // Clips de test (mires ffmpeg) dans le vrai dossier de travail : l'outil de Clark n'accepte que lui.
 const CLIPS = resolve(paths.workspace, `test-clips-${process.pid}`);
 const rel = (f: string) => `${CLIPS.slice(paths.workspace.length + 1)}/${f}`;
+/** Sans ffmpeg (une machine de CI où l'installation a échoué) : les montages sont sautés, le reste tourne sur des faux clips. */
+const hasFfmpeg = (() => {
+  try {
+    execFileSync("ffmpeg", ["-version"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+})();
+const needsFfmpeg = { skip: !hasFfmpeg && "ffmpeg n'est pas installé" };
 before(() => {
   mkdirSync(CLIPS, { recursive: true });
+  if (!hasFfmpeg) {
+    for (const i of [1, 2]) writeFileSync(join(CLIPS, `c${i}.mp4`), Buffer.alloc(4096, i));
+    return;
+  }
   for (const [i, hue] of [0, 180].entries()) {
     execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=30:duration=2", "-vf", `hue=h=${hue}`, join(CLIPS, `c${i + 1}.mp4`)]);
   }
@@ -51,7 +65,7 @@ after(() => {
 
 const dims = (file: string) => execFileSync("ffprobe", ["-v", "error", "-select_streams", "v", "-show_entries", "stream=width,height", "-of", "csv=p=0", file], { encoding: "utf8" }).trim();
 
-test("montage : clips recadrés en vertical, coupés, mis bout à bout, textes incrustés", { timeout: 240_000 }, async () => {
+test("montage : clips recadrés en vertical, coupés, mis bout à bout, textes incrustés", { timeout: 240_000, ...needsFfmpeg }, async () => {
   const out = join(CLIPS, "out.mp4");
   const r = await renderVertical(
     { clips: [{ path: rel("c1.mp4") }, { path: rel("c2.mp4"), start: 0.5, end: 1.5 }], texts: [{ text: "Se règle en 10 secondes", start: 0, end: 2 }], output: out },
@@ -62,7 +76,7 @@ test("montage : clips recadrés en vertical, coupés, mis bout à bout, textes i
   assert.ok(Math.abs((await probeDuration(out)) - 3) < 0.15);
 });
 
-test("montage : rien hors du dossier de Clark, et des demandes cohérentes", async () => {
+test("montage : rien hors du dossier de Clark, et des demandes cohérentes", needsFfmpeg, async () => {
   await assert.rejects(renderVertical({ clips: [{ path: "/etc/hosts" }], output: join(CLIPS, "x.mp4") }), /hors du dossier/);
   await assert.rejects(renderVertical({ clips: [{ path: rel("c1.mp4") }], output: "/tmp/x.mp4" }), /dossier de Clark/);
   await assert.rejects(renderVertical({ clips: [{ path: rel("absent.mp4") }], output: join(CLIPS, "x.mp4") }), /introuvable/);
@@ -123,7 +137,7 @@ test("décision : valider range la vidéo et sa légende, une seule fois ; refai
   }
 });
 
-test("outil de Clark : refusé en lecture seule ou sans tâche, sinon monte et propose", { timeout: 240_000 }, async () => {
+test("outil de Clark : refusé en lecture seule ou sans tâche, sinon monte et propose", { timeout: 240_000, ...needsFfmpeg }, async () => {
   const { store, journal } = setup();
   const args = {
     platform: "tiktok" as const,

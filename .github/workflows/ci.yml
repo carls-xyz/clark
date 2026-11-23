@@ -30,10 +30,21 @@ jobs:
           cache: npm
 
       # ffmpeg (vidéos), restic (sauvegardes), zsh (shell des commandes). Chrome est déjà sur l'image GitHub.
+      # Un miroir Ubuntu lent peut faire durer l'installation plusieurs minutes (vu : 6 min au lieu de 30 s).
+      # Jamais de question pendant l'installation (needrestart, debconf), des réessais et un délai par
+      # connexion, 10 minutes au plus. Si ça échoue quand même, les tests continuent : ceux qui ont besoin
+      # de ffmpeg ou de restic sont sautés.
       - name: Outils système
+        timeout-minutes: 10
+        continue-on-error: true
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
+          NEEDRESTART_SUSPEND: "1"
         run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q ffmpeg restic zsh
+          APT="-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold"
+          sudo -E apt-get $APT update -q
+          sudo -E apt-get $APT install -y -q --no-install-recommends ffmpeg restic zsh
 
       # Plusieurs tests créent des dépôts git et y commitent.
       - name: Identité git
