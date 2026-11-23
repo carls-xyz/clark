@@ -7019,3 +7019,10 @@ ui-menu-separator {
 .rail-count#health-count[data-level="bad"] {
   background: var(--warn-text);
 }
+
+.engine-make-main {
+  margin-left: auto;
+  height: 28px;
+  padding: 0 10px;
+  font-size: var(--fs-small);
+}

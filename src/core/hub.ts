@@ -419,11 +419,14 @@ export function createHub(
   const backupRuns = new Set<number>();
 
   // Moteur par rôle : celui demandé s'il est disponible, sinon le moteur principal.
-  const mainEngine = deps.config.engine;
-  const executors: Partial<Record<EngineName, typeof executeTask>> = { ...opts.executors, [mainEngine]: opts.executors?.[mainEngine] ?? execute };
+  // Le moteur principal se change à chaud (sélecteur de modèle) : on le relit à chaque tâche.
+  // « execute » reste celui du moteur de départ (les tests et la démo passent le leur).
+  const startEngine = deps.config.engine;
+  const mainEngine = () => deps.config.engine;
+  const executors: Partial<Record<EngineName, typeof executeTask>> = { ...opts.executors, [startEngine]: opts.executors?.[startEngine] ?? execute };
   const engineFor = (role: string) => {
-    const wanted = deps.config.roleEngines[role as EngineRole] ?? mainEngine;
-    const name = executors[wanted] ? wanted : mainEngine;
+    const wanted = deps.config.roleEngines[role as EngineRole] ?? mainEngine();
+    const name = executors[wanted] ? wanted : mainEngine();
     return { name, wanted, execute: executors[name]! };
   };
 
@@ -492,7 +495,7 @@ export function createHub(
     const taskId = journal.create(chatId, label, prompt, opts.parentId);
     journal.setSource(taskId, source);
     // Le moteur est noté dès le départ : une reprise après redémarrage se fait sur le même.
-    let engine: EngineName = opts.engine && executors[opts.engine] ? opts.engine : mainEngine;
+    let engine: EngineName = opts.engine && executors[opts.engine] ? opts.engine : mainEngine();
     // Moteur de secours : quota atteint sur celui-ci, l'autre prend le relais jusqu'à la remise à zéro.
     if (label !== HEARTBEAT_LABEL && limited(engine)) {
       const backup = backupOf(engine);
@@ -505,7 +508,7 @@ export function createHub(
       }
     }
     journal.setEngine(taskId, engine);
-    const run = engine === mainEngine && !opts.engine ? execute : (executors[engine] ?? execute);
+    const run = engine === startEngine && !opts.engine ? execute : (executors[engine] ?? execute);
     opts.onCreated?.(taskId);
     // Lancée par une automatisation ou une proposition acceptée : ce n'est pas l'utilisateur qui l'a écrite, on le dit.
     // Une ligne courte : la consigne complète reste dans Réglages › Automatisations.
@@ -721,7 +724,7 @@ export function createHub(
       return ENGINE_ROLES.map((role) => {
         const e = engineFor(role);
         // « special » : réglé sur un autre moteur que le principal, ou demandé mais indisponible.
-        return { role, wanted: e.wanted, actual: e.name, special: e.wanted !== mainEngine || e.name !== e.wanted };
+        return { role, wanted: e.wanted, actual: e.name, special: e.wanted !== mainEngine() || e.name !== e.wanted };
       });
     },
     engineFor: (role: string) => engineFor(role).name,
@@ -784,6 +787,25 @@ export function createHub(
     setEngine(info: EngineInfo) {
       engine = info;
       changed();
+    },
+    /** Les moteurs qui peuvent devenir le principal (présents, et pas signalés déconnectés). */
+    availableEngines: () => (Object.keys(executors) as EngineName[]).filter((n) => connections[n]?.ready !== false),
+    /**
+     * Change le moteur principal, tout de suite : les prochaines tâches partent dessus, celles en cours
+     * gardent le leur. Refusé si ce moteur n'est pas là ou pas connecté. Renvoie l'erreur, ou null.
+     */
+    setMainEngine(name: EngineName): string | null {
+      if (!executors[name]) return `${name === "codex" ? "Codex" : "Claude"} n'est pas disponible.`;
+      const conn = connections[name];
+      if (conn?.ready === false) return `${name === "codex" ? "Codex" : "Claude"} n'est pas connecté.`;
+      if (deps.config.engine === name) return null;
+      const before = deps.config.engine;
+      deps.config.engine = name;
+      const choice = store.choices.get(name);
+      engine = { name, model: choice.model ?? (name === "claude" ? deps.config.model : (deps.config.codexModel ?? "modèle Codex par défaut")), ready: conn?.ready ?? null, account: conn?.account ?? null, problem: conn?.problem ?? null };
+      store.audit("engine_main", "switch", { before, after: name });
+      changed();
+      return null;
     },
 
     addChannel(c: Channel) {

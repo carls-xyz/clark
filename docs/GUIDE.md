@@ -327,6 +327,10 @@ Tout le reste te demande une validation par bouton, dans l'interface ou sur Tele
 
 ## Moteurs : quotas, modèles, puissance
 
+**Choisir l'IA et le modèle.** Le menu « Modèle » (en bas de la barre de gauche, et dans la fenêtre du moteur) liste les modèles de **toutes les IA connectées** (Claude, Codex), groupés par IA. Choisir un modèle d'une autre IA en fait le **moteur principal tout de suite**, sans redémarrer : les prochaines tâches partent dessus, celles en cours gardent le leur. Le choix est gardé (Réglages › Moteurs › Moteur principal) ; on peut aussi cliquer « En faire le moteur principal » sur la carte d'une IA. Sans choix, c'est celle qui est connectée (Claude si les deux le sont).
+
+**Se connecter : compte ou clé d'API.** Chaque IA se connecte avec ton compte (bouton « Connecter », abonnement Claude ou ChatGPT) ou avec une clé d'API facturée à l'usage : `ANTHROPIC_API_KEY` pour Claude, `OPENAI_API_KEY` pour Codex, dans `.env`, puis redémarrage (Codex se connecte alors tout seul avec la clé). Les clés restent dans `.env`, jamais dans l'interface.
+
 **Réglages › Moteurs** (et, pour le moteur principal, la puce du composeur) montre, pour Claude et pour Codex :
 - **le quota de ton abonnement** : fenêtres de 5 h et de 7 jours, pourcentage utilisé, heure de remise à zéro. Clark lit ce que disent Claude Code (comme `/usage`) et Codex, sans envoyer de message au modèle, donc sans rien consommer. Relu au démarrage, tous les quarts d'heure et avec « Actualiser ». Si une tâche Claude bute sur la limite, c'est noté tout de suite. Côté Claude, l'usage passe par une API que le SDK marque comme expérimentale : si elle change, le quota s'affiche « pas encore donné », le reste marche ;
 - **le modèle** (un menu) et **l’effort** (niveau de raisonnement, un curseur à crans : « Auto » puis les niveaux du modèle, « Recommandé » sous celui que le moteur conseille), remplis avec ce que chaque moteur propose à ton compte, jamais une liste écrite en dur. Un choix impossible (une puissance qu'un modèle n'a pas) est refusé.

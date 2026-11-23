@@ -2,6 +2,7 @@ import { chmodSync, existsSync, mkdirSync, realpathSync, writeFileSync } from "n
 import { DatabaseSync } from "node:sqlite";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
 import { paths } from "../config.ts";
 import { failMidRun, type Deps, type RunResult, type executeTask } from "../core/agent.ts";
 import { buildSystemPrompt } from "../core/prompt.ts";
@@ -498,4 +499,14 @@ export function createCodexEngine(
       client = null;
     },
   };
+}
+
+/**
+ * Connexion de Codex avec une clé d'API OpenAI (au lieu du compte ChatGPT) : la clé est donnée à
+ * « codex login --with-api-key » par l'entrée standard, jamais en argument (elle ne s'affiche pas
+ * dans la liste des processus). Codex la garde dans le dossier de Clark. Renvoie true si c'est fait.
+ */
+export function loginCodexWithKey(key: string, run: typeof spawnSync = spawnSync): boolean {
+  const r = run("codex", ["login", "--with-api-key"], { input: `${key}\n`, env: { ...process.env, CODEX_HOME: paths.codexHome }, timeout: 30_000, encoding: "utf8" });
+  return r.status === 0;
 }

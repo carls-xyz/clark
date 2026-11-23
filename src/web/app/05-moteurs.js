@@ -140,6 +140,7 @@ function renderLogin(e) {
       ${l?.error ? `<p class="inline-error" role="alert">${esc(l.error)}</p>` : `<p class="quiet">Pas connecté.${e.problem && !cmd && e.problem !== "not_checked" ? ` ${esc(e.problem)}` : ""}</p>`}
       <div class="card-actions"><button type="button" class="btn primary" data-engine-login="start">${l ? "Réessayer" : `Connecter ${title}`}</button></div>
       ${terminal}
+      ${apiKeyHelp(e.name)}
     </div>`;
   }
   if (l.status === "done") return `<div class="engine-login" data-engine-login-box><p class="quiet">Connecté, vérification…</p></div>`;
@@ -157,6 +158,16 @@ function renderLogin(e) {
     ${code}
     <div class="card-actions"><button type="button" class="btn ghost" data-engine-login="cancel">Annuler</button></div>
   </div>`;
+}
+
+/** Autre façon de connecter : une clé d'API dans .env (elle ne passe jamais par l'interface). */
+const API_KEYS = { claude: ["ANTHROPIC_API_KEY", "console.anthropic.com", "facturée à l'usage, à la place de ton abonnement"], codex: ["OPENAI_API_KEY", "platform.openai.com", "facturée à l'usage, à la place de ton compte ChatGPT"] };
+function apiKeyHelp(name) {
+  const k = API_KEYS[name];
+  if (!k) return "";
+  return `<details class="engine-terminal"><summary>Ou avec une clé d'API</summary>
+    <p class="quiet">Crée une clé sur ${k[1]} (${k[2]}), mets la ligne <code>${k[0]}=ta-clé</code> dans le fichier <code>.env</code> de Clark, puis redémarre-le. La clé reste dans .env : elle ne passe jamais par cette page.</p>
+  </details>`;
 }
 
 function loginError(box, message) {
@@ -208,7 +219,7 @@ function renderEngine(e, { compact = false, idp = "", bare = false } = {}) {
   const plan = e.quota?.plan ? (planNames[e.quota.plan] ?? claudePlans[e.quota.plan] ?? e.quota.plan) : e.account;
   const head = compact
     ? `<div class="engine-head"><span class="engine-name">${title}</span>${plan ? `<span class="engine-plan">${esc(plan)}</span>` : ""}</div>`
-    : `<div class="engine-head"><h3 class="engine-name">${title}</h3>${e.main ? `<span class="tag">principal</span>` : ""}${plan ? `<span class="engine-plan">${esc(plan)}</span>` : ""}</div>`;
+    : `<div class="engine-head"><h3 class="engine-name">${title}</h3>${e.main ? `<span class="tag">principal</span>` : ""}${plan ? `<span class="engine-plan">${esc(plan)}</span>` : ""}${!e.main && e.ready ? `<button type="button" class="btn ghost engine-make-main" data-engine-main="${e.name}">En faire le moteur principal</button>` : ""}</div>`;
   const problem = e.ready === false && compact ? `<p class="quiet">Pas connecté : <a href="#reglages/moteurs">connecter ${title}</a>.</p>` : compact ? "" : renderLogin(e);
 
   let quota = "";
@@ -223,7 +234,26 @@ function renderEngine(e, { compact = false, idp = "", bare = false } = {}) {
   const models = e.models ?? [];
   const current = models.find((m) => m.id === e.choice.model) ?? null;
   const fallback = compact ? "Par défaut" : e.fallbackModel ? `Par défaut (${esc(e.fallbackModel)})` : "Par défaut du moteur";
-  const modelSelect = models.length
+  // Barre latérale et fenêtre du moteur : un seul menu, tous les modèles de toutes les IA connectées.
+  // Choisir un modèle d'une autre IA en fait le moteur principal, tout de suite.
+  const connected = (state.engines ?? []).filter((x) => x.ready !== false && (x.models ?? []).length);
+  const anySelect =
+    compact && connected.length > 1
+      ? `<label class="field-label" for="${idp}model-${e.name}">Modèle</label>
+       <select id="${idp}model-${e.name}" data-engine-model data-engine-any>
+         ${connected
+           .map(
+             (x) => `<optgroup label="${esc(ENGINE_NAMES[x.name] ?? x.name)}">
+               <option value="${x.name}|"${x.name === e.name && !e.choice.model ? " selected" : ""}>${esc(ENGINE_NAMES[x.name] ?? x.name)} · par défaut</option>
+               ${(x.models ?? []).map((m) => `<option value="${x.name}|${esc(m.id)}"${x.name === e.name && m.id === e.choice.model ? " selected" : ""}>${esc(ENGINE_NAMES[x.name] ?? x.name)} · ${esc(m.name)}</option>`).join("")}
+             </optgroup>`,
+           )
+           .join("")}
+       </select>`
+      : "";
+  const modelSelect = anySelect
+    ? anySelect
+    : models.length
     ? `<label class="field-label" for="${idp}model-${e.name}">Modèle</label>
        <select id="${idp}model-${e.name}" data-engine-model>
          <option value="">${fallback}</option>
@@ -269,7 +299,27 @@ side.addEventListener("change", (e) => {
 async function saveEngineChoice(box, select) {
   const name = box.dataset.engine;
   const engine = (state.engines ?? []).find((x) => x.name === name);
-  const model = box.querySelector("[data-engine-model]").value || null;
+  const picked = box.querySelector("[data-engine-model]");
+  // Menu de toutes les IA : « moteur|modèle ». Un modèle d'une autre IA : elle devient le moteur principal.
+  if (picked.matches("[data-engine-any]") && select === picked) {
+    const [engineName, modelId] = picked.value.split("|");
+    if (engineName !== name) {
+      box.querySelector(".inline-error")?.remove();
+      box.dataset.busy = "1";
+      picked.disabled = true;
+      try {
+        await post("/api/engines/main", { engine: engineName, model: modelId || null, from: box.closest("#engine-side") ? "barre latérale" : "fenêtre du moteur" });
+      } catch (err) {
+        picked.value = `${name}|${engine?.choice.model ?? ""}`;
+        box.insertAdjacentHTML("beforeend", `<p class="inline-error" role="alert">${esc(err.message)}</p>`);
+      } finally {
+        delete box.dataset.busy;
+        picked.disabled = false;
+      }
+      return;
+    }
+  }
+  const model = (picked.matches("[data-engine-any]") ? picked.value.split("|")[1] : picked.value) || null;
   const effortEl = box.querySelector("[data-engine-effort]");
   let effort = effortEl ? (effortEl.type === "range" ? JSON.parse(effortEl.dataset.stops)[Number(effortEl.value)] || null : effortEl.value || null) : null;
   // Auto : l'effort revient au moteur.
@@ -290,7 +340,8 @@ async function saveEngineChoice(box, select) {
     delete box.dataset.busy;
     // Refusé : les menus reviennent au choix enregistré.
     if (engine) {
-      box.querySelector("[data-engine-model]").value = engine.choice.model ?? "";
+      const pickedBack = box.querySelector("[data-engine-model]");
+      pickedBack.value = pickedBack.matches("[data-engine-any]") ? `${name}|${engine.choice.model ?? ""}` : (engine.choice.model ?? "");
       const eff = box.querySelector("[data-engine-effort]");
       if (eff?.type === "range") {
         const stops = JSON.parse(eff.dataset.stops);
@@ -320,3 +371,17 @@ side.addEventListener("click", async (e) => {
   }
 });
 
+
+
+// « En faire le moteur principal » : tout de suite, sans redémarrer ; les tâches en cours gardent le leur.
+side.addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-engine-main]");
+  if (!btn) return;
+  btn.disabled = true;
+  try {
+    await post("/api/engines/main", { engine: btn.dataset.engineMain, from: "Réglages › Moteurs" });
+  } catch (err) {
+    btn.disabled = false;
+    btn.closest("[data-engine]")?.insertAdjacentHTML("beforeend", `<p class="inline-error" role="alert">${esc(err.message)}</p>`);
+  }
+});
