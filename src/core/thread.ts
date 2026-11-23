@@ -11,7 +11,7 @@ import type { Message } from "./conversation.ts";
  */
 
 /** Notes jamais montrées dans le fil, même liées à un de vos échanges. */
-const OUT_KINDS = new Set(["dev", "pr", "stalled", "proposals", "approval", "digest"]);
+const OUT_KINDS = new Set(["dev", "pr", "stalled", "proposals", "approval", "digest", "health", "alert"]);
 const OUT_TEXT = /^(Validé|Refusé|Sans réponse après 10 minutes|Clark propose de (retenir|corriger)|Souvenir (confirmé|corrigé|ignoré)|J'ai retenu|Ta réponse|Clark te pose une question|Clark te propose|Proposition refusée|Ce que j'ai décidé seul)/;
 
 /**
@@ -27,9 +27,10 @@ export function inThread(m: Pick<Message, "role" | "kind" | "text" | "task_id">,
   return taskChat(m.task_id) === ownerChat;
 }
 
-export type NoteCategory = "dev" | "memoire" | "propositions" | "accords" | "agents" | "autres";
+export type NoteCategory = "sante" | "dev" | "memoire" | "propositions" | "accords" | "agents" | "autres";
 
 export const NOTE_CATEGORIES: [NoteCategory, string][] = [
+  ["sante", "Santé"],
   ["dev", "Dev et PR"],
   ["memoire", "Mémoire"],
   ["propositions", "Propositions"],
@@ -40,6 +41,7 @@ export const NOTE_CATEGORIES: [NoteCategory, string][] = [
 
 /** Le rayon d'Activité où ranger une note. */
 export function noteCategory(m: Pick<Message, "kind" | "text">): NoteCategory {
+  if (m.kind === "health" || m.kind === "alert") return "sante";
   if (m.kind === "dev" || m.kind === "pr") return "dev";
   if (m.kind === "stalled") return "agents";
   if (/^(Clark propose de (retenir|corriger)|Souvenir |J'ai retenu)/.test(m.text)) return "memoire";

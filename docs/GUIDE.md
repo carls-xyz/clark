@@ -270,6 +270,33 @@ Pour voir l'interface sans clé API, lance `npm run demo` puis ouvre http://loca
 
 **Hors Mac.** Quelques morceaux ne marchent que sur un Mac : iMessage, la fenêtre de choix de fichier, garder la machine éveillée, la voix du système. Ailleurs, ils sont simplement absents (la carte iMessage le dit, les entrées « Joindre un fichier » et « Parcourir… » disparaissent ; le chemin s'écrit à la main). Tout le reste ne dépend pas du système.
 
+## Alertes et surveillance
+
+**Alertes Telegram.** Chaque minute, Clark relit sa page Santé. Un point qui mérite une alerte (moteur principal déconnecté ou quota atteint, version de secours, disque sous 2 Go, une même erreur 20 fois depuis le démarrage) part en un message, s'il est vu deux relevés de suite ; une seule fois tant qu'il dure ; « revenu à la normale » quand il a disparu deux relevés de suite. Plusieurs points ensemble : un seul message. Ce qui a été signalé est gardé dans la base : un redémarrage ne renvoie rien. Les canaux se règlent dans Réglages › Notifications › **Santé de Clark** (par défaut Telegram et navigateur). Pendant les heures calmes, seules les alertes urgentes passent (moteur principal, version de secours, disque presque plein), si la case « Sauf les alertes urgentes de santé » est cochée ; le reste part dans le résumé de fin des heures calmes. Les alertes s'affichent aussi dans Activité (rubrique Santé) et sur la page Santé (en cours, et les 10 dernières). `CLARK_ALERTS=off` les coupe.
+
+**Surveillance locale.** `scripts/service.sh install` installe `scripts/watchdog.sh`, lancé toutes les 5 minutes (minuteur systemd `clark-watchdog.timer` sur Linux, agent launchd `local.clark.watchdog` sur le Mac ; `restart` l'ajoute s'il manque). Il appelle `/api/health` ; si Clark ne répond pas deux fois de suite (figé sans avoir planté), il le relance, et Clark le dit au redémarrage. Rien pendant les 3 minutes après un démarrage, ni si le service a été arrêté exprès. Son journal : `data/logs/watchdog.log`. Vérifier sur Linux : `systemctl --user list-timers`.
+
+**Surveillance externe** (le seul moyen d'être prévenu si Clark est complètement mort, ou le serveur coupé) : crée un check sur healthchecks.io (période 5 min, tolérance 10 min) et choisis-y comment être prévenu (mail, Telegram, application). Mets son adresse dans `.env` : `CLARK_PING_URL=https://hc-ping.com/<ton-id>`, puis redémarre. Clark l'appelle toutes les 5 minutes, sans rien envoyer d'autre. Avec `CLARK_PING_FAIL_ON_BAD=1` (désactivé par défaut), une santé « À régler » appelle `<adresse>/fail` : healthchecks.io te prévient aussi, même si Telegram est en panne.
+
+`/api/health` répond toujours 200 tant que Clark tourne, avec `level`, les identifiants des points (`problems`) et la version.
+
+## Sauvegardes et restauration
+
+**Locale** (toujours) : chaque nuit à 3 h, une copie à chaud de la base, vérifiée (`PRAGMA integrity_check`), dans `data/backups/clark-AAAA-MM-JJ.db` ; les 7 dernières sont gardées. Une copie abîmée est supprimée et signalée sur la page Santé.
+
+**Hors machine** (facultative, chiffrée, avec restic : `brew install restic` sur le Mac, installé par `install-linux.sh` sur Linux). Chaque nuit à 3 h 30, Clark prépare une copie dans un dossier à part (la base vérifiée, `memory/`, `personnalite.md`, la connexion Google, `workspace/` sans les copies des tâches dev, et un manifeste des fichiers avec leur empreinte) et l'envoie. Jamais `.env`, les connexions des moteurs, le profil du navigateur, ni un fichier de clé. Rétention : 7 quotidiennes, 4 hebdomadaires, 6 mensuelles ; les données en trop ne sont supprimées que le dimanche.
+
+Mise en place (Backblaze B2, par exemple) :
+1. Crée un bucket et une clé d'application limitée à ce bucket ; dans `.env` : `CLARK_BACKUP_REPO=b2:ton-bucket:clark`, `B2_ACCOUNT_ID=`, `B2_ACCOUNT_KEY=` (S3 : `s3:…` et `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` ; un NAS : `sftp:moi@nas:/clark`).
+2. Le mot de passe du dépôt dans un fichier à part, hors du dossier de Clark : `mkdir -p ~/.config/clark && openssl rand -base64 32 > ~/.config/clark/restic-password && chmod 600 ~/.config/clark/restic-password`, puis `CLARK_BACKUP_PASSWORD_FILE=` ce chemin. **Copie ce mot de passe dans ton gestionnaire** : sans lui, les sauvegardes sont illisibles.
+3. `scripts/backup.sh init` (une fois : le dépôt n'est jamais créé tout seul), puis `scripts/backup.sh now` pour une première sauvegarde, `scripts/backup.sh snapshots` pour la liste.
+
+`CLARK_BACKUP_GOOGLE=off` retire la connexion Google des sauvegardes (c'est un jeton : il est chiffré avec le reste, mais tu peux préférer te reconnecter).
+
+**Exercice de restauration**, chaque dimanche à 4 h (`CLARK_BACKUP_DRILL_DAY`, `off` pour couper) : la dernière sauvegarde distante (sinon la dernière locale) est restaurée dans un dossier temporaire et vérifiée (`restic check`, intégrité de la base, tables principales, chaque fichier du manifeste). À la main : `scripts/backup.sh drill`. La page Santé montre la dernière sauvegarde locale, la distante et l'exercice ; une sauvegarde distante en échec, un exercice en échec ou pas réussi depuis 8 jours font une alerte.
+
+**Restaurer** : `scripts/restore.sh` liste les sauvegardes sans rien toucher ; `scripts/restore.sh latest` (ou un identifiant restic, ou `local:clark-AAAA-MM-JJ.db`) restaure à part et vérifie, montre ce qui va être remplacé, demande de taper `RESTAURER`, arrête Clark, met l'existant de côté dans `data/backups/avant-restauration-<date>/` (rien n'est supprimé), remet les fichiers et relance Clark. `.env` n'est jamais touché. Sur un serveur neuf : installe Clark (`install-linux.sh`), remplis `.env` (dont le dépôt et le mot de passe), puis `scripts/restore.sh latest`.
+
 ## Serveur Linux (VPS)
 
 Cible : **Ubuntu 24.04, x86_64** (Chrome n'existe pas en ARM sous Linux), au moins 4 Go de mémoire, 8 conseillés.

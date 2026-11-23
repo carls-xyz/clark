@@ -1,7 +1,7 @@
 import { installLogRedaction } from "./core/redact.ts";
 import { launchAutomation } from "./scheduler/automation-run.ts";
 import { startPrWatch } from "./dev/pr.ts";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { loadConfig, paths } from "./config.ts";
 import { Conversation } from "./core/conversation.ts";
 import { executeTask } from "./core/agent.ts";
@@ -13,7 +13,7 @@ import { canRestart, createLogins, RESTART_EXIT_CODE } from "./engines/login.ts"
 import { startAutonomy } from "./core/autonomy.ts";
 import { startReminders } from "./core/reminders.ts";
 import { startDelegations } from "./core/delegation-runner.ts";
-import { startBackups } from "./core/backup.ts";
+import { BackupStatusStore, startBackups } from "./core/backup.ts";
 import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import { Terminal } from "./terminal/terminal.ts";
@@ -47,6 +47,9 @@ import { TaskJournal } from "./tasks/journal.ts";
 import { Settings } from "./core/settings.ts";
 import { NotifyStore, setNotifyStore, startAwake, startQuietDigest } from "./core/notify.ts";
 import { takeRollbackNote } from "./core/platform.ts";
+import { AlertStore, startAlerts } from "./core/alerts.ts";
+import { createPinger } from "./core/ping.ts";
+import { cachedHealth } from "./core/health.ts";
 
 // Le journal ne garde jamais un secret en clair (jeton Telegram dans une erreur réseau, clé d'API…).
 installLogRedaction();
@@ -272,7 +275,23 @@ const JOURNAL_SYSTEM = "Tu écris le journal (du jour ou de la semaine) d'un ass
 // Défini avant startWeb : le bouton « Écrire le journal du jour » s'en sert.
 const journalThink = (p: string) => claudeThink(p, JOURNAL_SYSTEM);
 
+// Santé (page, alertes, ping externe) : un seul relevé partagé, gardé 20 s.
+const alertStore = new AlertStore(store.db);
+// État des sauvegardes (locale, distante, exercice de restauration), pour la page Santé et les alertes.
+const backupStatus = new BackupStatusStore(store.db);
+let pinger: ReturnType<typeof createPinger> | null = null;
+const health = cachedHealth(hub, {
+  root: paths.root,
+  logFile: join(paths.root, "data", "logs", "clark.log"),
+  backupDir: join(paths.root, "data", "backups"),
+  alerts: () => alertStore.get(),
+  backup: () => backupStatus.get(),
+  ping: () => pinger?.status() ?? { configured: false, lastOk: null, failing: false, lastError: null },
+});
+pinger = createPinger({ level: () => health().level });
+
 const web = await startWeb(hub, {
+  health,
   terminal,
   obsidian: {
     status: () => obsidian,
@@ -344,8 +363,25 @@ quotaTimer.unref();
 
 await hub.recover();
 // Version de secours : scripts/service.sh est revenu à la dernière version qui démarrait ; on le dit.
+// Démarré à… : la surveillance locale (scripts/watchdog.sh) laisse 3 minutes de grâce après un démarrage.
+writeFileSync(join(paths.root, "data", "started-at"), String(Math.floor(Date.now() / 1000)));
+// Version de secours : scripts/service.sh est revenu à la dernière version qui démarrait. C'est la première
+// alerte, et elle est notée comme signalée : la surveillance ne la renverra pas.
 const rollback = takeRollbackNote(join(paths.root, "data", "rollback.txt"));
-if (rollback) void hub.post(OWNER_CHAT, rollback, "system", "system");
+if (rollback) {
+  alertStore.markActive("secours", rollback, true);
+  void hub.post(OWNER_CHAT, rollback, "system", "alert");
+}
+// Relancé par la surveillance locale (Clark ne répondait plus) : on le dit.
+const watchdogNote = join(paths.root, "data", "watchdog-restart.txt");
+if (existsSync(watchdogNote)) {
+  const at = readFileSync(watchdogNote, "utf8").trim();
+  rmSync(watchdogNote, { force: true });
+  void hub.post(OWNER_CHAT, `Je ne répondais plus : la surveillance locale m'a relancé${at ? ` (${new Date(at).toLocaleString("fr-FR", { timeZone: "Europe/Paris" })})` : ""}. Le journal dit peut-être pourquoi (scripts/service.sh logs).`, "system", "health");
+}
+// Alertes de santé (Telegram, selon Réglages › Notifications) et ping externe (CLARK_PING_URL).
+const stopAlerts = startAlerts({ store: alertStore, report: () => health(true), post: (text, urgent) => void hub.post(OWNER_CHAT, text, "system", urgent ? "alert" : "health") });
+const stopPing = pinger.start();
 const stopAutomations = startScheduler({ config, store, enqueue: hub.enqueue, automations: store.automations, launch: (a, slot) => launchAutomation(hub, a, { slot }) });
 // Tour de veille : propositions proactives, de jour, quand un moteur est connecté.
 const stopHeartbeat = startHeartbeat(hub);
@@ -357,7 +393,7 @@ const stopReminders = startReminders(hub);
 // Clark chef d'orchestre : missions confiées aux agents, tâches de code lancées pour lui.
 const stopDelegations = startDelegations(hub);
 // Sauvegarde de la base chaque nuit à 3 h (data/backups, les 7 dernières).
-const stopBackups = startBackups(store.db, join(paths.root, "data", "backups"));
+const stopBackups = startBackups(store.db, join(paths.root, "data", "backups"), { root: paths.root, status: backupStatus, commit: () => health().version.commit });
 // Relecture de mémoire en arrière-plan (un petit modèle Claude, si Claude est disponible).
 // Mémoire de moyen terme : le journal du jour, écrit chaque soir (dans Obsidian s'il y a un coffre).
 const stopJournal =
@@ -387,6 +423,8 @@ stopScheduler = () => {
   stopBackups();
   stopReview();
   stopSweep();
+  stopAlerts();
+  stopPing();
 };
 
 console.log(`[clark] démarré — moteur ${hub.engine().name} (${hub.engine().model}), ${store.count()} souvenirs`);

@@ -1,6 +1,7 @@
 // ── Activité › « Ce qui s'est passé » : les notes sorties de ta conversation (dev, PR, souvenirs…) ──
 
 const NOTE_CATEGORIES = [
+  ["sante", "Santé"],
   ["dev", "Dev et PR"],
   ["memoire", "Mémoire"],
   ["propositions", "Propositions"],

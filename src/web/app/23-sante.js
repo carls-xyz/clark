@@ -61,11 +61,18 @@ function renderHealth() {
     })
     .join("");
   const b = h.backup;
+  const ago = (at) => (at ? `il y a ${hours(Math.max(0, Math.round((Date.now() - Date.parse(at)) / 3600000)))}` : "");
+  const r = b.remote ?? { configured: false };
+  const d = b.drill;
   const backup = healthTile(
     "Sauvegarde",
     b.last ? `Il y a ${hours(b.hoursAgo)}` : "Aucune",
-    b.last ? `${b.count} gardée${b.count > 1 ? "s" : ""} · chaque nuit à 3 h` : "Elle se fait chaque nuit à 3 h.",
-    b.hoursAgo === null || b.hoursAgo >= 36 ? "warn" : "ok",
+    [
+      b.last ? `locale : ${b.count} gardée${b.count > 1 ? "s" : ""}` : "locale : chaque nuit à 3 h",
+      !r.configured ? (r.detail ? `distante : ${esc(r.detail)}` : "distante : pas configurée") : r.ok === false ? `distante en échec : ${esc(r.detail ?? "")}` : r.at ? `distante : ${ago(r.at)}${r.snapshots ? `, ${r.snapshots} gardées` : ""}` : "distante : cette nuit",
+      d === null ? "exercice : coupé" : d.ok === null ? "exercice : pas encore" : d.ok ? `exercice réussi ${ago(d.at)} (${d.source})` : `exercice en échec : ${esc(d.detail ?? "")}`,
+    ].join(" · "),
+    b.hoursAgo === null || b.hoursAgo >= 36 || r.ok === false || (r.detail && !r.configured) || d?.ok === false ? "warn" : "ok",
   );
   const v = h.version;
   const version = healthTile(
@@ -82,6 +89,22 @@ function renderHealth() {
     st.freeGB !== null && st.freeGB < 0.5 ? "bad" : st.freeGB !== null && st.freeGB < 2 ? "warn" : "ok",
   );
 
+  const pg = h.ping ?? { configured: false };
+  const watch = healthTile(
+    "Surveillance",
+    h.watchdog ? "Locale active" : "Locale absente",
+    [
+      h.watchdog ? "relance Clark s'il ne répond plus" : "scripts/service.sh install l'installe",
+      !pg.configured ? "ping externe : pas configuré" : pg.failing ? `ping externe en échec${pg.lastError ? ` (${esc(pg.lastError)})` : ""}` : pg.lastOk ? `ping externe il y a ${minutes(Math.max(0, Math.round((Date.now() - pg.lastOk) / 60000)))}` : "ping externe : bientôt",
+    ].join(" · "),
+    !h.watchdog || pg.failing ? "warn" : "ok",
+  );
+  const al = h.alerts ?? { active: [], history: [] };
+  const alerts = al.active.length || al.history.length
+    ? `${al.active.length ? `<ul class="health-list">${al.active.map((a) => `<li><span class="tag ${a.urgent ? "cal-failed" : ""}">${a.urgent ? "urgent" : "en cours"}</span><span>${esc(a.text)}</span><span class="quiet">depuis ${time(new Date(a.since))}</span></li>`).join("")}</ul>` : `<p class="quiet">Aucune en cours.</p>`}
+       ${al.history.length ? `<details class="health-history"><summary>Dernières alertes (${al.history.length})</summary><ul class="health-list">${al.history.map((e) => `<li><span class="quiet">${new Date(e.at).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} ${time(new Date(e.at))}</span><span class="tag">${e.kind}</span><span>${esc(e.text)}</span></li>`).join("")}</ul></details>` : ""}`
+    : `<p class="quiet">Aucune pour l'instant. Elles partent sur Telegram selon Réglages › Notifications › Santé de Clark.</p>`;
+
   const failures = h.failures.length
     ? `<ul class="health-list">${h.failures
         .map((f) => `<li><span class="quiet">${shortDate(f.at)} ${time(parseDate(f.at))}</span><span>${esc(f.title || f.label)}</span><span class="tag">${FAILED_STATUS[f.status] ?? esc(f.status)}</span></li>`)
@@ -92,7 +115,8 @@ function renderHealth() {
     : `<p class="quiet">Aucune.</p>`;
 
   box.innerHTML = `${verdict}
-    <div class="health-grid">${queue}${engines}${backup}${version}${storage}</div>
+    <div class="health-grid">${queue}${engines}${backup}${version}${storage}${watch}</div>
+    <section class="health-section" aria-labelledby="h-health-alerts"><h2 class="block-title" id="h-health-alerts">Alertes</h2>${alerts}</section>
     <section class="health-section" aria-labelledby="h-health-failures"><h2 class="block-title" id="h-health-failures">Échecs des dernières 24 h</h2>${failures}</section>
     <section class="health-section" aria-labelledby="h-health-errors"><h2 class="block-title" id="h-health-errors">Erreurs du journal depuis le démarrage</h2>${errors}
       <p class="quiet">Le détail : <code>scripts/service.sh logs</code>. Les secrets (jeton Telegram, clés) y sont masqués.</p></section>
