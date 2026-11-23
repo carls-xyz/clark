@@ -880,7 +880,7 @@ export function startWeb(hub: Hub, opts: { health?: (fresh?: boolean) => HealthR
             return null;
           }
         })();
-        return json(res, 200, { ok: true, pid: process.pid, uptime: Math.round(process.uptime()), level: h?.level ?? null, problems: h?.problems.map((p) => p.id) ?? [], version: h?.version.commit ?? null });
+        return json(res, 200, { ok: true, pid: process.pid, uptime: Math.round(process.uptime()), level: h?.level ?? null, problems: h?.problems.map((p) => p.id) ?? [], version: h?.version.commit ?? null, backup: h?.backup ? { localHoursAgo: h.backup.hoursAgo, remote: h.backup.remote ? { configured: h.backup.remote.configured, at: h.backup.remote.at, ok: h.backup.remote.ok } : null, drill: h.backup.drill ? { at: h.backup.drill.at, ok: h.backup.drill.ok } : null } : null });
       }
       // Calendrier des veilles : les exécutions d'un mois, avec leur compte rendu (lu à la demande, pas dans l'état poussé).
       if (path === "/api/calendar") {

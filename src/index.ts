@@ -13,7 +13,7 @@ import { canRestart, createLogins, RESTART_EXIT_CODE } from "./engines/login.ts"
 import { startAutonomy } from "./core/autonomy.ts";
 import { startReminders } from "./core/reminders.ts";
 import { startDelegations } from "./core/delegation-runner.ts";
-import { startBackups } from "./core/backup.ts";
+import { BackupStatusStore, startBackups } from "./core/backup.ts";
 import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import { Terminal } from "./terminal/terminal.ts";
@@ -277,12 +277,15 @@ const journalThink = (p: string) => claudeThink(p, JOURNAL_SYSTEM);
 
 // Santé (page, alertes, ping externe) : un seul relevé partagé, gardé 20 s.
 const alertStore = new AlertStore(store.db);
+// État des sauvegardes (locale, distante, exercice de restauration), pour la page Santé et les alertes.
+const backupStatus = new BackupStatusStore(store.db);
 let pinger: ReturnType<typeof createPinger> | null = null;
 const health = cachedHealth(hub, {
   root: paths.root,
   logFile: join(paths.root, "data", "logs", "clark.log"),
   backupDir: join(paths.root, "data", "backups"),
   alerts: () => alertStore.get(),
+  backup: () => backupStatus.get(),
   ping: () => pinger?.status() ?? { configured: false, lastOk: null, failing: false, lastError: null },
 });
 pinger = createPinger({ level: () => health().level });
@@ -390,7 +393,7 @@ const stopReminders = startReminders(hub);
 // Clark chef d'orchestre : missions confiées aux agents, tâches de code lancées pour lui.
 const stopDelegations = startDelegations(hub);
 // Sauvegarde de la base chaque nuit à 3 h (data/backups, les 7 dernières).
-const stopBackups = startBackups(store.db, join(paths.root, "data", "backups"));
+const stopBackups = startBackups(store.db, join(paths.root, "data", "backups"), { root: paths.root, status: backupStatus, commit: () => health().version.commit });
 // Relecture de mémoire en arrière-plan (un petit modèle Claude, si Claude est disponible).
 // Mémoire de moyen terme : le journal du jour, écrit chaque soir (dans Obsidian s'il y a un coffre).
 const stopJournal =
