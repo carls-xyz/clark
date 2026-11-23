@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { git } from "./git.ts";
 import type { Project } from "./store.ts";
 import { killTree } from "../core/kill-tree.ts";
+import { loginShell } from "../core/platform.ts";
 
 const run = promisify(execFile);
 
@@ -130,7 +131,7 @@ export async function prepareCopy(project: Project, worktree: string, timeoutMs 
   if (!command && !all.length) return null;
   if (!command) return { copied: all, command: null, ok: true, code: 0, output: wanted ? `« ${wanted} » sauté : dépendances partagées avec le dépôt (${shared.join(", ")}).` : "", dirty: [], at: Date.now() };
   const r = await new Promise<{ code: number | null; output: string }>((done) => {
-    const child = spawn("/bin/zsh", ["-lc", command], { cwd: worktree, env: { ...process.env, CI: "1" }, detached: true });
+    const child = spawn(loginShell(), ["-lc", command], { cwd: worktree, env: { ...process.env, CI: "1" }, detached: true });
     let out = "";
     const keep = (d: Buffer) => (out = (out + d.toString()).slice(-6000));
     child.stdout.on("data", keep);

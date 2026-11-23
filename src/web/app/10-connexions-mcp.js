@@ -132,7 +132,7 @@ function renderIMessagePlugin() {
 function renderBrowserPlugin() {
   const b = state.browser;
   if (!b) return "";
-  if (!b.available) return plugin("Navigateur de Clark", "off", "Clark ouvre des pages, remplit des formulaires et utilise tes comptes, dans un Chrome à lui.", `<p class="quiet">Google Chrome est introuvable sur ce Mac.</p>`);
+  if (!b.available) return plugin("Navigateur de Clark", "off", "Clark ouvre des pages, remplit des formulaires et utilise tes comptes, dans un Chrome à lui.", `<p class="quiet">Google Chrome est introuvable sur cette machine (sur Linux : <code>CLARK_BROWSER_EXECUTABLE</code>).</p>`);
   const where = b.running ? `${b.visible ? "Affiché" : "En arrière-plan"}${b.url && b.url !== "about:blank" ? ` · ${esc(hostOf(b.url))}` : ""}` : "Fermé (il s'ouvre quand Clark en a besoin)";
   const shot = b.running && b.shotAt ? `<img class="browser-shot" src="/api/browser/screenshot?t=${b.shotAt}" alt="Ce que voit le navigateur de Clark${b.title ? ` : ${esc(b.title)}` : ""}" />` : "";
   return plugin(
@@ -143,6 +143,7 @@ function renderBrowserPlugin() {
     <div class="card-actions">
       ${b.visible ? `<button type="button" class="btn secondary" data-browser="hide">Masquer la fenêtre</button>` : `<button type="button" class="btn secondary" data-browser="show">Ouvrir le navigateur</button>`}
       ${b.running ? `<button type="button" class="btn ghost" data-browser="close">Fermer</button>` : ""}
+      <a class="btn secondary" href="#navigateur">Se connecter à un site</a>
       <button type="button" class="btn ghost" data-browser="forget">Effacer ses connexions</button>
     </div>
     <p class="inline-error" id="browser-error" role="alert" hidden></p>`,

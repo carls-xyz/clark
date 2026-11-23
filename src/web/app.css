@@ -7026,3 +7026,74 @@ ui-menu-separator {
   padding: 0 10px;
   font-size: var(--fs-small);
 }
+
+/* ── Vue distante du navigateur ─────────────────────────────────────── */
+
+.remote-stop {
+  margin-left: auto;
+  height: 32px;
+  padding: 0 12px;
+  font-size: var(--fs-small);
+}
+
+.remote-url,
+.remote-type {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.remote-url input,
+.remote-type input[type="password"],
+.remote-type input[type="text"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.remote-mask {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+  font-size: var(--fs-small);
+}
+
+.remote-screen {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface);
+}
+
+.remote-screen img {
+  display: block;
+  width: 100%;
+  height: auto;
+  cursor: pointer;
+}
+
+.remote-screen img[hidden],
+.remote-screen p[hidden] {
+  display: none;
+}
+
+.remote-screen p {
+  margin: 0;
+  padding: 40px 16px;
+  text-align: center;
+}
+
+.remote-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 12px;
+}
+
+.remote-keys .btn {
+  height: 32px;
+  padding: 0 10px;
+  font-size: var(--fs-small);
+}

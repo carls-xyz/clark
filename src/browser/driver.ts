@@ -38,11 +38,21 @@ export interface BrowserDriver {
   back(): Promise<void>;
   screenshot(): Promise<Buffer>;
   close(): Promise<void>;
+  /** Vue distante (toi, pas l'agent) : un clic à une position de la page, une saisie, une touche. */
+  clickAt?(x: number, y: number): Promise<void>;
+  typeText?(text: string): Promise<void>;
+  pressKey?(key: string): Promise<void>;
+  /** Taille de la page (la vue distante depuis un téléphone passe en largeur de téléphone). */
+  resize?(width: number, height: number): Promise<void>;
 }
 
+/** Taille de la page du navigateur de Clark : les clics de la vue distante s'y rapportent. */
+export const VIEWPORT = { width: 1280, height: 800 } as const;
+
 export const browserProfileDir = () => process.env.CLARK_BROWSER_PROFILE?.trim() || resolve(paths.root, "data/browser-profile");
-const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const chromePath = () => process.env.CLARK_BROWSER_EXECUTABLE?.trim() || CHROME;
+/** Chrome : CLARK_BROWSER_EXECUTABLE, sinon l'emplacement habituel (Mac, ou Linux : Chrome puis Chromium). */
+const CHROMES = ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/usr/bin/google-chrome", "/usr/bin/google-chrome-stable", "/usr/bin/chromium", "/usr/bin/chromium-browser"];
+export const chromePath = () => process.env.CLARK_BROWSER_EXECUTABLE?.trim() || CHROMES.find((p) => existsSync(p)) || CHROMES[0];
 
 /**
  * Relevé de la page, exécuté dans le navigateur : les éléments visibles avec lesquels on peut
@@ -103,7 +113,7 @@ export class ChromeDriver implements BrowserDriver {
     this.context = await chromium.launchPersistentContext(dir, {
       executablePath: chromePath(),
       headless: !visible,
-      viewport: { width: 1280, height: 800 },
+      viewport: { ...VIEWPORT },
       locale: "fr-FR",
       timezoneId: "Europe/Paris",
       acceptDownloads: false,
@@ -170,6 +180,20 @@ export class ChromeDriver implements BrowserDriver {
   }
   async screenshot() {
     return this.current().screenshot({ type: "jpeg", quality: 70 });
+  }
+  async clickAt(x: number, y: number) {
+    await this.current().mouse.click(Math.round(x), Math.round(y));
+    await this.settle();
+  }
+  async typeText(text: string) {
+    await this.current().keyboard.type(text, { delay: 20 });
+  }
+  async resize(width: number, height: number) {
+    await this.current().setViewportSize({ width, height });
+  }
+  async pressKey(key: string) {
+    await this.current().keyboard.press(key);
+    await this.settle();
   }
   async close() {
     const ctx = this.context;

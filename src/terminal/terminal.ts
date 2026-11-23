@@ -3,6 +3,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, resolve } from "node:path";
+import { loginShell } from "../core/platform.ts";
 
 /**
  * Terminal de l'utilisateur, dans l'interface web (sur le Mac seulement, jamais depuis Telegram).
@@ -68,7 +69,7 @@ export function shellEnv(): NodeJS.ProcessEnv {
     HOME: home,
     USER: process.env.USER ?? "",
     LOGNAME: process.env.LOGNAME ?? process.env.USER ?? "",
-    SHELL: "/bin/zsh",
+    SHELL: loginShell(),
     LANG: process.env.LANG ?? "fr_FR.UTF-8",
     PATH: path,
     TMPDIR: process.env.TMPDIR ?? "/tmp",
@@ -137,7 +138,7 @@ export class Terminal {
     if (this.runs.length > 50) this.runs.splice(0, this.runs.length - 50);
     // Le dossier d'arrivée est relevé à la fin (pour suivre « cd »), puis le code de sortie est rendu.
     const script = `${text}\n__clark_rc=$?\nprintf '\\n${CWD_MARK}%s\\036' "$PWD"\nexit $__clark_rc`;
-    const child = spawn("/bin/zsh", ["-l", "-c", script], { cwd, env: shellEnv(), stdio: ["ignore", "pipe", "pipe"], detached: true });
+    const child = spawn(loginShell(), ["-l", "-c", script], { cwd, env: shellEnv(), stdio: ["ignore", "pipe", "pipe"], detached: true });
     this.procs.set(run.id, child);
     let raw = "";
     const add = (chunk: Buffer) => {

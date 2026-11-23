@@ -268,6 +268,30 @@ Pour voir l'interface sans clé API, lance `npm run demo` puis ouvre http://loca
 
 **Hors Mac.** Quelques morceaux ne marchent que sur un Mac : iMessage, la fenêtre de choix de fichier, garder la machine éveillée, la voix du système. Ailleurs, ils sont simplement absents (la carte iMessage le dit, les entrées « Joindre un fichier » et « Parcourir… » disparaissent ; le chemin s'écrit à la main). Tout le reste ne dépend pas du système.
 
+## Serveur Linux (VPS)
+
+Cible : **Ubuntu 24.04, x86_64** (Chrome n'existe pas en ARM sous Linux), au moins 4 Go de mémoire, 8 conseillés.
+
+**1. Installer.** Sur le serveur, avec ton utilisateur (pas root) :
+
+```bash
+git clone https://github.com/carls-xyz/clark.git ~/clark && cd ~/clark && scripts/install-linux.sh
+```
+
+Le script installe les paquets système (zsh, ffmpeg, bubblewrap et socat pour le bac à sable de Claude, sqlite3…), Node 26, les outils de Claude Code, Codex et GitHub, Google Chrome, whisper et son modèle, puis Clark (`npm ci`, `.env` créé depuis `.env.example`, en `chmod 600`), Tailscale (`tailscale serve` sur le port de Clark), et le service systemd qui tourne sans session ouverte (`loginctl enable-linger`). Il peut être relancé : ce qui est déjà en place est sauté.
+
+**2. Migrer depuis le Mac** (facultatif), depuis le Mac :
+
+```bash
+scripts/migrate.sh moi@serveur
+```
+
+Copié : la base (copie à chaud, vérifiée), la connexion Google, la connexion ChatGPT de Codex et ses fils, le dossier de travail (sans les copies des tâches dev), la mémoire cœur, la dernière sauvegarde, et ton `.env` en `.env.mac` (à fusionner : garder clés et jetons, retirer les chemins du Mac). Les projets dev sont re-clonés dans `~/Developer/<nom>` et leurs chemins mis à jour ; le projet « clark » devient le dossier de Clark sur le serveur. Pas copié : la connexion Claude (dans le Trousseau du Mac : à refaire, Réglages › Moteurs › Connecter Claude), le profil du navigateur (cookies chiffrés par le Trousseau : reconnecte-toi aux sites), journaux, caches et modèles (re-téléchargés). Le service du serveur est arrêté pendant la copie, puis relancé ; arrête Clark sur le Mac (`scripts/service.sh uninstall`) une fois le serveur vérifié.
+
+**3. Se connecter aux sites** : Réglages › Connexions › Navigateur › **Se connecter à un site** (`#navigateur`). C'est une vue distante du navigateur de Clark, qui tourne sans écran : tu vois la page (une capture toutes les 1,5 s), tu cliques dessus, tu tapes dans le champ sélectionné, avec Entrée, Tab, Effacer… Depuis un téléphone, la page passe en largeur de téléphone. Ce que tu tapes va au site, sans être gardé ni montré à Clark ; l'agent n'a pas la main sur le navigateur tant que la vue est ouverte (fermée seule après 10 min sans action, ou en quittant la page). Elle marche aussi sur le Mac.
+
+**Hors Mac**, ce qui change : pas d'iMessage, pas de fenêtre de choix de fichier (le chemin s'écrit à la main), pas de voix du système ; les textes d'écran des vidéos sont dessinés par Chrome (même rendu) ; les commandes passent par zsh s'il est là, sinon bash (`CLARK_SHELL` pour un autre).
+
 ## La commande `clark`
 
 `npm run cli:install` relie `bin/clark.mjs` à `~/.local/bin/clark` (déjà fait sur ce Mac). Elle parle à Clark par son interface locale :
