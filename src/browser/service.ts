@@ -1,13 +1,17 @@
 import { rmSync } from "node:fs";
 import type { BrowserDriver, ElementInfo, PageView } from "./driver.ts";
 import { VIEWPORT, browserProfileDir } from "./driver.ts";
+import { blockedRule, describeRule, redactUrl, type BlockRule } from "./sensitive.ts";
 
 /**
  * Le navigateur de Clark, partagé par les deux moteurs et tenu par le processus principal.
  * Règles, appliquées ici par le code (pas par la consigne) :
  * - lire, ouvrir une page, faire défiler, remplir un champ ordinaire, suivre un lien : libre ;
  * - tout ce qui envoie ou engage (formulaire, Envoyer, Payer, Se connecter…) : accord de l'utilisateur ;
- * - jamais de mot de passe, de numéro de carte ni de code : l'utilisateur le tape lui-même.
+ * - jamais de mot de passe, de numéro de carte ni de code : l'utilisateur le tape lui-même ;
+ * - jamais de site sensible (banque, crypto, mots de passe, identité, comptes Apple/Google/Microsoft,
+ *   voir sensitive.ts) : ni ouvert, ni suivi, ni lu. L'adresse est vérifiée avant chaque action, puis
+ *   l'adresse finale de chaque onglet après (redirection, nouvel onglet, retour arrière).
  */
 
 export const BROWSER_ACTIONS = ["open", "read", "click", "type", "select", "scroll", "back"] as const;
@@ -36,7 +40,14 @@ export type BrowserState = {
   remoteUntil: number | null;
   /** Largeur de la page pendant la vue distante (390 depuis un téléphone, sinon 1280) : les clics s'y rapportent. */
   remoteWidth: number;
+  /** Un site sensible est ouvert (par toi) : l'agent n'a pas la main. La règle et sa provenance. */
+  locked: string | null;
 };
+
+/** Ce qu'a donné une demande d'accord : validée, refusée, sans réponse, ou agent arrêté entre-temps. */
+export type ApprovalOutcome = "ok" | "no" | "expired" | "stopped";
+/** Prise de contrôle par la vue distante : seul le fait est gardé, jamais ce qui a été fait. */
+export type ControlEvent = { at: number; kind: "repris" | "rendu" };
 
 /** Vue distante : fermée seule après tant d'inactivité ; une capture toutes les tant de ms pendant qu'elle est ouverte. */
 export const REMOTE_IDLE_MS = 10 * 60 * 1000;
@@ -58,7 +69,7 @@ export type RemoteAction =
 type Deps = {
   driver: BrowserDriver;
   /** Demande l'accord de l'utilisateur pour la tâche (bouton web / Telegram). */
-  approve: (taskId: number, req: { tool: string; summary: string }) => Promise<boolean>;
+  approve: (taskId: number, req: { tool: string; summary: string }) => Promise<boolean | ApprovalOutcome>;
   /** La tâche tourne-t-elle encore ? Une tâche finie libère le navigateur. */
   taskAlive: (taskId: number) => boolean;
   onChange?: () => void;
@@ -115,6 +126,19 @@ export function formState(v: PageView | null): string {
   return v.url + "\n" + fields.map((e) => `${e.tag}|${e.type}|${e.name}|${e.value ?? ""}`).join("\n");
 }
 
+const lockedText = (r: BlockRule) =>
+  `Le navigateur est sur un site sensible (${describeRule(r)}), ouvert par Charles : je n'y touche pas et je ne lis rien. Il doit quitter ce site ou fermer la page avant que je reprenne la main. Fais sans le navigateur, ou demande-lui.`;
+const blockedText = (r: BlockRule) =>
+  `Site bloqué pour l'agent : ${describeRule(r)}. Je n'ouvre pas les banques, la crypto, les gestionnaires de mots de passe, l'identité ni les comptes Apple, Google et Microsoft. Charles le fait lui-même s'il le veut.`;
+
+/** Le texte rendu à l'agent quand l'accord n'est pas donné. */
+export function refusalText(how: Exclude<ApprovalOutcome, "ok">, action: BrowserAction): string {
+  const did = action === "click" ? "cliqué" : "validé";
+  if (how === "stopped") return `Charles a arrêté l'agent : je n'ai pas ${did}. Arrête-toi là.`;
+  if (how === "expired") return `Pas de réponse de Charles à temps : je n'ai pas ${did}. Propose une autre approche ou redemande plus tard.`;
+  return `Charles a refusé : je n'ai pas ${did}. Propose une autre approche ou demande-lui.`;
+}
+
 export function safeUrl(raw: string): URL | null {
   try {
     const u = new URL(/^[a-z][\w+.-]*:/i.test(raw.trim()) ? raw.trim() : `https://${raw.trim()}`);
@@ -140,6 +164,9 @@ export class BrowserService {
   private remoteUntil: number | null = null;
   private remoteTimer: NodeJS.Timeout | null = null;
   private remoteSize: { width: number; height: number } = { ...VIEWPORT };
+  /** Un site sensible a été ouvert par l'utilisateur (vue distante, fenêtre) : verrou tant qu'il est ouvert. */
+  private userSensitive = false;
+  private events: ControlEvent[] = [];
 
   constructor(deps: Deps) {
     this.deps = deps;
@@ -147,18 +174,81 @@ export class BrowserService {
 
   state(): BrowserState {
     const d = this.deps.driver;
+    const hit = this.sensitiveTab();
     return {
       available: d.available(),
       running: d.running(),
       visible: d.visible(),
-      url: d.running() ? (this.last?.url ?? null) : null,
-      title: d.running() ? (this.last?.title ?? null) : null,
+      url: d.running() ? (hit ? redactUrl(hit.url) : (this.last?.url ?? null)) : null,
+      title: d.running() && !hit ? (this.last?.title ?? null) : null,
       taskId: this.owner,
       lastAction: this.lastAction,
       shotAt: this.shotAt,
       remoteUntil: this.remoteActive() ? this.remoteUntil : null,
       remoteWidth: this.remoteSize.width,
+      locked: hit ? describeRule(hit.rule) : null,
     };
+  }
+
+  /** Les prises de contrôle par la vue distante (les 20 dernières), sans aucun détail. */
+  controlEvents(): ControlEvent[] {
+    return [...this.events];
+  }
+
+  private event(kind: ControlEvent["kind"]) {
+    this.events.push({ at: Date.now(), kind });
+    if (this.events.length > 20) this.events.shift();
+  }
+
+  /** Les adresses des onglets ouverts, sans lire leur contenu. */
+  private liveUrls(): string[] {
+    const d = this.deps.driver;
+    if (!d.running()) return [];
+    if (d.urls) return d.urls();
+    const u = d.currentUrl?.() ?? this.last?.url;
+    return u ? [u] : [];
+  }
+
+  /** Le premier onglet ouvert sur un site sensible, avec la règle qui le bloque. */
+  private sensitiveTab(): { url: string; rule: BlockRule } | null {
+    for (const url of this.liveUrls()) {
+      const rule = blockedRule(url);
+      if (rule) return { url, rule };
+    }
+    return null;
+  }
+
+  /** Ferme (ou vide, si c'est le dernier) chaque onglet sensible. Rend les règles touchées. */
+  private async neutralize(): Promise<BlockRule[]> {
+    const d = this.deps.driver;
+    if (!d.running()) return [];
+    let urls: string[] = [];
+    if (d.closeWhere) urls = await d.closeWhere((u) => blockedRule(u) !== null);
+    else {
+      const hit = this.sensitiveTab();
+      if (hit) {
+        await d.open("about:blank").catch(() => {});
+        urls = [hit.url];
+      }
+    }
+    if (urls.length) {
+      this.last = null;
+      this.shot = null;
+      this.shotAt = null;
+    }
+    return urls.map((u) => blockedRule(u)).filter((r): r is BlockRule => r !== null);
+  }
+
+  /** « Quitter le site sensible » (interface) : ferme les onglets sensibles, l'agent retrouve la main. */
+  leaveSensitive(): Promise<number> {
+    return this.serial(async () => {
+      const n = (await this.neutralize()).length;
+      this.userSensitive = false;
+      if (this.deps.driver.running()) await this.capture().catch(() => {});
+      this.reloaded = true;
+      this.changed();
+      return n;
+    });
   }
 
   screenshot(): Buffer | null {
@@ -197,8 +287,22 @@ export class BrowserService {
   }
 
   private async capture() {
-    this.last = await this.deps.driver.view();
-    this.shot = await this.deps.driver.screenshot().catch(() => this.shot);
+    const d = this.deps.driver;
+    const url = d.currentUrl?.() ?? null;
+    let rule = url ? blockedRule(url) : null;
+    const view = rule ? null : await d.view();
+    rule ??= blockedRule(view?.url);
+    if (rule) {
+      // Site sensible : rien de la page n'est gardé pour l'agent (ni texte, ni éléments, ni titre).
+      // La capture d'écran ne sert qu'à la vue distante, pendant que l'utilisateur la regarde.
+      if (this.remoteActive() || d.visible()) this.userSensitive = true;
+      this.last = { url: redactUrl(url ?? view?.url ?? ""), title: "", text: "", elements: [] };
+      this.shot = this.remoteActive() ? await d.screenshot().catch(() => null) : null;
+      this.shotAt = Date.now();
+      return;
+    }
+    this.last = view;
+    this.shot = await d.screenshot().catch(() => this.shot);
     this.shotAt = Date.now();
   }
 
@@ -214,6 +318,18 @@ export class BrowserService {
         return `Le navigateur est utilisé par la tâche #${this.owner}. Fais sans, ou réessaie plus tard.`;
       }
       await d.ensure(this.wantVisible);
+      // Site sensible ouvert : verrou s'il vient de l'utilisateur ; sinon (redirection tardive après une
+      // action de l'agent) l'onglet est fermé sans être lu.
+      const open = this.sensitiveTab();
+      if (open) {
+        if (this.userSensitive || d.visible()) {
+          this.userSensitive = true;
+          return lockedText(open.rule);
+        }
+        await this.neutralize();
+        return `Un onglet était sur un site sensible (${describeRule(open.rule)}) : je l'ai fermé sans le lire. Ouvre une autre page.`;
+      }
+      this.userSensitive = false;
       this.owner = taskId;
       this.lastAt = Date.now();
       this.armIdle();
@@ -244,6 +360,8 @@ export class BrowserService {
           case "open": {
             const url = safeUrl(args.url ?? "");
             if (!url) return "Adresse refusée : seules les pages http(s) s'ouvrent.";
+            const rule = blockedRule(url.href);
+            if (rule) return blockedText(rule);
             await d.open(url.href);
             this.lastAction = `ouvre ${url.host}`;
             break;
@@ -266,13 +384,15 @@ export class BrowserService {
             const el = find();
             if (typeof el === "string") return el;
             if (el.disabled) return `« ${el.name} » est désactivé sur la page.`;
+            const target = el.href ? blockedRule(el.href) : null;
+            if (target) return blockedText(target);
             if (action === "type") {
               const text = args.text ?? "";
               const refusal = forbiddenTyping(el, text);
               if (refusal) return refusal;
             }
             const why = needsApproval(action, el, args);
-            let target = el;
+            let chosen = el;
             if (why) {
               const what =
                 action === "click"
@@ -282,11 +402,17 @@ export class BrowserService {
               const before = formState(this.last);
               // Pendant que l'utilisateur décide, le navigateur reste libre (il peut l'afficher pour regarder).
               release();
-              const ok = await this.deps.approve(taskId, { tool: "browser", summary: `Navigateur · ${host()} — ${what} (${why}).\nPage : ${page}` });
+              const answer = await this.deps.approve(taskId, { tool: "browser", summary: `Navigateur · ${host()} — ${what} (${why}).\nPage : ${redactUrl(page)}` });
               release = await this.lock();
-              if (!ok) return `Charles a refusé (ou n'a pas répondu à temps) : je n'ai pas ${action === "click" ? "cliqué" : "validé"}. Propose une autre approche ou demande-lui.`;
+              const how: ApprovalOutcome = answer === true ? "ok" : answer === false ? "no" : answer;
+              if (how !== "ok") return refusalText(how, action);
               // La page a pu bouger (affichage relancé, autre onglet) : on retrouve le même élément, ou on s'arrête.
               await d.ensure(this.wantVisible);
+              const opened = this.sensitiveTab();
+              if (opened) {
+                this.userSensitive = true;
+                return lockedText(opened.rule);
+              }
               await this.capture();
               const same = this.last?.url === page ? this.last.elements.find((e) => e.tag === el.tag && e.name === el.name && e.submits === el.submits) : undefined;
               // L'utilisateur a validé une page précise : si elle a changé (rechargée, champs modifiés), on n'envoie rien.
@@ -294,27 +420,35 @@ export class BrowserService {
                 this.reloaded = false;
                 return "La page a changé pendant que Charles décidait (rechargée ou champs modifiés) : rien n'est envoyé. Relis la page (browser_read), vérifie les champs, puis redemande.";
               }
-              target = same;
+              chosen = same;
               note = "Accord de Charles reçu. ";
             }
             if (action === "click") {
-              await d.click(target.ref);
+              await d.click(chosen.ref);
               this.lastAction = `clique « ${el.name || el.ref} »`;
             } else if (action === "type") {
-              await d.fill(target.ref, args.text ?? "");
-              if (args.submit) await d.press(target.ref, "Enter");
+              await d.fill(chosen.ref, args.text ?? "");
+              if (args.submit) await d.press(chosen.ref, "Enter");
               this.lastAction = `remplit « ${el.name || el.ref} »`;
             } else {
-              await d.select(target.ref, args.value ?? "");
+              await d.select(chosen.ref, args.value ?? "");
               this.lastAction = `choisit « ${args.value} »`;
             }
             break;
           }
         }
+        // Adresse finale de chaque onglet : une redirection, un nouvel onglet ou un retour arrière vers un site
+        // sensible est fermé avant toute lecture.
+        const landed = await this.neutralize();
+        if (landed.length) {
+          this.lastAction = "onglet sensible fermé";
+          return `${note}L'action a mené vers un site sensible (${describeRule(landed[0])}) : j'ai fermé l'onglet sans le lire. Ouvre une autre page.`;
+        }
         await this.capture();
         return note + formatView(this.last!);
       } catch (err) {
         const msg = err instanceof Error ? err.message.split("\n")[0] : String(err);
+        await this.neutralize().catch(() => []);
         await this.capture().catch(() => {});
         return `L'action n'a pas abouti : ${msg}`;
       } finally {
@@ -332,6 +466,7 @@ export class BrowserService {
   }
 
   private endRemote() {
+    if (this.remoteUntil !== null) this.event("rendu");
     // Retour à la taille habituelle pour l'agent.
     if (this.remoteSize.width !== VIEWPORT.width && this.deps.driver.running()) void this.deps.driver.resize?.(VIEWPORT.width, VIEWPORT.height).catch(() => {});
     this.remoteSize = { ...VIEWPORT };
@@ -360,6 +495,7 @@ export class BrowserService {
       // Le navigateur garde son affichage (fenêtre sur le Mac), ou démarre sans écran (serveur).
       await d.ensure(d.running() ? d.visible() : this.wantVisible);
       if (r.action === "start") {
+        if (!this.remoteActive()) this.event("repris");
         const size = r.phone ? PHONE_VIEWPORT : VIEWPORT;
         if (size.width !== this.remoteSize.width && d.resize) {
           await d.resize(size.width, size.height);

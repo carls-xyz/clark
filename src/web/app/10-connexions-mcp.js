@@ -180,10 +180,11 @@ function renderBrowserPlugin() {
     "Navigateur de Clark",
     "built",
     "Un Chrome à lui, avec son propre profil. Lire, chercher, remplir un champ : libre. Tout ce qui envoie ou engage (formulaire, Envoyer, Payer, Se connecter…) attend ton accord. Il ne tape jamais de mot de passe ni de carte : pour qu'il utilise un compte, ouvre sa fenêtre et connecte-toi toi-même, la session reste.",
-    `<p class="quiet browser-where">${where}</p>${shot}
+    `<p class="quiet browser-where">${where}</p>${b.locked ? `<p class="inline-error" role="status">Site sensible ouvert : ${esc(b.locked)}. Clark n'a pas la main tant que tu ne le quittes pas.</p>` : ""}${shot}
     <div class="card-actions">
       ${b.visible ? `<button type="button" class="btn secondary" data-browser="hide">Masquer la fenêtre</button>` : `<button type="button" class="btn secondary" data-browser="show">Ouvrir le navigateur</button>`}
       ${b.running ? `<button type="button" class="btn ghost" data-browser="close">Fermer</button>` : ""}
+      ${b.locked ? `<button type="button" class="btn secondary" data-browser="leave">Quitter le site sensible</button>` : ""}
       <a class="btn secondary" href="#navigateur">Se connecter à un site</a>
       <button type="button" class="btn ghost" data-browser="forget">Effacer ses connexions</button>
     </div>

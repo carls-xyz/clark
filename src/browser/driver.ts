@@ -44,6 +44,12 @@ export interface BrowserDriver {
   pressKey?(key: string): Promise<void>;
   /** Taille de la page (la vue distante depuis un téléphone passe en largeur de téléphone). */
   resize?(width: number, height: number): Promise<void>;
+  /** L'adresse de la page courante, sans lire son contenu. */
+  currentUrl?(): string | null;
+  /** Les adresses de tous les onglets, sans lire leur contenu. */
+  urls?(): string[];
+  /** Ferme les onglets dont l'adresse est refusée (le dernier passe sur about:blank). Rend les adresses neutralisées. */
+  closeWhere?(refused: (url: string) => boolean): Promise<string[]>;
 }
 
 /** Taille de la page du navigateur de Clark : les clics de la vue distante s'y rapportent. */
@@ -194,6 +200,29 @@ export class ChromeDriver implements BrowserDriver {
   async pressKey(key: string) {
     await this.current().keyboard.press(key);
     await this.settle();
+  }
+  currentUrl() {
+    try {
+      return this.current().url();
+    } catch {
+      return null;
+    }
+  }
+  urls() {
+    return (this.context?.pages() ?? []).filter((p) => !p.isClosed()).map((p) => p.url());
+  }
+  async closeWhere(refused: (url: string) => boolean) {
+    const out: string[] = [];
+    for (const p of this.context?.pages() ?? []) {
+      if (p.isClosed() || !refused(p.url())) continue;
+      out.push(p.url());
+      const open = (this.context?.pages() ?? []).filter((q) => !q.isClosed());
+      // Le dernier onglet n'est pas fermé (le navigateur se fermerait) : il passe sur une page vide.
+      if (open.length > 1) await p.close().catch(() => {});
+      else await p.goto("about:blank").catch(() => {});
+    }
+    if (out.length) this.page = (this.context?.pages() ?? []).filter((q) => !q.isClosed()).at(-1) ?? null;
+    return out;
   }
   async close() {
     const ctx = this.context;

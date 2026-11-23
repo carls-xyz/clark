@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { effectOf, type Effect, type Tier } from "../policy/permissions.ts";
+import { browserAction, browserStepInput, browserStepOutput, type BrowserStepRow } from "../browser/journal.ts";
 
 export type TaskStatus = "queued" | "running" | "done" | "failed" | "needs_check" | "abandoned";
 /** verified : écriture incertaine dont l'effet a été vérifié par une reprise en lecture seule. */
@@ -44,6 +45,9 @@ export type Step = {
   /** Tentative qui a lancé cette étape. */
   attempt: string | null;
 };
+
+/** L'entrée d'une étape, telle qu'elle est gardée (navigateur : adresse réduite, textes masqués). */
+const stepInput = (tool: string, input: unknown) => JSON.stringify((browserAction(tool) ? browserStepInput(input) : input) ?? {}).slice(0, 4000);
 
 const OUTPUT_LIMIT = 2000;
 
@@ -105,6 +109,25 @@ export class TaskJournal {
     // Fin de tour signalée par l'agent : « quiet » (rien de neuf) ou « failed » (raison dans outcome_note).
     this.addColumn("tasks", "outcome", "TEXT");
     this.addColumn("tasks", "outcome_note", "TEXT");
+    this.redactOldBrowserSteps();
+  }
+
+  /** Étapes du navigateur écrites avant l'expurgation : la page lue et les valeurs tapées sont retirées. */
+  private redactOldBrowserSteps() {
+    const rows = this.db
+      .prepare("SELECT id, tool, input, output FROM steps WHERE tool LIKE '%browser\\_%' ESCAPE '\\' AND (output LIKE '%(Contenu d''une page web%' OR input LIKE '%\"text\"%' OR input LIKE '%?%' OR input LIKE '%#%')")
+      .all() as { id: number; tool: string; input: string; output: string | null }[];
+    const update = this.db.prepare("UPDATE steps SET input = ?, output = ? WHERE id = ?");
+    for (const r of rows) {
+      if (!browserAction(r.tool)) continue;
+      let input: unknown = {};
+      try {
+        input = JSON.parse(r.input);
+      } catch {}
+      const next = stepInput(r.tool, input);
+      const out = r.output === null ? null : browserStepOutput(r.output);
+      if (next !== r.input || out !== r.output) update.run(next, out, r.id);
+    }
   }
 
   private addColumn(table: string, column: string, definition: string) {
@@ -312,7 +335,7 @@ export class TaskJournal {
            tier = excluded.tier,
            updated_at = datetime('now')`,
       )
-      .run(s.taskId, s.toolUseId, s.tool, JSON.stringify(s.input ?? {}).slice(0, 4000), s.tier, effectOf(s.tool), s.status, s.attempt ?? null);
+      .run(s.taskId, s.toolUseId, s.tool, stepInput(s.tool, s.input), s.tier, effectOf(s.tool), s.status, s.attempt ?? null);
     this.changed();
   }
 
@@ -328,15 +351,25 @@ export class TaskJournal {
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'running', coalesce(?7, (SELECT attempt FROM tasks WHERE id = ?1)))
          ON CONFLICT(tool_use_id) DO NOTHING`,
       )
-      .run(s.taskId, s.toolUseId, s.tool, JSON.stringify(s.input ?? {}).slice(0, 4000), s.tier, effectOf(s.tool), s.attempt ?? null);
+      .run(s.taskId, s.toolUseId, s.tool, stepInput(s.tool, s.input), s.tier, effectOf(s.tool), s.attempt ?? null);
     this.changed();
   }
 
   completeStep(toolUseId: string, output: string, isError: boolean) {
+    // Navigateur : la page lue n'est jamais gardée, seulement la note et l'adresse (origine + chemin).
+    const tool = (this.db.prepare("SELECT tool FROM steps WHERE tool_use_id = ?").get(toolUseId) as { tool: string } | undefined)?.tool;
+    if (tool && browserAction(tool)) output = browserStepOutput(output);
     this.db
       .prepare("UPDATE steps SET status = ?, output = ?, updated_at = datetime('now') WHERE tool_use_id = ?")
       .run(isError ? "error" : "done", output.slice(0, OUTPUT_LIMIT), toolUseId);
     this.changed();
+  }
+
+  /** Les dernières étapes du navigateur, toutes tâches confondues (journal du navigateur). */
+  browserSteps(limit = 60): BrowserStepRow[] {
+    return this.db
+      .prepare("SELECT id, task_id, tool, input, status, output, created_at FROM steps WHERE tool LIKE '%browser\\_%' ESCAPE '\\' ORDER BY id DESC LIMIT ?")
+      .all(limit) as BrowserStepRow[];
   }
 
   steps(taskId: number): Step[] {

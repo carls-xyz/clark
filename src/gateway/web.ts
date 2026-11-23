@@ -64,6 +64,8 @@ import { DEFAULT_MAX_TURNS, MAX_TURNS_LIMIT } from "../core/goals.ts";
 import { PERSONALITY_LIMIT, readPersonality, savePersonality } from "../core/personality.ts";
 import { frenchVoices, resolveVoice, speak, transcribe, voiceStatus } from "../voice/voice.ts";
 import { BROWSER_ACTIONS, BROWSER_WRITES, type BrowserAction, type BrowserService } from "../browser/service.ts";
+import { browserJournal } from "../browser/journal.ts";
+import { rulesView, TRUST_LIST_ENABLED } from "../browser/sensitive.ts";
 import { isInternal } from "../core/internal.ts";
 import { READ_ONLY_REFUSAL } from "../policy/permissions.ts";
 import type { MessagesService } from "../imessage/service.ts";
@@ -995,6 +997,15 @@ export function startWeb(hub: Hub, opts: { health?: (fresh?: boolean) => HealthR
         res.end(JSON.stringify(data, null, 2));
         return;
       }
+      // Journal du navigateur (étapes des tâches, expurgées) et règles des sites sensibles, avec leur provenance.
+      if (path === "/api/browser/journal") {
+        const awaiting = new Set(hub.approvals().filter((a) => a.tool === "browser").map((a) => a.taskId));
+        return json(res, 200, {
+          rules: rulesView(),
+          trustList: { enabled: TRUST_LIST_ENABLED },
+          entries: browserJournal(journal.browserSteps(60), { awaitingTasks: awaiting, control: opts.browser?.controlEvents() ?? [] }),
+        });
+      }
       if (path === "/api/browser/screenshot") {
         const shot = opts.browser?.screenshot();
         if (!shot) throw new HttpError(404, "Pas de capture");
@@ -1247,6 +1258,7 @@ export function startWeb(hub: Hub, opts: { health?: (fresh?: boolean) => HealthR
         else if (action === "hide") await opts.browser.setVisible(false);
         else if (action === "close") await opts.browser.close();
         else if (action === "forget") await opts.browser.forget();
+        else if (action === "leave") await opts.browser.leaveSensitive();
         else throw new HttpError(400, "Action inconnue");
       } catch (err) {
         if (err instanceof HttpError) throw err;
