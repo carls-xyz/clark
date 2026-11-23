@@ -1,0 +1,10 @@
+{
+  "name": "Clark",
+  "short_name": "Clark",
+  "lang": "fr",
+  "start_url": "/#conversation",
+  "display": "standalone",
+  "background_color": "#141412",
+  "theme_color": "#141412",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

@@ -6,6 +6,12 @@
     <meta name="color-scheme" content="light dark" />
     <title>Clark</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <!-- Ajouté à l'écran d'accueil du téléphone (par Tailscale) : il s'ouvre en plein écran, comme une app. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Clark" />
+    <meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141412" media="(prefers-color-scheme: dark)" />
     <script src="/theme.js"></script>
     <link rel="stylesheet" href="/app.css" />
     <!-- Sans nonce : ui-sdk passe par des feuilles de style construites, que la CSP ('self') ne bloque pas. -->
