@@ -13,6 +13,7 @@ import { ignoreLink, isIgnored, linkSharedDirs, prepareCopy } from "./project-se
 import { dropCheckpoints, restore, snapshot } from "./checkpoints.ts";
 import { closePreviewFor, designDir, dropDesignShots } from "./preview.ts";
 import { killTree } from "../core/kill-tree.ts";
+import { loginShell } from "../core/platform.ts";
 
 /**
  * Côté dev, première passe : une consigne → une copie isolée du dépôt (worktree, branche
@@ -815,7 +816,7 @@ export async function runDevTests(hub: Hub, id: number, timeoutMs = 10 * 60_000,
       }
     }
     const result = await new Promise<{ code: number | null; output: string; timedOut: boolean }>((done) => {
-      const child = spawn("/bin/zsh", ["-lc", p.test_command!], { cwd: t.worktree, env: { ...process.env, CI: "1" }, detached: true });
+      const child = spawn(loginShell(), ["-lc", p.test_command!], { cwd: t.worktree, env: { ...process.env, CI: "1" }, detached: true });
       let out = "";
       const keep = (d: Buffer) => (out = (out + d.toString()).slice(-8000));
       child.stdout.on("data", keep);

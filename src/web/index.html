@@ -271,6 +271,44 @@
         </div>
       </main>
 
+      <main class="view page" id="view-browser" aria-labelledby="t-browser" hidden>
+        <header class="view-head">
+          <button type="button" class="menu-btn" data-drawer aria-label="Ouvrir la barre de gauche" aria-controls="sidebar">
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /></svg>
+          </button>
+          <h1 class="view-title" tabindex="-1" id="t-browser">Se connecter à un site</h1>
+          <button type="button" class="btn ghost remote-stop" data-remote="stop">Terminer</button>
+        </header>
+        <div class="page-body">
+          <p class="quiet">Le navigateur de Clark, à distance : tu te connectes toi-même, la session reste pour lui. Ce que tu tapes va au site, sans être gardé ni montré à Clark ; il n'a pas la main tant que cette page est ouverte (10 min au plus sans action).</p>
+          <form class="remote-url" id="remote-url" autocomplete="off">
+            <label class="visually-hidden" for="remote-url-input">Adresse du site</label>
+            <input id="remote-url-input" name="url" type="url" inputmode="url" placeholder="https://x.com/login" />
+            <button type="submit" class="btn primary">Ouvrir</button>
+          </form>
+          <p class="inline-error" id="remote-error" role="alert" hidden></p>
+          <form class="remote-type" id="remote-type" autocomplete="off">
+            <label class="visually-hidden" for="remote-text">Texte à taper dans le champ sélectionné</label>
+            <input id="remote-text" name="text" type="password" autocomplete="off" spellcheck="false" placeholder="Clique un champ, puis tape ici" />
+            <label class="remote-mask"><input type="checkbox" id="remote-mask" checked /> Masquer</label>
+            <button type="submit" class="btn secondary">Taper</button>
+          </form>
+          <div class="remote-keys" role="group" aria-label="Touches">
+            <button type="button" class="btn ghost" data-remote-key="Enter">Entrée</button>
+            <button type="button" class="btn ghost" data-remote-key="Tab">Tab</button>
+            <button type="button" class="btn ghost" data-remote-key="Backspace">Effacer</button>
+            <button type="button" class="btn ghost" data-remote-key="Escape">Échap</button>
+            <button type="button" class="btn ghost" data-remote="scroll-up" aria-label="Remonter">↑</button>
+            <button type="button" class="btn ghost" data-remote="scroll-down" aria-label="Descendre">↓</button>
+            <button type="button" class="btn ghost" data-remote="back">Page précédente</button>
+          </div>
+          <div class="remote-screen" id="remote-screen">
+            <img id="remote-shot" alt="La page dans le navigateur de Clark ; clique pour y cliquer" hidden />
+            <p class="quiet" id="remote-empty">Ouvre un site pour commencer.</p>
+          </div>
+        </div>
+      </main>
+
       <main class="view page" id="view-settings" aria-labelledby="t-settings" hidden>
         <header class="view-head">
           <button type="button" class="menu-btn" data-drawer aria-label="Ouvrir la barre de gauche" aria-controls="sidebar">

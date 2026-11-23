@@ -1,6 +1,6 @@
 import { rmSync } from "node:fs";
 import type { BrowserDriver, ElementInfo, PageView } from "./driver.ts";
-import { browserProfileDir } from "./driver.ts";
+import { VIEWPORT, browserProfileDir } from "./driver.ts";
 
 /**
  * Le navigateur de Clark, partagé par les deux moteurs et tenu par le processus principal.
@@ -32,7 +32,28 @@ export type BrowserState = {
   taskId: number | null;
   lastAction: string | null;
   shotAt: number | null;
+  /** Vue distante en cours (toi qui te connectes à un site) : jusqu'à quand, en ms. */
+  remoteUntil: number | null;
+  /** Largeur de la page pendant la vue distante (390 depuis un téléphone, sinon 1280) : les clics s'y rapportent. */
+  remoteWidth: number;
 };
+
+/** Vue distante : fermée seule après tant d'inactivité ; une capture toutes les tant de ms pendant qu'elle est ouverte. */
+export const REMOTE_IDLE_MS = 10 * 60 * 1000;
+const REMOTE_SHOT_MS = 1500;
+/** Depuis un téléphone : la page en largeur de téléphone, pour que les champs restent lisibles. */
+export const PHONE_VIEWPORT = { width: 390, height: 844 } as const;
+/** Les touches que la vue distante peut envoyer. */
+export const REMOTE_KEYS = new Set(["Enter", "Tab", "Backspace", "Escape", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
+export type RemoteAction =
+  | { action: "start"; url?: string; phone?: boolean }
+  | { action: "stop" }
+  | { action: "goto"; url: string }
+  | { action: "click"; x: number; y: number }
+  | { action: "type"; text: string }
+  | { action: "key"; key: string }
+  | { action: "scroll"; direction: "down" | "up" }
+  | { action: "back" };
 
 type Deps = {
   driver: BrowserDriver;
@@ -116,6 +137,9 @@ export class BrowserService {
   /** La page a été rechargée hors de l'agent (fenêtre affichée ou masquée) : ce qu'il avait rempli est perdu. */
   private reloaded = false;
   private idle: NodeJS.Timeout | null = null;
+  private remoteUntil: number | null = null;
+  private remoteTimer: NodeJS.Timeout | null = null;
+  private remoteSize: { width: number; height: number } = { ...VIEWPORT };
 
   constructor(deps: Deps) {
     this.deps = deps;
@@ -132,6 +156,8 @@ export class BrowserService {
       taskId: this.owner,
       lastAction: this.lastAction,
       shotAt: this.shotAt,
+      remoteUntil: this.remoteActive() ? this.remoteUntil : null,
+      remoteWidth: this.remoteSize.width,
     };
   }
 
@@ -178,6 +204,8 @@ export class BrowserService {
 
   /** Une action d'un agent. Rend un texte pour l'agent ; ne lève pas d'erreur pour un refus. */
   async act(taskId: number, action: BrowserAction, args: { url?: string; ref?: string; text?: string; submit?: boolean; value?: string; direction?: "down" | "up" }): Promise<string> {
+    // Pendant que tu te connectes à un site (vue distante), l'agent ne touche pas au navigateur.
+    if (this.remoteActive()) return "Charles utilise le navigateur en ce moment (il se connecte à un site). Réessaie dans quelques minutes, ou fais sans.";
     let release = await this.lock();
     try {
       const d = this.deps.driver;
@@ -298,11 +326,86 @@ export class BrowserService {
     }
   }
 
+  remoteActive(): boolean {
+    if (this.remoteUntil !== null && Date.now() > this.remoteUntil) this.endRemote();
+    return this.remoteUntil !== null;
+  }
+
+  private endRemote() {
+    // Retour à la taille habituelle pour l'agent.
+    if (this.remoteSize.width !== VIEWPORT.width && this.deps.driver.running()) void this.deps.driver.resize?.(VIEWPORT.width, VIEWPORT.height).catch(() => {});
+    this.remoteSize = { ...VIEWPORT };
+    this.remoteUntil = null;
+    if (this.remoteTimer) clearInterval(this.remoteTimer);
+    this.remoteTimer = null;
+  }
+
+  /**
+   * Vue distante : sur un serveur sans écran (ou depuis le téléphone), tu te connectes toi-même à un site
+   * dans le navigateur de Clark. Tu vois des captures de la page, tes clics et ta saisie y sont rejoués.
+   * Ce que tu tapes n'est ni gardé ni montré à l'agent ; l'agent n'a pas la main tant que la vue est ouverte.
+   */
+  remote(r: RemoteAction): Promise<void> {
+    return this.serial(async () => {
+      const d = this.deps.driver;
+      if (r.action === "stop") {
+        this.endRemote();
+        await this.capture().catch(() => {});
+        this.changed();
+        return;
+      }
+      if (!d.available()) throw new Error("Google Chrome est introuvable sur cette machine.");
+      if (r.action !== "start" && !this.remoteActive()) throw new Error("La vue distante est fermée : rouvre-la.");
+      if (!d.clickAt || !d.typeText || !d.pressKey) throw new Error("Ce navigateur ne permet pas la vue distante.");
+      // Le navigateur garde son affichage (fenêtre sur le Mac), ou démarre sans écran (serveur).
+      await d.ensure(d.running() ? d.visible() : this.wantVisible);
+      if (r.action === "start") {
+        const size = r.phone ? PHONE_VIEWPORT : VIEWPORT;
+        if (size.width !== this.remoteSize.width && d.resize) {
+          await d.resize(size.width, size.height);
+          this.remoteSize = { ...size };
+        }
+        if (!this.remoteTimer) {
+          this.remoteTimer = setInterval(() => {
+            if (!this.remoteActive()) return this.changed();
+            void this.serial(() => this.capture()).then(() => this.changed(), () => {});
+          }, REMOTE_SHOT_MS);
+          this.remoteTimer.unref();
+        }
+        if (r.url) {
+          const u = safeUrl(r.url);
+          if (!u) throw new Error("Adresse invalide (http ou https).");
+          await d.open(u.toString());
+        } else if (!this.last) await d.open("about:blank").catch(() => {});
+      } else if (r.action === "goto") {
+        const u = safeUrl(r.url);
+        if (!u) throw new Error("Adresse invalide (http ou https).");
+        await d.open(u.toString());
+      } else if (r.action === "click") {
+        if (!Number.isFinite(r.x) || !Number.isFinite(r.y)) throw new Error("Position invalide.");
+        await d.clickAt(Math.min(Math.max(r.x, 0), this.remoteSize.width - 1), Math.min(Math.max(r.y, 0), this.remoteSize.height - 1));
+      } else if (r.action === "type") {
+        if (typeof r.text !== "string" || r.text.length > 500) throw new Error("Texte invalide (500 caractères au plus).");
+        await d.typeText(r.text);
+      } else if (r.action === "key") {
+        if (!REMOTE_KEYS.has(r.key)) throw new Error("Touche non prise en charge.");
+        await d.pressKey(r.key);
+      } else if (r.action === "scroll") await d.scroll(r.direction === "up" ? "up" : "down");
+      else if (r.action === "back") await d.back();
+      this.remoteUntil = Date.now() + REMOTE_IDLE_MS;
+      // La page a changé hors de l'agent : ce qu'il avait relevé n'est plus à jour.
+      this.reloaded = true;
+      await this.capture().catch(() => {});
+      this.armIdle();
+      this.changed();
+    });
+  }
+
   /** « Ouvrir le navigateur » : la fenêtre s'affiche sur la même page, pour te connecter ou prendre la main. */
   setVisible(visible: boolean): Promise<void> {
     return this.serial(async () => {
       this.wantVisible = visible;
-      if (!this.deps.driver.available()) throw new Error("Google Chrome est introuvable sur ce Mac.");
+      if (!this.deps.driver.available()) throw new Error("Google Chrome est introuvable sur cette machine.");
       if (!visible && !this.deps.driver.running()) return;
       if (this.deps.driver.running() && this.deps.driver.visible() !== visible) this.reloaded = true;
       await this.deps.driver.ensure(visible);

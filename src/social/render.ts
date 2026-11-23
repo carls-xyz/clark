@@ -5,13 +5,15 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { paths } from "../config.ts";
 import { isInside } from "../policy/permissions.ts";
+import { onMac } from "../core/platform.ts";
+import { chromePath } from "../browser/driver.ts";
 
 const run = promisify(execFile);
 
 /**
  * Montage d'une vidéo verticale (TikTok, Reels, Shorts) à partir de tes clips :
  * chaque clip est recadré en 1080×1920, coupé, mis bout à bout, et les textes
- * d'écran sont incrustés à leurs moments. Tout se fait sur le Mac, avec ffmpeg :
+ * d'écran sont incrustés à leurs moments. Tout se fait sur la machine, avec ffmpeg :
  * aucun service extérieur. Le son des clips est retiré : la musique s'ajoute dans
  * l'application de la plateforme, avec ses titres sous licence.
  */
@@ -31,6 +33,37 @@ async function textRenderer(): Promise<string> {
   mkdirSync(resolve(TEXT_BIN, ".."), { recursive: true });
   await run("swiftc", ["-O", SWIFT_SOURCE, "-o", TEXT_BIN], { timeout: 180_000 });
   return TEXT_BIN;
+}
+
+/**
+ * La page d'un texte d'écran, pour le rendu hors Mac : même dessin que text-card.swift (texte blanc,
+ * gras, centré, sur un bandeau sombre arrondi, aux deux tiers de la hauteur), fond transparent.
+ */
+export function textCardHtml(text: string, width: number, height: number, size: number): string {
+  const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+html,body{margin:0;width:${width}px;height:${height}px;background:transparent}
+.card{position:absolute;left:0;right:0;margin:0 auto;width:fit-content;bottom:${Math.round(height * 0.33)}px;max-width:${Math.round(width * 0.8)}px;box-sizing:border-box;
+padding:${Math.round(size * 0.35)}px ${Math.round(size * 0.6)}px;border-radius:${Math.round(size * 0.35)}px;background:rgba(13,13,13,.72);
+color:#fff;font:700 ${size}px/1.2 "Inter","DejaVu Sans","Liberation Sans",Arial,sans-serif;text-align:center;overflow-wrap:break-word}
+</style></head><body><div class="card">${esc(text)}</div></body></html>`;
+}
+
+/** Hors Mac : les textes d'écran dessinés par Chrome (celui du navigateur de Clark), sans programme compilé. */
+async function chromeTextCards(texts: string[], files: string[], width: number, height: number, size: number) {
+  const { chromium } = await import("playwright-core");
+  const executablePath = chromePath();
+  if (!existsSync(executablePath)) throw new Error("Chrome est introuvable : il dessine les textes d'écran hors Mac (CLARK_BROWSER_EXECUTABLE).");
+  const browser = await chromium.launch({ executablePath, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width, height } });
+    for (const [i, text] of texts.entries()) {
+      await page.setContent(textCardHtml(text, width, height, size));
+      await page.screenshot({ path: files[i], omitBackground: true });
+    }
+  } finally {
+    await browser.close();
+  }
 }
 
 export async function probeDuration(file: string): Promise<number> {
@@ -78,12 +111,13 @@ export async function renderVertical(
     // Les textes d'écran, dessinés en images transparentes de la taille de la vidéo.
     const cards: string[] = [];
     if (texts.length) {
-      const bin = await textRenderer();
-      for (const [i, t] of texts.entries()) {
-        const file = join(work, `texte-${i}.png`);
-        await run(bin, [file, String(width), String(height), String(Math.round(width / 17)), t.text.trim()]);
-        cards.push(file);
-      }
+      const size = Math.round(width / 17);
+      const files = texts.map((_, i) => join(work, `texte-${i}.png`));
+      if (onMac()) {
+        const bin = await textRenderer();
+        for (const [i, t] of texts.entries()) await run(bin, [files[i], String(width), String(height), String(size), t.text.trim()]);
+      } else await chromeTextCards(texts.map((t) => t.text.trim()), files, width, height, size);
+      cards.push(...files);
     }
 
     const args = ["-hide_banner", "-loglevel", "error", "-y"];

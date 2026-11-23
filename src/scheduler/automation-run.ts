@@ -6,13 +6,14 @@ import { TEAM_LABEL } from "../core/team.ts";
 import { startDevTask } from "../dev/runner.ts";
 import { automationChat, type Automation } from "./automations.ts";
 import { killTree } from "../core/kill-tree.ts";
+import { loginShell } from "../core/platform.ts";
 
 const short = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
 /** Pré-vérification : ta commande, 60 secondes au plus. Code 0 : on lance ; sinon : on saute. */
 export function runPrecheck(command: string, cwd: string, timeoutMs = 60_000): Promise<{ ok: boolean; code: number | null; output: string }> {
   return new Promise((done) => {
-    const child = spawn("/bin/zsh", ["-lc", command], { cwd, env: { ...process.env, CI: "1" }, detached: true });
+    const child = spawn(loginShell(), ["-lc", command], { cwd, env: { ...process.env, CI: "1" }, detached: true });
     let out = "";
     const keep = (d: Buffer) => (out = (out + d.toString()).slice(-1500));
     child.stdout.on("data", keep);

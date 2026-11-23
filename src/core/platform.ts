@@ -1,4 +1,4 @@
-import { readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 
 /**
  * Ce qui ne marche que sur un Mac. Clark tourne aussi ailleurs (un VPS Linux) : ces morceaux
@@ -52,4 +52,14 @@ export function takeRollbackNote(file: string): string | null {
   if (!failed || !good) return null;
   const s = (c: string) => c.slice(0, 7);
   return `Je tourne sur une version de secours (${s(good)}) : la nouvelle version (${s(failed)}${branch && branch !== failed ? `, branche ${branch}` : ""}) ne démarrait pas, j'y suis revenu tout seul. Le journal dit pourquoi (scripts/service.sh logs). Une fois corrigé : git switch ${branch && branch !== failed ? branch : "main"} && scripts/service.sh restart.`;
+}
+
+/**
+ * Le shell des commandes (pré-vérifications, tests des projets, Terminal) : CLARK_SHELL, sinon zsh
+ * s'il est là (le Mac), sinon bash (un serveur Linux sans zsh). Toujours lancé avec « -lc ».
+ */
+export function loginShell(exists: (p: string) => boolean = existsSync): string {
+  const wanted = process.env.CLARK_SHELL?.trim();
+  if (wanted) return wanted;
+  return exists("/bin/zsh") ? "/bin/zsh" : "/bin/bash";
 }

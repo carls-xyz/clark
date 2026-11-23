@@ -254,6 +254,7 @@ function route() {
   else if (head === "idees") view = "ideas";
   else if (head === "calendrier") view = "calendar";
   else if (head === "sante") view = "health";
+  else if (head === "navigateur") view = "browser";
   else if (head === "reglages" || head === "plugins") {
     view = "settings";
     const key = SETTINGS_ALIASES[arg] ?? (head === "plugins" ? "connexions" : arg);
@@ -290,6 +291,7 @@ function renderView() {
   else if (view === "ideas") renderIdeas();
   else if (view === "calendar") renderCalendar();
   else if (view === "health") renderHealth();
+  else if (view === "browser") renderRemote();
   renderDesign();
 }
 // Les formulaires et boutons appellent ces noms : tout passe par la vue ouverte.
@@ -301,7 +303,7 @@ const renderActivity = () => renderView();
 function showView() {
   route();
   $("#app").dataset.view = view;
-  for (const v of ["chat", "detail", "inbox", "settings", "terminal", "ideas", "calendar", "health"]) $(`#view-${v}`).hidden = v !== view;
+  for (const v of ["chat", "detail", "inbox", "settings", "terminal", "ideas", "calendar", "health", "browser"]) $(`#view-${v}`).hidden = v !== view;
   // Colonne d'icônes : la section ouverte (Automatisations et Projets sont des rubriques des réglages).
   const railTab = view === "settings" && ["automatisations", "projets"].includes(settingsTab) ? settingsTab : null;
   for (const a of document.querySelectorAll(".rail-btn[data-view], .rail-btn[data-rail]")) {
@@ -314,6 +316,8 @@ function showView() {
   renderView();
   if (view === "inbox" && state) void loadHistory();
   if (view !== "inbox") leaveNotes();
+  // Quitter la vue distante la ferme : l'agent retrouve la main sur le navigateur.
+  if (view !== "browser" && remoteOpen) void stopRemote();
   // « N notes dans Activité » (au bas de la conversation) : on descend droit aux notes.
   if (view === "inbox" && location.hash === "#activite/notes") requestAnimationFrame(() => $("#h-notes")?.scrollIntoView({ block: "start" }));
   // Passer d'une conversation à l'autre redessine le fil.

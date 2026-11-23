@@ -1193,6 +1193,30 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
       throw new HttpError(404, "Introuvable");
     }
 
+    // Vue distante du navigateur : tu te connectes toi-même à un site (serveur sans écran, ou téléphone).
+    // Ce que tu tapes passe au navigateur, sans être gardé ni journalisé.
+    if (path === "/api/browser/remote") {
+      if (!opts.browser) throw new HttpError(409, "Navigateur indisponible");
+      const a = String(body.action ?? "");
+      const r =
+        a === "start" ? { action: "start" as const, url: typeof body.url === "string" && body.url.trim() ? body.url.trim() : undefined, phone: body.phone === true }
+        : a === "stop" ? { action: "stop" as const }
+        : a === "goto" ? { action: "goto" as const, url: String(body.url ?? "") }
+        : a === "click" ? { action: "click" as const, x: Number(body.x), y: Number(body.y) }
+        : a === "type" ? { action: "type" as const, text: String(body.text ?? "") }
+        : a === "key" ? { action: "key" as const, key: String(body.key ?? "") }
+        : a === "scroll" ? { action: "scroll" as const, direction: body.direction === "up" ? ("up" as const) : ("down" as const) }
+        : a === "back" ? { action: "back" as const }
+        : null;
+      if (!r) throw new HttpError(400, "Action inconnue");
+      try {
+        await opts.browser.remote(r);
+      } catch (err) {
+        throw new HttpError(400, err instanceof Error ? err.message.split("\n")[0] : String(err));
+      }
+      return json(res, 200, { ok: true, state: opts.browser.state() });
+    }
+
     if (path === "/api/browser") {
       if (!opts.browser) throw new HttpError(409, "Navigateur indisponible");
       const action = body.action;
