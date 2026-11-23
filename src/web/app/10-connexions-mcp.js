@@ -94,6 +94,47 @@ side.addEventListener("click", async (e) => {
   }
 });
 
+/**
+ * Accès depuis le téléphone : Tailscale publie l'interface sur ton réseau privé (tes appareils
+ * seulement, en HTTPS). Clark doit connaître cette adresse (CLARK_WEB_HOSTS) pour accepter ce qu'on y envoie.
+ */
+function renderRemotePlugin() {
+  const r = state.remote;
+  if (!r) return "";
+  const ts = r.tailscale;
+  const name = ts?.dnsName ?? null;
+  const known = name && r.hosts.includes(name.toLowerCase());
+  const what = "Ouvre Clark depuis ton iPhone, où que tu sois, sans rien exposer sur Internet : Tailscale le publie seulement pour tes appareils, en HTTPS.";
+  const steps = [];
+  if (!ts) steps.push(`Installe Tailscale sur ce Mac et sur ton iPhone (tailscale.com), avec le même compte.`);
+  else if (!ts.online) steps.push(`Connecte Tailscale sur ce Mac (il est installé mais pas connecté).`);
+  steps.push(`Publie l'interface sur ton réseau Tailscale : <code>tailscale serve --bg ${r.port}</code>${ts && !name ? "" : ""}.`);
+  if (!known) steps.push(`Dans <code>.env</code> : <code>CLARK_WEB_HOSTS=${esc(name ?? "ton-mac.ton-reseau.ts.net")}</code>${r.users.length ? "" : ` et, conseillé, <code>CLARK_TAILSCALE_USERS=</code> ton adresse de compte Tailscale`}, puis redémarre Clark.`);
+  steps.push(`Sur l'iPhone, ouvre <code>https://${esc(name ?? "ton-mac.ton-reseau.ts.net")}</code>, puis Partager › Sur l'écran d'accueil.`);
+  const on = r.hosts.length > 0;
+  return plugin(
+    "Accès depuis le téléphone",
+    on ? "on" : "off",
+    what,
+    `${on ? `<p class="quiet">Adresses acceptées : ${r.hosts.map((h) => `<code>${esc(h)}</code>`).join(", ")}${r.users.length ? ` · comptes : ${r.users.map(esc).join(", ")}` : " · tous les appareils de ton réseau Tailscale"}.</p>` : ""}
+    ${on && known && r.users.length ? "" : `<ol class="how-steps">${steps.map((x) => `<li>${x}</li>`).join("")}</ol>`}
+    <p class="quiet">Jamais <code>tailscale funnel</code> : il publierait Clark sur Internet. <button type="button" class="link" data-remote-check>Vérifier Tailscale</button></p>`,
+  );
+}
+
+side.addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-remote-check]");
+  if (!btn) return;
+  btn.disabled = true;
+  try {
+    const res = await fetch("/api/remote");
+    if (res.ok) state.remote = await res.json();
+    renderView();
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 /** iMessage : l'accès à la base de Messages, puis le canal (ta conversation avec toi-même). */
 function renderIMessagePlugin() {
   const m = state.imessage;
@@ -230,6 +271,7 @@ function buildPlugins() {
     "",
     `<div class="plugins">
       ${plugin("Gmail et Google Agenda", g?.connected ? "on" : "off", "Clark lit tes mails et ton agenda. Il n'envoie un mail qu'après ton accord ; l'agenda reste en lecture seule.", googleHow)}
+      ${renderRemotePlugin()}
       ${plugin("Telegram", clark.telegram ? "on" : "off", "Clark sur ton téléphone : messages, accords, questions, vidéos et propositions.", clark.telegram ? "" : `<p class="quiet">Mets TELEGRAM_BOT_TOKEN et TELEGRAM_OWNER_ID dans .env, puis redémarre Clark.</p>`)}
       ${plugin(
         "Bac à sable des commandes",
