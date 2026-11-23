@@ -752,6 +752,8 @@ VERDICT : OK
 
 const hub = createHub({ config, store, journal, conversation }, {
   execute: fakeExecute,
+  // Le même faux agent derrière Codex : on peut le choisir dans le sélecteur de modèle.
+  executors: { codex: fakeExecute },
   // Démo : rien ne part vraiment.
   sendMail: async () => ({ id: "demo" }),
   // Démo : un titre fait des premiers mots du message (en vrai, un modèle rapide le trouve).

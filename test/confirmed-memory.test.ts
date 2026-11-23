@@ -23,7 +23,8 @@ test("une proposition n'est jamais utilisée avant d'être confirmée", () => {
   assert.equal(s.recall("relances").length, 0);
   assert.equal(s.top().length, 0);
   assert.equal(s.count(), 0);
-  assert.doesNotMatch(buildSystemPrompt(s, NO_CORE), /lundi/);
+  // Le contenu exact, pas « lundi » seul : le prompt contient la date du jour (un lundi, ce mot y est).
+  assert.doesNotMatch(buildSystemPrompt(s, NO_CORE), /relances se font le lundi/);
 
   assert.ok(s.confirm(r.id));
   assert.equal(s.recall("relances")[0].content, "Mes relances se font le lundi");

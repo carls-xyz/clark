@@ -1196,7 +1196,13 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
 
     if (path === "/api/settings") {
       if (!opts.settings) throw new HttpError(409, "Réglages indisponibles");
-      const r = opts.settings.set(String(body.key ?? ""), body.value === null ? null : body.value, hub.deps.config);
+      const key = String(body.key ?? "");
+      // Moteur principal : vérifié d'abord (connecté ?), puis appliqué tout de suite.
+      if (key === "engine" && (body.value === "claude" || body.value === "codex")) {
+        const error = hub.setMainEngine(body.value);
+        if (error) throw new HttpError(409, error);
+      }
+      const r = opts.settings.set(key, body.value === null ? null : body.value, hub.deps.config);
       if ("error" in r) throw new HttpError(400, r.error);
       hub.touch();
       return json(res, 200, r);
@@ -1651,6 +1657,23 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
       else if (body.action === "trust-read" || body.action === "trust-ask") store.mcp.setTrust(id, body.action === "trust-read" ? "read" : "ask");
       else if (body.action === "delete") store.mcp.remove(id);
       else throw new HttpError(400, "Action inconnue");
+      return json(res, 200, { ok: true });
+    }
+
+    // Sélecteur de modèle : n'importe quel modèle d'une IA connectée. Si elle n'est pas le moteur principal,
+    // elle le devient tout de suite (sans redémarrer), et le choix est gardé (Réglages › Moteurs).
+    if (path === "/api/engines/main") {
+      const name = body.engine === "claude" || body.engine === "codex" ? body.engine : null;
+      if (!name) throw new HttpError(400, "Moteur inconnu");
+      const model = typeof body.model === "string" && body.model ? body.model : null;
+      const from = typeof body.from === "string" ? body.from.slice(0, 40) : "interface";
+      if (model) {
+        const bad = hub.setChoice(name, { model, effort: null }, "model", from);
+        if (bad) throw new HttpError(400, bad);
+      }
+      const error = hub.setMainEngine(name);
+      if (error) throw new HttpError(409, error);
+      opts.settings?.set("engine", name, hub.deps.config);
       return json(res, 200, { ok: true });
     }
 

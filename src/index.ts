@@ -6,7 +6,7 @@ import { loadConfig, paths } from "./config.ts";
 import { Conversation } from "./core/conversation.ts";
 import { executeTask } from "./core/agent.ts";
 import { createHub, OWNER_CHAT } from "./core/hub.ts";
-import { createCodexEngine, LOGIN_COMMAND } from "./engines/codex.ts";
+import { createCodexEngine, LOGIN_COMMAND, loginCodexWithKey } from "./engines/codex.ts";
 import { checkClaudeAuth, CLAUDE_LOGIN_COMMAND, setClaudeAuth } from "./engines/claude-auth.ts";
 import { onClaudeLimit, probeClaude } from "./engines/claude-probe.ts";
 import { canRestart, createLogins, RESTART_EXIT_CODE } from "./engines/login.ts";
@@ -69,20 +69,25 @@ const repaired = conversation.repairTaskMessages();
 if (repaired) console.log(`[clark] conversations : ${repaired} message(s) remis dans la conversation de leur tâche`);
 // Le quota arrive par le moteur (lecture, puis mises à jour de Codex) ; le hub le garde pour l'interface.
 let onQuota: (q: Quota | null) => void = () => {};
-// Codex sert s'il est (peut-être) le moteur principal ou si un rôle le demande (CLARK_ROLE_ENGINES).
-const wantsCodex = config.engine === "codex" || config.engineAuto || Object.values(config.roleEngines).includes("codex");
-const codex = wantsCodex ? createCodexEngine({ model: config.codexModel, onQuota: (q) => onQuota(q) }) : null;
-const codexStatus = codex ? await codex.status() : null;
+// Codex est toujours proposé : on peut le choisir comme moteur principal à tout moment (sélecteur de modèle).
+const codex = createCodexEngine({ model: config.codexModel, onQuota: (q) => onQuota(q) });
+let codexStatus = await codex.status();
+// Connexion par clé d'API : OPENAI_API_KEY dans .env, Codex pas encore connecté → on le connecte avec la clé.
+if (!codexStatus.ready && codexStatus.problem === "not_logged_in" && process.env.OPENAI_API_KEY?.trim()) {
+  const done = loginCodexWithKey(process.env.OPENAI_API_KEY.trim());
+  console.log(done ? "[clark] Codex connecté avec la clé d'API (OPENAI_API_KEY)" : "[clark] Codex : connexion avec la clé d'API refusée");
+  if (done) codexStatus = await codex.status();
+}
 
-// CLARK_ENGINE vide : ton compte Claude s'il est connecté, sinon Codex s'il l'est,
-// sinon Claude (l'interface affiche alors la connexion Claude à faire).
-if (config.engineAuto) config.engine = claude.mode !== "none" ? "claude" : codexStatus?.ready ? "codex" : "claude";
+// Pas de moteur choisi (sélecteur de modèle, ou CLARK_ENGINE) : celui qui est connecté. Les deux le sont :
+// Claude, jusqu'à ce que tu en choisisses un autre (le choix est gardé). Aucun : Claude, l'interface propose les deux connexions.
+if (config.engineAuto) config.engine = claude.mode !== "none" ? "claude" : codexStatus.ready ? "codex" : "claude";
 
 // Mac de 8 Go : Codex ni connecté ni demandé par un rôle → son processus ne reste pas en mémoire.
 // (Il se relancerait tout seul au premier usage.)
-if (codex && !codexStatus?.ready && config.engine !== "codex" && !Object.values(config.roleEngines).includes("codex")) codex.close();
+if (!codexStatus.ready && config.engine !== "codex" && !Object.values(config.roleEngines).includes("codex")) codex.close();
 // Claude n'est disponible qu'avec une clé API ; sinon les rôles qui le demandent prennent le moteur principal.
-const executors = { ...(claude.mode !== "none" ? { claude: executeTask } : {}), ...(codex ? { codex: codex.execute } : {}) };
+const executors = { ...(claude.mode !== "none" ? { claude: executeTask } : {}), codex: codex.execute };
 /** Claude : modèles proposés et usage du forfait, lus sans envoyer de message. */
 const refreshClaude = async (): Promise<Quota | null> => {
   const auth = checkClaudeAuth(config.hasApiKey);
@@ -101,7 +106,6 @@ const refreshClaude = async (): Promise<Quota | null> => {
 };
 /** Codex : connexion, modèles et quota de ton compte ChatGPT. */
 const refreshCodex = async (): Promise<void> => {
-  if (!codex) return;
   const s = await codex.status();
   hub.setConnection("codex", {
     ready: s.ready,
@@ -124,9 +128,10 @@ const refreshEngines = async () => {
 const hub = createHub(
   { config, store, journal, conversation },
   {
-    execute: config.engine === "codex" ? codex!.execute : executeTask,
+    execute: config.engine === "codex" ? codex.execute : executeTask,
     executors,
-    refreshQuota: config.engine === "codex" ? codex?.quota : claude.mode === "subscription" ? refreshClaude : undefined,
+    // Quota du moteur principal du moment (il peut changer à chaud).
+    refreshQuota: async () => (config.engine === "codex" ? codex.quota() : claude.mode === "subscription" ? refreshClaude() : null),
     refreshEngines,
     // Vérification de fin de tâche : un petit modèle Claude, si Claude est disponible.
     ...(claude.mode !== "none" ? { judge: claudeJudge, titler: claudeJudge } : {}),
@@ -307,7 +312,7 @@ process.on("SIGINT", () => void shutdown());
 process.on("SIGTERM", () => void shutdown());
 
 // Moteur : vérifié avant la reprise, pour que l'interface dise tout de suite ce qui bloque.
-if (config.engine === "codex" && codex && codexStatus) {
+if (config.engine === "codex") {
   const s = codexStatus;
   const problem = s.ready
     ? null
@@ -328,7 +333,7 @@ if (config.engine === "codex" && codex && codexStatus) {
   hub.setEngine({ name: "claude", model: config.model, ready: claude.mode !== "none", account, problem });
   console.log(problem ? `[clark] moteur : Claude, ${problem}` : `[clark] moteur : Claude (${account})`);
   // Codex utilisé pour certains rôles : on lit aussi son quota.
-  if (codexStatus?.ready) await codex!.quota().catch(() => {});
+  if (codexStatus.ready) await codex.quota().catch(() => {});
 }
 
 // Reprend les tâches coupées avant d'accepter de nouveaux messages.
