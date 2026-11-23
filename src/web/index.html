@@ -51,6 +51,10 @@
             <svg viewBox="0 0 16 16" width="17" height="17" aria-hidden="true"><rect x="1.8" y="2.8" width="12.4" height="10.4" rx="1.8" stroke="currentColor" stroke-width="1.3" fill="none" /><path d="m4.5 6.2 2 1.8-2 1.8M8.2 10.2h3.3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" fill="none" /></svg>
             <span class="rail-count" id="term-count" hidden></span>
           </a>
+          <a class="rail-btn" href="#sante" data-view="health" title="Santé" aria-label="Santé">
+            <svg viewBox="0 0 16 16" width="17" height="17" aria-hidden="true"><path d="M1.5 8.5h3l1.5-3.5 2.5 7 2-5 1 1.5h3" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" fill="none" /></svg>
+            <span class="rail-count" id="health-count" hidden></span>
+          </a>
           <span class="rail-spacer"></span>
           <button type="button" class="rail-btn" id="palette-open" title="Aller à, lancer (⌘K)" aria-label="Aller à, lancer" aria-keyshortcuts="Meta+K Control+K">
             <svg viewBox="0 0 16 16" width="17" height="17" aria-hidden="true"><circle cx="7" cy="7" r="4.3" stroke="currentColor" stroke-width="1.5" fill="none" /><path d="m10.2 10.2 3.3 3.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /></svg>
@@ -245,6 +249,19 @@
         </header>
         <div class="page-body">
           <div id="calendar"></div>
+        </div>
+      </main>
+
+      <main class="view page" id="view-health" aria-labelledby="t-health" hidden>
+        <header class="view-head">
+          <button type="button" class="menu-btn" data-drawer aria-label="Ouvrir la barre de gauche" aria-controls="sidebar">
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /></svg>
+          </button>
+          <h1 class="view-title" tabindex="-1" id="t-health">Santé</h1>
+          <button type="button" class="btn ghost health-refresh" data-health-refresh>Actualiser</button>
+        </header>
+        <div class="page-body">
+          <div id="health"></div>
         </div>
       </main>
 

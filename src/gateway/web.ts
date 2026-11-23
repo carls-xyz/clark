@@ -28,6 +28,8 @@ import { heartbeatStatus, runHeartbeatNow } from "../scheduler/heartbeat.ts";
 import { nextRunText, scheduleText, type AutomationInput } from "../scheduler/automations.ts";
 import { inThread, noteCategory } from "../core/thread.ts";
 import { platformInfo } from "../core/platform.ts";
+import { cachedHealth, type HealthReport } from "../core/health.ts";
+import { paths } from "../config.ts";
 import type { Message } from "../core/conversation.ts";
 import { launchAutomation } from "../scheduler/automation-run.ts";
 import { TEAM_LABEL } from "../core/team.ts";
@@ -231,7 +233,7 @@ const prView = (s: PrStatus) => ({
 const short = (text: string, n: number) => (text.length > n ? `${text.slice(0, n)}…` : text);
 
 /** Ce que l'interface affiche, reconstruit depuis la base et le hub à chaque changement. */
-export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voices?: string[]; browser?: BrowserService; messages?: MessagesService; plugins?: Plugins; settings?: Settings; preview?: PreviewService; engineLogin?: EngineLogin; terminal?: Terminal; obsidian?: ObsidianLink } = {}) {
+export function snapshot(hub: Hub, opts: { health?: () => HealthReport; demo?: boolean; voice?: WebVoice; voices?: string[]; browser?: BrowserService; messages?: MessagesService; plugins?: Plugins; settings?: Settings; preview?: PreviewService; engineLogin?: EngineLogin; terminal?: Terminal; obsidian?: ObsidianLink } = {}) {
   const { config, store, journal, conversation } = hub.deps;
   const loginView = (name: LoginEngine, ready: boolean | null) => {
     const l = opts.engineLogin?.logins.list().find((x) => x.engine === name);
@@ -490,6 +492,8 @@ export function snapshot(hub: Hub, opts: { demo?: boolean; voice?: WebVoice; voi
     imessage: opts.messages?.status() ?? null,
     // Le système où tourne Clark, et ce qui y manque hors Mac (iMessage, fenêtre de choix…).
     system: platformInfo(),
+    // Page Santé : le rapport (gardé 20 s, relu à la demande avec « Actualiser »).
+    health: opts.health?.() ?? null,
     // Réglages modifiables (sans secrets), et notifications.
     settings: opts.settings?.view() ?? null,
     notify: { prefs: notifyPrefs(), kinds: NOTIFY_KINDS, awake: awakeActive(), held: heldCount() },
@@ -789,7 +793,8 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
   const hosts = new Set([`127.0.0.1:${opts.port}`, `localhost:${opts.port}`]);
   const origins = new Set([...hosts].map((h) => `http://${h}`));
   const streams = new Set<ServerResponse>();
-  const view = () => snapshot(hub, { demo: opts.demo, voice, voices, browser: opts.browser, messages: opts.messages, plugins: opts.plugins, settings: opts.settings, preview: opts.preview, engineLogin: opts.engineLogin, terminal: opts.terminal, obsidian: opts.obsidian });
+  const health = cachedHealth(hub, { root: paths.root, logFile: join(paths.root, "data", "logs", "clark.log"), backupDir: join(paths.root, "data", "backups") });
+  const view = () => snapshot(hub, { health, demo: opts.demo, voice, voices, browser: opts.browser, messages: opts.messages, plugins: opts.plugins, settings: opts.settings, preview: opts.preview, engineLogin: opts.engineLogin, terminal: opts.terminal, obsidian: opts.obsidian });
   const state = () => JSON.stringify(view());
 
   // Plusieurs changements rapprochés (une étape, puis son résultat) partent en un seul envoi.
@@ -847,6 +852,8 @@ export function startWeb(hub: Hub, opts: { port: number; demo?: boolean; voice?:
       }
       if (path === "/api/state") return json(res, 200, view());
       // Clark répond : lu par scripts/service.sh après un redémarrage (retour à la version précédente sinon).
+      // Page Santé › Actualiser : le rapport relu tout de suite.
+      if (path === "/api/sante") return json(res, 200, health(true));
       if (path === "/api/health") return json(res, 200, { ok: true, pid: process.pid, uptime: Math.round(process.uptime()) });
       // Calendrier des veilles : les exécutions d'un mois, avec leur compte rendu (lu à la demande, pas dans l'état poussé).
       if (path === "/api/calendar") {
