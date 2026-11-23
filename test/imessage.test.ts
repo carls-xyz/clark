@@ -238,7 +238,7 @@ test("base de Messages : la lecture réelle (requêtes SQL) sur une copie de son
 
   process.env.CLARK_IMESSAGE_DB = file;
   try {
-    const mac = new MacMessages();
+    const mac = new MacMessages("darwin");
     assert.equal(mac.status().access, true);
     assert.equal(mac.maxId(), 4);
     assert.deepEqual(mac.since(1).map((m) => [m.id, m.text, m.fromMe]), [
@@ -258,7 +258,7 @@ test("base de Messages : la lecture réelle (requêtes SQL) sur une copie de son
 
   process.env.CLARK_IMESSAGE_DB = join(dir, "absente.db");
   try {
-    assert.equal(new MacMessages().status().access, false);
+    assert.equal(new MacMessages("darwin").status().access, false);
   } finally {
     delete process.env.CLARK_IMESSAGE_DB;
   }

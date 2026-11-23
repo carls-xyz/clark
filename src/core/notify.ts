@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { onMac } from "./platform.ts";
+import { parisParts } from "../scheduler/automations.ts";
 import type { DatabaseSync } from "node:sqlite";
 
 /**
@@ -67,7 +68,7 @@ const minutes = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.sl
 /** Heures calmes, heure de Paris ; une plage qui passe minuit (23:00 → 08:00) marche. */
 export function inQuiet(prefs: NotifyPrefs, now = new Date()): boolean {
   if (!prefs.quiet.on) return false;
-  const [h, m] = now.toLocaleTimeString("fr-FR", { timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit", hour12: false }).split(":").map(Number);
+  const { hour: h, minute: m } = parisParts(now);
   const t = h * 60 + m;
   const a = minutes(prefs.quiet.from);
   const b = minutes(prefs.quiet.to);

@@ -7,7 +7,7 @@ import { createHub, OWNER_CHAT } from "../src/core/hub.ts";
 import { calendarMonth } from "../src/gateway/web.ts";
 import { Store } from "../src/memory/store.ts";
 import { launchAutomation } from "../src/scheduler/automation-run.ts";
-import { automationChat, validateAutomation } from "../src/scheduler/automations.ts";
+import { automationChat, parisParts, validateAutomation } from "../src/scheduler/automations.ts";
 import { TaskJournal } from "../src/tasks/journal.ts";
 
 const config = (): Config => ({
@@ -123,7 +123,7 @@ test("calendrier : le mois se lit avec une marge d'un jour (UTC → heure de Par
 test("brief du matin : dans sa conversation à part, sans reprendre de session, et lu dans le calendrier", async () => {
   const { BRIEF_CHAT, BRIEF_LABEL, startScheduler } = await import("../src/scheduler/cron.ts");
   // L'horloge lance le brief dans sa conversation, pas dans la tienne.
-  const hour = Number(new Date().toLocaleString("fr-FR", { timeZone: "Europe/Paris", hour: "numeric" }));
+  const hour = parisParts(new Date()).hour;
   const sched = setup();
   const sent: [number, string][] = [];
   const stop = startScheduler({ config: { ...config(), briefHour: hour }, store: sched.store, enqueue: async (chat, _p, label) => void sent.push([chat, label]) });

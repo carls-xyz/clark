@@ -1,0 +1,47 @@
+# Vérification automatique : à chaque PR (et sur main), le typecheck et toute la suite de tests, sur Linux.
+# Le ruleset de main peut ensuite exiger « Typecheck et tests » avant toute fusion.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Typecheck et tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      TZ: Europe/Paris
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 26
+          cache: npm
+
+      # ffmpeg (vidéos), restic (sauvegardes), zsh (shell des commandes). Chrome est déjà sur l'image GitHub.
+      - name: Outils système
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q ffmpeg restic zsh
+
+      # Plusieurs tests créent des dépôts git et y commitent.
+      - name: Identité git
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@example.invalid"
+          git config --global init.defaultBranch main
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test

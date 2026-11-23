@@ -38,6 +38,6 @@ test("pièces jointes : un fichier texte est joint, un dossier est listé sans n
 
 test("fenêtre de choix : le chemin choisi revient, une annulation rend null", async () => {
   const fake = (out: string) => ((_cmd: string, _args: string[], _opts: unknown, cb: (e: Error | null, s: string) => void) => cb(null, out)) as never;
-  assert.equal(await pickPath("folder", fake("/Users/charles/Developer/clark/\n")), "/Users/charles/Developer/clark");
-  assert.equal(await pickPath("file", fake("\n")), null);
+  assert.equal(await pickPath("folder", fake("/Users/charles/Developer/clark/\n"), "darwin"), "/Users/charles/Developer/clark");
+  assert.equal(await pickPath("file", fake("\n"), "darwin"), null);
 });
