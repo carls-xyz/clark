@@ -711,3 +711,22 @@ test("agent bloqué (« BILAN : bloqué — … ») : Clark montre ce qu'il atte
   assert.equal(unblockDevTask(hub, r.id), "already", "plus rien à autoriser");
 });
 
+
+test("binôme : le relecteur reçoit les vrais tests de Clark et les règles du projet (AGENTS.md)", async () => {
+  const { crossReviewPrompt, testsForReview, planCritiquePrompt } = await import("../src/dev/binome.ts");
+  const { devPrompt } = await import("../src/dev/runner.ts");
+  const base = { id: 7, title: "Vision", instruction: "Branche la vision", summary: null, worktree: "/w", rounds: 2 };
+  assert.match(testsForReview({ tests: JSON.stringify({ ok: true, round: 2 }), rounds: 2 }), /tous verts/);
+  assert.match(testsForReview({ tests: JSON.stringify({ ok: false, output: "✖ adresse interne", round: 2 }), rounds: 2 }), /EN ÉCHEC[\s\S]*adresse interne/);
+  assert.match(testsForReview({ tests: JSON.stringify({ ok: true, round: 1 }), rounds: 2 }), /pas lancés par Clark sur cette version/, "tests d'une version précédente");
+  assert.match(testsForReview({ tests: null, rounds: 2 }), /Ne prends pas pour acquis/);
+
+  const prompt = crossReviewPrompt({ ...base, tests: JSON.stringify({ ok: false, output: "boom", round: 2 }) }, "diff", "claude", 1, []);
+  assert.match(prompt, /AGENTS\.md[\s\S]*point bloquant/);
+  assert.match(prompt, /EN ÉCHEC/);
+  assert.match(prompt, /appelants de ce qui change/);
+  assert.match(planCritiquePrompt("clark", "/w", "x", "{}", "claude"), /AGENTS\.md/);
+  const author = devPrompt({ ...base, branch: "b" } as any, "clark", "main", "npm test");
+  assert.match(author, /AGENTS\.md/);
+  assert.match(author, /modifie-le et signale-le/);
+});

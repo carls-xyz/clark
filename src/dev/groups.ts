@@ -36,7 +36,8 @@ Découpe cette consigne en 1 à 5 sous-tâches, chacune faite par un agent dans 
 - Les sous-tâches indépendantes tournent EN MÊME TEMPS : elles doivent toucher des fichiers différents, sinon leurs changements entreront en conflit quand on les réunira.
 - Si une sous-tâche a besoin du résultat d'une autre (une API avant la page qui l'utilise), indique-le dans "after" avec les numéros des sous-tâches précédentes (la 1re est 1). Elle partira de leur travail une fois accepté par Charles. N'enchaîne que ce qui doit vraiment l'être.
 - Si un choix de Charles change vraiment le travail (deux approches possibles), pose-le dans "decisions", avec 2 à 4 options et les sous-tâches qui en dépendent ; elles attendront sa réponse. Tout ce que tu peux décider seul, décide-le. Au plus 2 décisions.
-Lis le projet autant qu'il faut pour savoir quels fichiers chaque sous-tâche touchera.
+Lis le projet autant qu'il faut pour savoir quels fichiers chaque sous-tâche touchera. Si le dépôt a un fichier AGENTS.md (ou CLAUDE.md) à sa racine, lis-le d'abord : ses règles priment sur tes habitudes. Rappelle dans chaque consigne les règles qui la concernent (sécurité, accords, contrats partagés).
+- N'interdis un fichier dans une consigne que s'il appartient à une sous-tâche qui tourne EN MÊME TEMPS ; sinon, laisse l'agent toucher ce qu'il faut (il le signalera).
 
 Réponds uniquement par ce JSON :
 {"tasks":[{"title":"titre court","instruction":"consigne complète et autonome pour un agent qui ne voit pas les autres","files":["chemins concernés"],"after":[]}],"decisions":[{"question":"…","options":["…","…"],"tasks":[2]}]}`;

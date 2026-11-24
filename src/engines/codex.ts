@@ -132,6 +132,12 @@ export function unwrapShell(command: string): string {
   return m ? m[1].replace(/'\\''/g, "'") : command;
 }
 
+/** Une commande que Codex a lui-même analysée comme lecture seule (lire, chercher, lister), sans autre action. */
+export function readOnlyCommand(item: any): boolean {
+  const actions: any[] = item?.type === "commandExecution" ? (item.commandActions ?? []) : [];
+  return actions.length > 0 && actions.every((a) => READ_ACTIONS.has(a?.type));
+}
+
 /** Ce qu'une étape de Codex devient dans le journal de Clark (même vocabulaire que le moteur Claude). */
 export function stepOf(item: any): { tool: string; input: Record<string, unknown> } | null {
   switch (item?.type) {
@@ -352,6 +358,15 @@ export function createCodexEngine(
       switch (req.method) {
         case "item/commandExecution/requestApproval": {
           const command = unwrapShell(String(p.command ?? items.get(p.itemId)?.command ?? ""));
+          // Lecture seule (relecteur, critique de plan, chercheur) : une commande que Codex classe lui-même comme
+          // pure lecture (cat, sed -n, rg, ls…) passe. Le bac à sable « clark-read » interdit toute écriture au
+          // niveau du système ; sans cela, l'agent ne lisait que le diff, à l'aveugle. Le reste est refusé.
+          if (readOnly && readOnlyCommand(items.get(p.itemId))) {
+            const step = stepOf(items.get(p.itemId)) ?? { tool: "Bash", input: { command } };
+            journal.recordStep({ taskId, toolUseId: p.itemId, tool: step.tool, input: step.input, tier: "workspace", status: "running", attempt: run.attempt });
+            store.audit(step.tool, "read-only-command", step.input);
+            return { decision: "accept" };
+          }
           const where = p.cwd && resolve(p.cwd) !== resolve(paths.workspace) ? `\nDossier : ${p.cwd}` : "";
           const why = p.reason ? `\n\nRaison donnée : ${p.reason}` : "";
           const ok = await ask(p.itemId, "Bash", { command }, `Commande shell :\n${command}${where}${why}`);
