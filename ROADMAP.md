@@ -45,4 +45,5 @@ Mis à jour le 21 novembre 2026. Ce qui est fait est décrit dans le [mode d'emp
 - [x] Page Idées : tour d'idées quotidien dans le navigateur (Show HN, GitHub, Reddit, X…), idées lancées en vrac (page ou `/idee`), avis de Clark, notes Obsidian des idées gardées (22/11).
 - [ ] Auto-amélioration : Clark propose de lui-même ses corrections en PR, relues par l'utilisateur.
 - [ ] Réseaux sociaux, suite : Instagram.
+- [ ] Computer use, amorcé : le [premier lot](docs/GUIDE.md#contrôle-de-lordinateur) couvre les captures et le défilement dans le Chrome de Clark, avec clics par coordonnées et touches de navigation après accord. Reste le contrôle de tout le Mac (écran système, autres apps et autorisations macOS).
 - [ ] Idées d'OpenBot restantes : schémas dans la conversation, fichiers produits en cartes.
