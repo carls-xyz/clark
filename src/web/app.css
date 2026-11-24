@@ -7139,6 +7139,123 @@ ui-menu-separator {
   font-size: var(--fs-small);
 }
 
+/* ── Mode vision du navigateur (lecture seule) ──────────────────────── */
+
+.computer-badge {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: var(--fs-small);
+  white-space: nowrap;
+}
+
+.computer-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+
+.computer-badge[data-state="active"]::before {
+  background: #2f8f5b;
+}
+
+.computer-badge[data-state="off"]::before {
+  background: var(--warn-text);
+}
+
+.computer-screen {
+  margin: 12px 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface);
+}
+
+.computer-screen img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.computer-screen img[hidden],
+.computer-screen p[hidden] {
+  display: none;
+}
+
+.computer-screen p {
+  margin: 0;
+  padding: 40px 16px;
+  text-align: center;
+}
+
+.computer-log-title {
+  margin: 16px 0 8px;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.computer-log {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.computer-empty-log {
+  padding: 7px 10px;
+}
+
+.computer-act {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: var(--fs-small);
+}
+
+.computer-act-name {
+  font-weight: 600;
+  min-width: 68px;
+}
+
+.computer-act-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.computer-verdict.ok {
+  color: #2f8f5b;
+}
+
+.computer-verdict.no {
+  color: var(--warn-text);
+}
+
+.computer-act time {
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 /* ── Bilan des propositions ─────────────────────────────────────────── */
 
 .bilan-table {

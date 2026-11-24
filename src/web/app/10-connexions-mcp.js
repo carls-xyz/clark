@@ -185,6 +185,7 @@ function renderBrowserPlugin() {
       ${b.visible ? `<button type="button" class="btn secondary" data-browser="hide">Masquer la fenêtre</button>` : `<button type="button" class="btn secondary" data-browser="show">Ouvrir le navigateur</button>`}
       ${b.running ? `<button type="button" class="btn ghost" data-browser="close">Fermer</button>` : ""}
       <a class="btn secondary" href="#navigateur">Se connecter à un site</a>
+      <a class="btn ghost" href="#ordinateur">Mode vision</a>
       <button type="button" class="btn ghost" data-browser="forget">Effacer ses connexions</button>
     </div>
     <p class="inline-error" id="browser-error" role="alert" hidden></p>`,

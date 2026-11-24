@@ -255,6 +255,7 @@ function route() {
   else if (head === "calendrier") view = "calendar";
   else if (head === "sante") view = "health";
   else if (head === "navigateur") view = "browser";
+  else if (head === "ordinateur") view = "computer";
   else if (head === "reglages" || head === "plugins") {
     view = "settings";
     const key = SETTINGS_ALIASES[arg] ?? (head === "plugins" ? "connexions" : arg);
@@ -292,6 +293,7 @@ function renderView() {
   else if (view === "calendar") renderCalendar();
   else if (view === "health") renderHealth();
   else if (view === "browser") renderRemote();
+  else if (view === "computer") renderComputer();
   renderDesign();
 }
 // Les formulaires et boutons appellent ces noms : tout passe par la vue ouverte.
@@ -303,7 +305,7 @@ const renderActivity = () => renderView();
 function showView() {
   route();
   $("#app").dataset.view = view;
-  for (const v of ["chat", "detail", "inbox", "settings", "terminal", "ideas", "calendar", "health", "browser"]) $(`#view-${v}`).hidden = v !== view;
+  for (const v of ["chat", "detail", "inbox", "settings", "terminal", "ideas", "calendar", "health", "browser", "computer"]) $(`#view-${v}`).hidden = v !== view;
   // Colonne d'icônes : la section ouverte (Automatisations et Projets sont des rubriques des réglages).
   const railTab = view === "settings" && ["automatisations", "projets"].includes(settingsTab) ? settingsTab : null;
   for (const a of document.querySelectorAll(".rail-btn[data-view], .rail-btn[data-rail]")) {

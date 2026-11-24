@@ -6,6 +6,7 @@ import { loadConfig, paths } from "./config.ts";
 import { Conversation } from "./core/conversation.ts";
 import { executeTask } from "./core/agent.ts";
 import { createHub, OWNER_CHAT } from "./core/hub.ts";
+import { wasStopped } from "./core/stops.ts";
 import { createCodexEngine, LOGIN_COMMAND, loginCodexWithKey } from "./engines/codex.ts";
 import { checkClaudeAuth, CLAUDE_LOGIN_COMMAND, setClaudeAuth } from "./engines/claude-auth.ts";
 import { onClaudeLimit, probeClaude } from "./engines/claude-probe.ts";
@@ -152,7 +153,8 @@ onClaudeLimit((info) => {
 const browser = new BrowserService({
   driver: new ChromeDriver(),
   approve: (taskId, req) => hub.approveTask(taskId, req),
-  taskAlive: (id) => ["queued", "running"].includes(journal.get(id)?.status ?? ""),
+  taskAlive: (id) => !wasStopped(id) && ["queued", "running"].includes(journal.get(id)?.status ?? ""),
+  readOnly: (id) => journal.get(id)?.access !== "write",
   onChange: () => hub.touch(),
 });
 setBrowser(browser);
