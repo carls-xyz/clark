@@ -481,8 +481,14 @@ function renderCrossReview(t) {
               : `${reviewer} relira chaque version avant toi.`;
   const notes = (t.reviewNotes ?? [])
     .map(
-      (n) => `<li><strong>Tour ${n.round}</strong> · ${n.approve ? "approuvé" : `${n.issues.length} point${n.issues.length > 1 ? "s" : ""}`} — ${esc(n.summary)}${
-        n.issues.length ? `<ul>${n.issues.map((i) => `<li><span class="tag${i.severity === "bloquant" ? " warn" : ""}">${SEVERITY[i.severity] ?? i.severity}</span> ${i.file ? `<code>${esc(i.file)}</code> : ` : ""}${esc(i.problem)}${i.fix ? ` <span class="quiet">→ ${esc(i.fix)}</span>` : ""}</li>`).join("")}</ul>` : ""
+      (n) => `<li><p class="review-round"><strong>Tour ${n.round}</strong> · ${n.approve ? "approuvé" : `${n.issues.length} point${n.issues.length > 1 ? "s" : ""}`} — ${esc(n.summary)}</p>${
+        n.issues.length
+          ? `<ul class="review-issues">${n.issues
+              .map(
+                (i) => `<li><p class="review-issue-head"><span class="tag${i.severity === "bloquant" ? " warn" : ""}">${SEVERITY[i.severity] ?? i.severity}</span>${i.file ? `<code>${esc(i.file)}</code>` : ""}</p><p>${esc(i.problem)}</p>${i.fix ? `<p class="quiet">→ ${esc(i.fix)}</p>` : ""}</li>`,
+              )
+              .join("")}</ul>`
+          : ""
       }</li>`,
     )
     .join("");

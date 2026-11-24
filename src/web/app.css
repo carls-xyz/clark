@@ -6309,14 +6309,39 @@ ui-menu-separator {
   font-size: var(--fs-small);
 }
 
-.dev-review-notes ul {
-  margin: 4px 0 8px;
-  padding-left: 14px;
-  list-style: disc;
+/* Pas la grille du journal des objectifs (.goal-log li) : un tour, puis ses points, en blocs. */
+.goal-log .dev-review-notes li {
+  display: block;
 }
 
-.dev-review-notes .tag {
-  margin-right: 4px;
+.dev-review-notes p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.review-issues {
+  display: grid;
+  gap: 10px;
+  margin: 8px 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.review-issues > li {
+  padding-left: 12px;
+  border-left: 2px solid var(--line);
+}
+
+.review-issue-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.review-issues p + p {
+  margin-top: 2px;
 }
 
 /* Pilote automatique : une case dans la barre du champ, pour les tâches de code. */
