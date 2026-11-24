@@ -234,6 +234,7 @@ side.addEventListener("click", async (e) => {
   if (!button) return;
   const card = button.closest("[data-dev]");
   const action = button.dataset.devAction;
+  if (action === "unblock" && !(await ask("Autoriser et reprendre ?", `L'agent reprend avec ton accord pour : ${card.querySelector(".dev-blocked p")?.textContent.replace(/^L'agent attend ton accord : /, "") ?? "ce qu'il demande"}. Sa nouvelle version passera par la relecture, puis par toi.`, "Autoriser"))) return;
   if (action === "discard" && !(await ask("Jeter cette tâche ?", "Sa copie et sa branche sont supprimées. Ta branche n'est pas touchée.", "Jeter"))) return;
   if (action === "stop" && button.hasAttribute("data-waiting")) {
     if (!(await ask("Annuler ce tour ?", "L'agent n'a pas encore commencé : la demande sort de la file. Une version déjà faite reste à relire.", "Annuler le tour", "Garder"))) return;

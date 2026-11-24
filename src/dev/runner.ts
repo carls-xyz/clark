@@ -438,8 +438,10 @@ export async function collect(hub: Hub, id: number) {
   const report = parseDevReport(run?.result);
   if (run?.status === "done" && (report.outcome === "failed" || report.outcome === "blocked")) {
     const why = `${report.outcome === "blocked" ? "l'agent est bloqué" : "l'agent dit avoir échoué"}${report.reason ? ` : ${short(report.reason, 200)}` : ""}`;
-    store.dev.update(id, { status: "failed", error: why, diff_stat: stat, summary: run.result });
+    const blocked = report.outcome === "blocked" ? (report.reason?.trim() || "ton accord pour continuer") : null;
+    store.dev.update(id, { status: "failed", error: why, diff_stat: stat, summary: run.result, blocked_on: blocked });
     if (t.compare_with) await compareNotice(hub, id);
+    else if (blocked) await hub.post(OWNER_CHAT, `Tâche dev #${id} (${p.name}) en pause : ${why}. Dans Dev, « Autoriser et reprendre » lui donne ton accord ; sinon retouche ou jette-la.`, "system", "dev");
     else await hub.post(OWNER_CHAT, `Tâche dev #${id} (${p.name}) arrêtée : ${why}. Tu peux répondre, la relancer sur l'autre moteur ou la jeter, dans Dev.`, "system", "dev");
     return;
   }
@@ -544,6 +546,7 @@ export function retouchDevTask(hub: Hub, id: number, instruction: string, design
   if (!t) return "missing";
   if (instruction.trim().length < 3) return { error: "Écris la retouche" };
   if (!store.dev.transition(id, ["review", "failed"], "working")) return "already";
+  store.dev.update(id, { blocked_on: null, error: null });
   // Binôme : une retouche de l'utilisateur ouvre un nouveau cycle de relecture croisée.
   if (t.reviewer) store.dev.update(id, { review_rounds: 0, review_state: null });
   // Une nouvelle consigne : de nouveau droit aux relances et corrections automatiques.
@@ -556,6 +559,24 @@ export function retouchDevTask(hub: Hub, id: number, instruction: string, design
     design?.shot ? [design.shot] : [],
   );
   return "done";
+}
+
+/**
+ * L'agent s'est arrêté sur « BILAN : bloqué — ce qu'il faut à Charles » (souvent : toucher un fichier hors du
+ * plan). « Autoriser et reprendre » : l'accord de l'utilisateur, envoyé comme une retouche, et l'agent reprend.
+ */
+/** Ce qu'attend l'agent, sans le « accord de Charles pour » qu'il écrit souvent en tête. */
+export const blockedNeed = (s: string) => s.replace(/^\s*(?:l'|un |ton |son )?accord de Charles\s*(?:pour|:)\s*/i, "").trim() || s.trim();
+
+export function unblockDevTask(hub: Hub, id: number): DevOutcome {
+  const t = hub.deps.store.dev.get(id);
+  if (!t) return "missing";
+  if (t.status !== "failed" || !t.blocked_on) return "already";
+  return retouchDevTask(
+    hub,
+    id,
+    `Charles donne son accord pour : ${blockedNeed(t.blocked_on)}. C'est autorisé, même hors des fichiers prévus au départ : fais-le maintenant, sans refaire ce qui est déjà fait, puis termine la consigne (tests compris) et finis par la ligne « BILAN : … ».`,
+  );
 }
 
 /** Les commentaires de l'utilisateur sur le diff, en une consigne : chacun avec son fichier, ses lignes et leur texte. */

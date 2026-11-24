@@ -532,7 +532,13 @@ function renderDevTask(t, nested = false) {
     ${t.stalledSince ? `<p class="dev-stalled" role="status">Silencieux depuis ${minutesSince(t.stalledSince)} min : l'agent est peut-être bloqué.</p>` : ""}
     ${t.status === "working" && t.stoppable ? `<div class="card-actions"><button type="button" class="btn ghost" data-dev-action="stop"${t.waiting ? " data-waiting" : ""}>${t.waiting ? "Annuler" : "Arrêter l'agent"}</button></div>` : ""}
     ${t.status === "working" ? (t.waiting ? `<p class="quiet">En attente d'un agent libre (${state.dev?.parallel ?? 2} en même temps au plus).</p>` : `${t.checkpoint ? `<p class="checkpoint solo">${esc(t.checkpoint)}</p>` : ""}${t.steps.length ? renderSteps(t.steps) : `<p class="quiet">L'agent lit le projet.</p>`}`) : ""}
-    ${t.error ? `<p class="goal-reason">${esc(t.error)}</p>` : ""}
+    ${
+      t.blockedOn
+        ? `<div class="dev-blocked" role="status"><p><strong>L'agent attend ton accord</strong> : ${esc(t.blockedOn)}</p><div class="card-actions"><button type="button" class="btn primary" data-dev-action="unblock">Autoriser et reprendre</button><button type="button" class="btn ghost" data-dev-action="discard">Jeter</button></div><p class="quiet">Ou écris une autre consigne dans le champ Retouche.</p></div>`
+        : t.error
+          ? `<p class="goal-reason">${esc(t.error)}</p>`
+          : ""
+    }
     ${/* Les actions en haut, sous l'état : sur une longue tâche, elles ne se perdent plus sous le résumé et le diff. */ ""}
     ${
       open

@@ -8,8 +8,9 @@ import type { Config } from "../src/config.ts";
 import type { executeTask, RunOptions } from "../src/core/agent.ts";
 import { Conversation } from "../src/core/conversation.ts";
 import { createHub, OWNER_CHAT } from "../src/core/hub.ts";
-import { acceptDevTask, addProject, devPatch, discardDevTask, retouchDevTask, retryDevTask, runDevTests, startDevTask } from "../src/dev/runner.ts";
+import { acceptDevTask, addProject, devPatch, discardDevTask, retouchDevTask, retryDevTask, runDevTests, startDevTask, unblockDevTask } from "../src/dev/runner.ts";
 import { onStop } from "../src/core/stops.ts";
+import { DevStore } from "../src/dev/store.ts";
 import { Store } from "../src/memory/store.ts";
 import { TaskJournal } from "../src/tasks/journal.ts";
 
@@ -56,7 +57,7 @@ const until = async (check: () => boolean, ms = 20_000) => {
 };
 
 /** Un faux agent : modifie et crée des fichiers dans son dossier de travail (opts.cwd). */
-function setup(agent: (cwd: string, prompt: string) => { status?: "done" | "failed" } = () => ({})) {
+function setup(agent: (cwd: string, prompt: string) => { status?: "done" | "failed"; result?: string } = () => ({})) {
   const store = new Store(":memory:");
   const journal = new TaskJournal(store.db);
   const conversation = new Conversation(store.db);
@@ -67,7 +68,7 @@ function setup(agent: (cwd: string, prompt: string) => { status?: "done" | "fail
       const r = agent(opts.cwd!, opts.prompt);
       deps.store.setSession(deps.journal.get(taskId).chat_id, `session-${taskId}`);
       const status = r.status ?? "done";
-      deps.journal.finish(taskId, status, status === "done" ? "J'ai ajouté hello.txt et complété app.txt." : "Erreur de l'agent", 0);
+      deps.journal.finish(taskId, status, status === "done" ? (r.result ?? "J'ai ajouté hello.txt et complété app.txt.") : "Erreur de l'agent", 0);
       return { text: "fini", costUsd: 0, status };
     }) as unknown as typeof executeTask;
   const hub = createHub({ config, store, journal, conversation }, { execute: fake("claude"), executors: { claude: fake("claude"), codex: fake("codex") } });
@@ -681,3 +682,32 @@ test("pilote automatique : groupe — sous-tâches vertes acceptées, puis réun
   assert.equal(sh(dir, "show", `${grp.branch}:a.txt`), "A");
   assert.equal(sh(dir, "show", `${grp.branch}:b.txt`), "B");
 });
+
+test("agent bloqué (« BILAN : bloqué — … ») : Clark montre ce qu'il attend, « Autoriser et reprendre » relance avec ton accord", async () => {
+  const dir = repo("bloque");
+  let turn = 0;
+  const { hub, store, conversation, runs } = setup((cwd) => {
+    turn++;
+    writeFileSync(join(cwd, "a.txt"), `tour ${turn}\n`);
+    return turn === 1 ? { result: "Fait en partie.\nBILAN : bloqué — accord de Charles pour modifier src/index.ts" } : { result: "Tout est branché.\nBILAN : réussi" };
+  });
+  const p = (await addProject(hub, { name: "bloque", path: dir })) as any;
+  const r = startDevTask(hub, { projectId: p.id, instruction: "Branche le mode vision" }) as any;
+  await until(() => store.dev.get(r.id)!.status === "failed");
+  assert.equal(store.dev.get(r.id)!.blocked_on, "accord de Charles pour modifier src/index.ts");
+  // Une tâche bloquée avant la colonne blocked_on : ce qu'attend l'agent est relu dans l'erreur au démarrage.
+  store.dev.update(r.id, { blocked_on: null });
+  new DevStore(store.db);
+  assert.equal(store.dev.get(r.id)!.blocked_on, "accord de Charles pour modifier src/index.ts");
+  assert.match(conversation.messagesOf(conversation.current(1)).map((m) => m.text).join("\n"), /en pause .*Autoriser et reprendre/);
+
+  const before = runs.length;
+  assert.equal(unblockDevTask(hub, r.id), "done");
+  await until(() => runs.length > before);
+  assert.match(runs.at(-1)!.prompt, /Charles donne son accord pour : modifier src\/index\.ts\. C'est autorisé, même hors des fichiers prévus/);
+  await until(() => store.dev.get(r.id)!.status === "review");
+  assert.equal(store.dev.get(r.id)!.blocked_on, null);
+  assert.equal(store.dev.get(r.id)!.error, null);
+  assert.equal(unblockDevTask(hub, r.id), "already", "plus rien à autoriser");
+});
+

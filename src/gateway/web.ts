@@ -46,7 +46,7 @@ import { hasVar, type McpInput } from "../mcp/servers.ts";
 import { sandboxEnabled } from "../engines/sandbox.ts";
 import { compareDevTask, keepComparedTask, startDevCompare, type CompareSide } from "../dev/compare.ts";
 import { designDir, type PreviewService } from "../dev/preview.ts";
-import { acceptDevTask, addProject, cancelWaitingTurn, dependsOn, devPatch, discardDevTask, isWaitingSlot, maxParallel, readDesignPick, retouchDevTask, retryDevTask, restoreDevRound, runDevTests, sendReviewComments, startDevTask, type DevOutcome, prewarmCopy } from "../dev/runner.ts";
+import { acceptDevTask, addProject, cancelWaitingTurn, dependsOn, devPatch, discardDevTask, isWaitingSlot, maxParallel, readDesignPick, retouchDevTask, unblockDevTask, blockedNeed, retryDevTask, restoreDevRound, runDevTests, sendReviewComments, startDevTask, type DevOutcome, prewarmCopy } from "../dev/runner.ts";
 import { discardGroup, integrateGroup, openPullRequest, prDraft, resolveGate, startDevGroup } from "../dev/groups.ts";
 import { canStop } from "../core/stops.ts";
 import { fixPr, markPrSeen, refreshPr, type PrStatus } from "../dev/pr.ts";
@@ -264,6 +264,7 @@ export function snapshot(hub: Hub, opts: { remote?: unknown; health?: () => Heal
       branch: t.branch,
       status: t.status,
       error: t.error,
+      blockedOn: t.status === "failed" && t.blocked_on ? blockedNeed(t.blocked_on) : null,
       summary: t.summary,
       diff: t.diff_stat ? JSON.parse(t.diff_stat) : null,
       commit: t.commit,
@@ -1616,6 +1617,7 @@ export function startWeb(hub: Hub, opts: { health?: (fresh?: boolean) => HealthR
       const id = Number(devTask[1]);
       if (body.action === "accept") return devReply(await acceptDevTask(hub, id));
       if (body.action === "discard") return devReply(await discardDevTask(hub, id));
+      if (body.action === "unblock") return devReply(unblockDevTask(hub, id));
       if (body.action === "retouch") {
         const design = readDesignPick(id, body.design);
         if (design && "error" in design) throw new HttpError(400, design.error);
