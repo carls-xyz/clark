@@ -36,6 +36,14 @@ export type BrowserState = {
   remoteUntil: number | null;
   /** Largeur de la page pendant la vue distante (390 depuis un téléphone, sinon 1280) : les clics s'y rapportent. */
   remoteWidth: number;
+  /** Mode « vision » de l'agent : capture courante, taille de la page, et journal des dernières actions. */
+  vision: {
+    shotId: string | null;
+    shotAt: number | null;
+    width: number;
+    height: number;
+    recent: VisionLogEntry[];
+  };
 };
 
 /** Vue distante : fermée seule après tant d'inactivité ; une capture toutes les tant de ms pendant qu'elle est ouverte. */
@@ -55,12 +63,33 @@ export type RemoteAction =
   | { action: "scroll"; direction: "down" | "up" }
   | { action: "back" };
 
+/**
+ * Mode « vision » de l'agent : il regarde le navigateur de Clark par capture d'écran et agit par
+ * coordonnées (clic) ou par touche, sans accès au reste du Mac. Distinct de la vue distante du
+ * propriétaire. Pas de saisie de texte libre : l'outil `type` n'existe pas, donc l'interdit est garanti.
+ */
+export const VISION_ACTIONS = ["screenshot", "click_at", "key", "scroll"] as const;
+export type VisionAction = (typeof VISION_ACTIONS)[number];
+/** Les actions « vision » qui agissent : accord de Charles, et refusées à un agent en lecture seule. */
+export const VISION_WRITES = new Set<VisionAction>(["click_at", "key"]);
+/** Les touches que l'agent peut envoyer en mode vision : même liste blanche bornée que la vue distante. */
+export const VISION_KEYS = REMOTE_KEYS;
+
+/** Métadonnées d'une capture « vision » (sans l'image). */
+export type VisionShotMeta = { shotId: string; shotAt: number; url: string | null; title: string | null; width: number; height: number };
+/** Ce que rend une action « vision » à l'agent. Un refus donne { ok:false, text } (pas d'erreur levée). */
+export type VisionResult = { ok: boolean; text: string; shot?: VisionShotMeta & { image: Buffer } };
+/** Une entrée du journal circulaire des dernières actions « vision ». */
+export type VisionLogEntry = { action: VisionAction; detail: string; at: number; granted: boolean | null };
+
 type Deps = {
   driver: BrowserDriver;
   /** Demande l'accord de l'utilisateur pour la tâche (bouton web / Telegram). */
   approve: (taskId: number, req: { tool: string; summary: string }) => Promise<boolean>;
   /** La tâche tourne-t-elle encore ? Une tâche finie libère le navigateur. */
   taskAlive: (taskId: number) => boolean;
+  /** L'agent de cette tâche est-il en lecture seule ? Un tel agent regarde mais n'agit jamais. */
+  readOnly?: (taskId: number) => boolean;
   onChange?: () => void;
 };
 
@@ -140,6 +169,19 @@ export class BrowserService {
   private remoteUntil: number | null = null;
   private remoteTimer: NodeJS.Timeout | null = null;
   private remoteSize: { width: number; height: number } = { ...VIEWPORT };
+  /** Mode vision : la dernière capture prise par l'agent (image + métadonnées), et le journal circulaire. */
+  private visionShot: (VisionShotMeta & { image: Buffer }) | null = null;
+  private visionSeq = 0;
+  private visionLog: VisionLogEntry[] = [];
+  /**
+   * Réservation exclusive, sans expiration : la requête (tâche + jeton) qui a une action (clic/touche) en
+   * attente d'accord. Tant qu'elle est posée, aucune autre tâche ne peut toucher au navigateur (même si le
+   * bail OWNER_HOLD_MS de l'owner a expiré), pour qu'on ne lui déplace pas le pointeur ou la page entre
+   * l'accord et l'exécution. Le jeton garantit que seule la requête qui l'a posée peut la lever : une autre
+   * requête de la même tâche (par ex. qui échoue) ne doit pas libérer la réservation qu'elle n'a pas acquise.
+   */
+  private reserved: { taskId: number; token: number } | null = null;
+  private reserveSeq = 0;
 
   constructor(deps: Deps) {
     this.deps = deps;
@@ -158,6 +200,13 @@ export class BrowserService {
       shotAt: this.shotAt,
       remoteUntil: this.remoteActive() ? this.remoteUntil : null,
       remoteWidth: this.remoteSize.width,
+      vision: {
+        shotId: this.visionShot?.shotId ?? null,
+        shotAt: this.visionShot?.shotAt ?? null,
+        width: this.remoteSize.width,
+        height: this.remoteSize.height,
+        recent: [...this.visionLog],
+      },
     };
   }
 
@@ -210,6 +259,10 @@ export class BrowserService {
     try {
       const d = this.deps.driver;
       if (!d.available()) return "Le navigateur n'est pas disponible : Google Chrome est introuvable sur ce Mac.";
+      // Une action (clic/touche) d'une autre tâche attend l'accord de Charles : on ne bouge pas la page sous elle.
+      if (this.reserved !== null && this.reserved.taskId !== taskId && this.deps.taskAlive(this.reserved.taskId)) {
+        return `Le navigateur est réservé par la tâche #${this.reserved.taskId} (action en attente de l'accord de Charles). Réessaie plus tard.`;
+      }
       if (this.owner !== null && this.owner !== taskId && this.deps.taskAlive(this.owner) && Date.now() - this.lastAt < OWNER_HOLD_MS) {
         return `Le navigateur est utilisé par la tâche #${this.owner}. Fais sans, ou réessaie plus tard.`;
       }
@@ -240,6 +293,9 @@ export class BrowserService {
 
       try {
         let note = "";
+        // Toute action qui touche la page périme la capture « vision » : on l'invalide AVANT la mutation,
+        // pour qu'une mutation qui déplace la page puis échoue ne laisse pas une ancienne capture utilisable.
+        if (action !== "read") this.visionShot = null;
         switch (action) {
           case "open": {
             const url = safeUrl(args.url ?? "");
@@ -326,6 +382,197 @@ export class BrowserService {
     }
   }
 
+  private logVision(action: VisionAction, detail: string, granted: boolean | null) {
+    this.visionLog.push({ action, detail, at: Date.now(), granted });
+    if (this.visionLog.length > 12) this.visionLog.shift();
+  }
+
+  /**
+   * Un agent peut-il agir (cliquer, touche) ? Renvoie la raison du refus, ou null si c'est permis.
+   * Fail-closed : si la politique de lecture seule n'est pas raccordée au service, on n'agit pas —
+   * le mode de la tâche ne peut pas être établi. Le service de production doit injecter `readOnly`.
+   */
+  private actForbidden(taskId: number): string | null {
+    if (!this.deps.readOnly) return "Je ne peux pas établir le mode de cette tâche (lecture seule ?) : par sécurité, je n'agis pas (ni clic ni touche).";
+    if (this.deps.readOnly(taskId)) return "Lecture seule : je peux regarder (capture, défilement) mais pas cliquer ni appuyer sur une touche.";
+    return null;
+  }
+
+  /** L'adresse de la page en ce moment (relue à neuf), pour déceler une page qui a bougé depuis la capture. */
+  private async liveUrl(): Promise<string | null> {
+    try {
+      return (await this.deps.driver.view()).url ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Mode « vision » de l'agent : regarder le navigateur de Clark par capture, agir par coordonnées.
+   * Distinct de la vue distante du propriétaire.
+   * - `screenshot` : libre. Range la capture (shotId, shotAt), retient l'URL, rend l'image + métadonnées.
+   * - `scroll` : libre.
+   * - `click_at` / `key` : accord de Charles, sur la capture indiquée (shotId) ; refusés en lecture seule.
+   *   `key` n'accepte qu'une touche de la liste blanche. Pas de saisie de texte libre dans ce lot.
+   * Ne lève pas d'erreur pour un refus : rend { ok:false, text }.
+   */
+  async vision(
+    taskId: number,
+    action: VisionAction,
+    args: { x?: number; y?: number; key?: string; direction?: "down" | "up"; shotId?: string } = {},
+  ): Promise<VisionResult> {
+    const fail = (text: string): VisionResult => ({ ok: false, text });
+    if (this.remoteActive()) return fail("Charles utilise le navigateur en ce moment (vue distante). Réessaie dans quelques minutes, ou fais sans.");
+    // Un agent qui ne peut pas agir (lecture seule, ou mode indéterminé) est refusé d'emblée, sans déranger Charles.
+    if (VISION_WRITES.has(action)) {
+      const no = this.actForbidden(taskId);
+      if (no) return fail(no);
+    }
+
+    // Jeton de la réservation que CETTE requête aura posée (null tant qu'elle ne l'a pas acquise) : elle seule la lève.
+    let reserveToken: number | null = null;
+    let release = await this.lock();
+    try {
+      const d = this.deps.driver;
+      if (!d.available()) return fail("Le navigateur n'est pas disponible : Google Chrome est introuvable sur ce Mac.");
+      if (!d.clickAt || !d.pressKey) return fail("Ce navigateur ne permet pas le mode vision.");
+      // Une action d'une autre tâche attend l'accord de Charles : on ne bouge rien sous elle (réservation non expirante).
+      if (this.reserved !== null && this.reserved.taskId !== taskId && this.deps.taskAlive(this.reserved.taskId)) {
+        return fail(`Le navigateur est réservé par la tâche #${this.reserved.taskId} (action en attente de l'accord de Charles). Réessaie plus tard.`);
+      }
+      if (this.owner !== null && this.owner !== taskId && this.deps.taskAlive(this.owner) && Date.now() - this.lastAt < OWNER_HOLD_MS) {
+        return fail(`Le navigateur est utilisé par la tâche #${this.owner}. Fais sans, ou réessaie plus tard.`);
+      }
+      await d.ensure(this.wantVisible);
+      this.owner = taskId;
+      this.lastAt = Date.now();
+      this.armIdle();
+
+      try {
+        switch (action) {
+          case "screenshot": {
+            // Une capture ne vaut que si l'image JPEG ET l'adresse de la page sont bien là : sinon, pas de shotId.
+            // On invalide l'ancienne AVANT d'en tenter une nouvelle : si capture() échoue, aucun ancien shotId ne survit.
+            this.visionShot = null;
+            try {
+              await this.capture();
+            } catch {
+              return fail("La capture a échoué (page illisible) : réessaie dans un instant.");
+            }
+            const url = this.last?.url ?? null;
+            const image = this.shot;
+            if (!url || !image || image.length === 0) {
+              this.visionShot = null;
+              return fail("Capture indisponible (image ou adresse de page manquante) : réessaie, je n'agis pas sur une capture incertaine.");
+            }
+            const id = `v${++this.visionSeq}`;
+            const { width, height } = this.remoteSize;
+            const meta: VisionShotMeta = { shotId: id, shotAt: this.shotAt ?? Date.now(), url, title: this.last?.title ?? null, width, height };
+            this.visionShot = { ...meta, image };
+            this.lastAction = "capture (vision)";
+            this.logVision("screenshot", id, null);
+            return {
+              ok: true,
+              text: `Capture ${id} — ${this.last?.title || "(sans titre)"} · ${url} · ${width}×${height}. Fournis ce shotId pour cliquer ou envoyer une touche.`,
+              shot: { ...meta, image },
+            };
+          }
+          case "scroll": {
+            this.visionShot = null; // la page va bouger : on invalide AVANT la mutation, même si elle échoue.
+            await d.scroll(args.direction === "up" ? "up" : "down");
+            await this.capture().catch(() => {});
+            this.lastAction = "fait défiler (vision)";
+            this.logVision("scroll", args.direction === "up" ? "haut" : "bas", null);
+            return { ok: true, text: `Page défilée vers le ${args.direction === "up" ? "haut" : "bas"}. Reprends une capture pour agir.` };
+          }
+          case "click_at":
+          case "key": {
+            const x = Math.round(args.x ?? 0);
+            const y = Math.round(args.y ?? 0);
+            const key = args.key ?? "";
+            if (action === "click_at" && (!Number.isFinite(args.x) || !Number.isFinite(args.y))) return fail("Position invalide : donne x et y.");
+            // Liste blanche bornée, vérifiée avant même de demander l'accord. Aucune saisie de texte possible.
+            if (action === "key" && !VISION_KEYS.has(key)) return fail(`Touche « ${key || "?"} » refusée. Seules : ${[...VISION_KEYS].join(", ")}. (Pas de saisie de texte en mode vision.)`);
+            const detail = action === "click_at" ? `(${x}, ${y})` : key;
+
+            // Règle 2 : la capture doit être fournie, être la dernière, et la page ne pas avoir changé d'adresse depuis.
+            const shot = this.visionShot; // shot.url est garanti non nul (une capture n'est rangée qu'avec une adresse connue).
+            if (!shot) return fail("Aucune capture en cours : prends d'abord une capture (screenshot) avant d'agir.");
+            if (!args.shotId) return fail("Indique le shotId de la capture sur laquelle tu te fondes.");
+            if (args.shotId !== shot.shotId) return fail(`La capture « ${args.shotId} » n'est plus la dernière (${shot.shotId}) : reprends une capture avant d'agir.`);
+            const urlBefore = await this.liveUrl();
+            if (urlBefore === null) return fail("Impossible de lire l'adresse de la page : reprends une capture avant d'agir (pas de clic à l'aveugle).");
+            if (urlBefore !== shot.url) return fail("La page a changé d'adresse depuis la capture : reprends une capture avant d'agir (pas de clic à l'aveugle).");
+
+            // Règle 1 : l'accord décrit l'action EXACTE et la capture utilisée.
+            const host = (() => {
+              try {
+                return new URL(shot.url ?? "").host;
+              } catch {
+                return "page";
+              }
+            })();
+            const what = action === "click_at" ? `cliquer à la position ${detail}` : `appuyer sur la touche « ${key} »`;
+            const summary = `Navigateur (vision) · ${host} — ${what}, d'après la capture ${shot.shotId}.\nPage : ${shot.url ?? "(inconnue)"}`;
+
+            // Réservation exclusive, non expirante : aucune autre tâche ne touche au navigateur jusqu'à l'exécution
+            // ou l'abandon, même si le bail OWNER_HOLD_MS de l'owner expire pendant que Charles décide.
+            // Jeton propre à cette requête : seule elle la lèvera (une requête sœur ne doit pas la casser).
+            reserveToken = ++this.reserveSeq;
+            this.reserved = { taskId, token: reserveToken };
+            // Pendant que Charles décide, le verrou est rendu (il peut afficher la fenêtre), mais la réservation tient.
+            release();
+            const ok = await this.deps.approve(taskId, { tool: "browser", summary });
+            release = await this.lock();
+            if (!ok) {
+              this.logVision(action, detail, false);
+              return fail(`Charles a refusé (ou n'a pas répondu à temps) : je n'ai ${action === "click_at" ? "pas cliqué" : "pas appuyé sur la touche"}.`);
+            }
+            // Règle 3 : les attentes restantes (ensure, lecture de l'URL) d'abord, PUIS la revérification finale,
+            // juste avant d'agir, sans aucune attente entre elle et l'appel au driver.
+            await d.ensure(this.wantVisible);
+            const urlAfter = await this.liveUrl();
+            if (!this.deps.taskAlive(taskId)) {
+              this.logVision(action, detail, false);
+              return fail("La tâche s'est arrêtée pendant l'attente de l'accord : rien n'a été fait.");
+            }
+            const forbidden = this.actForbidden(taskId);
+            if (forbidden) {
+              this.logVision(action, detail, false);
+              return fail(`${forbidden} Rien n'a été fait.`);
+            }
+            if (urlAfter === null || urlAfter !== shot.url || this.visionShot?.shotId !== shot.shotId) {
+              this.logVision(action, detail, false);
+              return fail("La page a changé (ou est devenue illisible) pendant que Charles décidait : rien n'a été fait, reprends une capture.");
+            }
+            // Règle 4 : on tient le verrou jusqu'au bout — aucune autre tâche ne s'intercale, l'action est atomique.
+            // La capture est invalidée AVANT la mutation : si le clic/la touche bouge la page puis échoue,
+            // l'ancien shotId ne doit plus permettre d'agir.
+            this.visionShot = null;
+            if (action === "click_at") {
+              await d.clickAt(x, y);
+              this.lastAction = `clique en ${detail} (vision)`;
+            } else {
+              await d.pressKey(key);
+              this.lastAction = `touche « ${key} » (vision)`;
+            }
+            await this.capture().catch(() => {});
+            this.logVision(action, detail, true);
+            return { ok: true, text: `Accord de Charles reçu. Fait : ${what}. Reprends une capture pour voir le résultat.` };
+          }
+        }
+        return fail("Action vision inconnue.");
+      } finally {
+        // On ne lève QUE la réservation posée par cette requête (jeton), jamais celle d'une requête sœur en attente.
+        if (reserveToken !== null && this.reserved?.token === reserveToken) this.reserved = null;
+        this.lastAt = Date.now();
+        this.changed();
+      }
+    } finally {
+      release();
+    }
+  }
+
   remoteActive(): boolean {
     if (this.remoteUntil !== null && Date.now() > this.remoteUntil) this.endRemote();
     return this.remoteUntil !== null;
@@ -357,6 +604,8 @@ export class BrowserService {
       if (!d.available()) throw new Error("Google Chrome est introuvable sur cette machine.");
       if (r.action !== "start" && !this.remoteActive()) throw new Error("La vue distante est fermée : rouvre-la.");
       if (!d.clickAt || !d.typeText || !d.pressKey) throw new Error("Ce navigateur ne permet pas la vue distante.");
+      // Charles reprend la main : toute capture « vision » est invalidée AVANT la moindre mutation, même si elle échoue.
+      this.visionShot = null;
       // Le navigateur garde son affichage (fenêtre sur le Mac), ou démarre sans écran (serveur).
       await d.ensure(d.running() ? d.visible() : this.wantVisible);
       if (r.action === "start") {
@@ -393,8 +642,9 @@ export class BrowserService {
       } else if (r.action === "scroll") await d.scroll(r.direction === "up" ? "up" : "down");
       else if (r.action === "back") await d.back();
       this.remoteUntil = Date.now() + REMOTE_IDLE_MS;
-      // La page a changé hors de l'agent : ce qu'il avait relevé n'est plus à jour.
+      // La page a changé hors de l'agent : ce qu'il avait relevé, et toute capture « vision », n'est plus à jour.
       this.reloaded = true;
+      this.visionShot = null;
       await this.capture().catch(() => {});
       this.armIdle();
       this.changed();
@@ -407,7 +657,10 @@ export class BrowserService {
       this.wantVisible = visible;
       if (!this.deps.driver.available()) throw new Error("Google Chrome est introuvable sur cette machine.");
       if (!visible && !this.deps.driver.running()) return;
-      if (this.deps.driver.running() && this.deps.driver.visible() !== visible) this.reloaded = true;
+      if (this.deps.driver.running() && this.deps.driver.visible() !== visible) {
+        this.reloaded = true;
+        this.visionShot = null; // la fenêtre affichée/masquée recharge la page : la capture « vision » ne vaut plus.
+      }
       await this.deps.driver.ensure(visible);
       if (visible && !this.last) await this.deps.driver.open("about:blank").catch(() => {});
       await this.capture().catch(() => {});
@@ -433,6 +686,7 @@ export class BrowserService {
       this.last = null;
       this.shot = null;
       this.shotAt = null;
+      this.visionShot = null;
       this.owner = null;
       this.lastAction = null;
       this.changed();
