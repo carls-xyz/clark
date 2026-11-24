@@ -35,11 +35,12 @@ Consigne de Charles : ${instruction}
 Plan proposé (JSON) :
 ${planJson}
 
-Critique ce plan avant que le code commence. Lis le projet autant qu'il faut. Cherche :
+Critique ce plan avant que le code commence. Lis le projet autant qu'il faut. Si le dépôt a un fichier AGENTS.md (ou CLAUDE.md) à sa racine, lis-le d'abord : ses règles priment sur tes habitudes. Cherche :
 - ce qui manque pour que la consigne soit vraiment faite (cas limites, erreurs, tests, migration, doc) ;
 - les sous-tâches qui toucheront les mêmes fichiers alors qu'elles tournent en même temps ;
 - un découpage qui rendrait le travail plus sûr ou plus simple ;
-- les hypothèses fausses sur le code existant.
+- les hypothèses fausses sur le code existant ;
+- une sous-tâche à qui il manque une règle du projet (AGENTS.md) ou un fichier qu'elle devra forcément toucher.
 Sois concret (fichiers, fonctions). Si le plan est bon, dis-le en une phrase. 15 lignes au plus.`;
 }
 
@@ -57,7 +58,23 @@ export type ReviewIssue = { file: string; problem: string; fix: string; severity
 export type ReviewVerdict = { approve: boolean; summary: string; issues: ReviewIssue[] };
 export type ReviewNote = ReviewVerdict & { round: number; reviewer: EngineName; at: string };
 
-export function crossReviewPrompt(t: Pick<DevTask, "id" | "title" | "instruction" | "summary" | "worktree">, patch: string, author: EngineName, round: number, previous: ReviewNote[]): string {
+/**
+ * Les tests du projet tels que Clark les a lancés hors du bac à sable, sur cette version : le relecteur
+ * s'y fie, pas au résumé de l'auteur (qui, dans le bac à sable, ne peut souvent pas tout lancer).
+ */
+export function testsForReview(t: Pick<DevTask, "tests" | "rounds">): string {
+  let r: { running?: boolean; ok?: boolean; timedOut?: boolean; output?: string; round?: number | null } = {};
+  try {
+    r = t.tests ? JSON.parse(t.tests) : {};
+  } catch {}
+  if (r.ok === undefined || r.running || (r.round != null && r.round !== t.rounds))
+    return "Tests du projet : pas lancés par Clark sur cette version. Ne prends pas pour acquis ce que l'auteur dit avoir vérifié.";
+  if (r.ok) return "Tests du projet lancés par Clark hors du bac à sable, sur cette version : tous verts.";
+  const tail = (r.output ?? "").slice(-2500);
+  return `Tests du projet lancés par Clark hors du bac à sable, sur cette version : EN ÉCHEC${r.timedOut ? " (délai dépassé)" : ""}. Fin de la sortie :\n\`\`\`\n${tail}\n\`\`\``;
+}
+
+export function crossReviewPrompt(t: Pick<DevTask, "id" | "title" | "instruction" | "summary" | "worktree" | "tests" | "rounds">, patch: string, author: EngineName, round: number, previous: ReviewNote[]): string {
   const history = previous.length
     ? `\n\nTes relectures précédentes et ce que l'auteur a répondu ensuite :\n${previous
         .map((p) => `- Tour ${p.round} : ${p.approve ? "approuvé" : `${p.issues.length} problème(s)`} — ${short(p.summary, 300)}`)
@@ -73,9 +90,13 @@ ${t.instruction}
 Diff de l'auteur :
 \`\`\`diff
 ${cut || "(aucun changement)"}
-\`\`\`${history}
+\`\`\`
 
-Relis comme un bon relecteur de PR : la consigne est-elle faite ? Des bugs, des cas oubliés, de la sécurité, des tests qui manquent, du code mort ou trop compliqué ? Lis le code autour si besoin. Ne relève que ce qui compte vraiment ; pas de goûts personnels. Si l'auteur a contesté un point de façon convaincante, n'insiste pas.
+${testsForReview(t)}${history}
+
+Si le dépôt a un fichier AGENTS.md (ou CLAUDE.md) à sa racine, lis-le d'abord : ses règles priment sur tes habitudes. Une règle d'AGENTS.md non respectée est un point bloquant.
+
+Relis comme un bon relecteur de PR : la consigne est-elle faite ? Des bugs, des cas oubliés, de la sécurité, des tests qui manquent, du code mort ou trop compliqué ? Lis le code autour, et les appelants de ce qui change (rg) : tu as accès à toute la copie en lecture. Ne dis pas que tu n'as pas pu lire le dépôt sans avoir essayé. Ne relève que ce qui compte vraiment ; pas de goûts personnels. Si l'auteur a contesté un point de façon convaincante, n'insiste pas.
 
 Réponds uniquement par ce JSON :
 {"approve": true|false, "summary": "ton avis en 1 à 3 phrases", "issues": [{"file": "chemin", "problem": "le problème", "fix": "ce qu'il faut faire", "severity": "bloquant|important|mineur"}]}

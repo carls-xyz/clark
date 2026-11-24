@@ -323,3 +323,41 @@ test("codex : ton refus → « Cancel »", async () => {
   await until(() => conversation.recent(OWNER_CHAT).some((m) => m.text === "Fini."));
   assert.deepEqual(sent.find((m) => m.id === 7).result.answers["mcp_tool_call_approval_call-1"], { answers: ["Cancel"] });
 });
+
+test("codex en lecture seule (relecteur) : une commande de pure lecture passe, toute autre est refusée", async () => {
+  const run = async (command: string, actions: any[]) => {
+    const item = (status: string) => ({ type: "commandExecution", id: "exec-1", command, cwd: "/ws", status, commandActions: actions, aggregatedOutput: status === "completed" ? "x" : null, exitCode: status === "completed" ? 0 : null });
+    const { transport, sent } = fakeCodex((msg: any, io: any) => {
+      if (msg.method === "turn/start") {
+        io.reply({ turn: { id: "turn-1", status: "inProgress" } });
+        io.send({ method: "item/started", params: { threadId: T, turnId: "turn-1", item: item("inProgress") } });
+        io.send({ id: 0, method: "item/commandExecution/requestApproval", params: { threadId: T, turnId: "turn-1", itemId: "exec-1", command, cwd: "/ws", reason: null } });
+        return;
+      }
+      if (msg.id === 0 && msg.result) {
+        io.send({ method: "item/completed", params: { threadId: T, turnId: "turn-1", item: item(msg.result.decision === "accept" ? "completed" : "declined") } });
+        io.send({ method: "item/completed", params: { threadId: T, turnId: "turn-1", item: { type: "agentMessage", id: "m1", text: "Relu.", phase: "final_answer" } } });
+        io.send({ method: "turn/completed", params: { threadId: T, turn: { id: "turn-1", status: "completed", error: null } } });
+        return;
+      }
+      return happyPath(msg, io);
+    });
+    const { hub, journal } = setup(transport);
+    await hub.enqueue(OWNER_CHAT, "Relis ce diff", "chat", "web", { access: "read" });
+    assert.equal(hub.approvals().length, 0, "rien n'est demandé à l'utilisateur");
+    const turn = sent.find((m) => m.method === "turn/start");
+    assert.equal(turn.params.permissions, "clark-read", "bac à sable en lecture seule");
+    return { decision: sent.find((m) => m.id === 0)?.result.decision, steps: journal.steps(1) };
+  };
+
+  const read = await run("/bin/zsh -lc \"rg -n 'approve' src/browser/service.ts\"", [{ type: "search", query: "approve", path: "src/browser/service.ts", command: "rg -n approve src/browser/service.ts" }]);
+  assert.equal(read.decision, "accept");
+  assert.deepEqual(read.steps.map((s) => [s.tool, s.status]), [["Grep", "done"]]);
+
+  const write = await run("/bin/zsh -lc 'touch a.txt'", [{ type: "unknown", command: "touch a.txt" }]);
+  assert.equal(write.decision, "decline");
+  assert.equal(write.steps[0].status, "denied");
+
+  const mixed = await run("/bin/zsh -lc 'cat a.txt; rm a.txt'", [{ type: "read", path: "a.txt", command: "cat a.txt" }, { type: "unknown", command: "rm a.txt" }]);
+  assert.equal(mixed.decision, "decline", "une lecture suivie d'autre chose : refusé");
+});

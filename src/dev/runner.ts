@@ -79,6 +79,8 @@ Tu travailles dans une copie isolée du dépôt « ${projectName} » : ${t.workt
 Consigne de Charles : ${t.instruction}
 
 Règles :
+- Si le dépôt a un fichier AGENTS.md (ou CLAUDE.md) à sa racine, lis-le d'abord : ses règles priment sur tes habitudes.
+- La consigne peut citer des fichiers : si le travail en exige un autre qu'elle n'interdit pas, modifie-le et signale-le dans ton résumé, plutôt que de t'arrêter. « BILAN : bloqué » seulement si la consigne l'interdit vraiment.
 - Ne modifie que les fichiers de cette copie. N'utilise pas git : Clark s'occupe des commits quand Charles accepte.
 - Tes commandes tournent dans un bac à sable, sans réseau : pas d'installation de dépendances. Elles passent sans demander l'accord de Charles.
 - Un dossier de dépendances (node_modules, .venv…) peut être partagé avec le dépôt par un lien : lis-le, n'y écris jamais.

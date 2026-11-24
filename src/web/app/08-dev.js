@@ -462,6 +462,16 @@ function renderCompare(t) {
   </section>`;
 }
 
+/** Désaccord du binôme : les points encore ouverts de la dernière relecture, pour la confirmation d'« Accepter ». */
+function openPointsAttrs(t) {
+  if (t.reviewState !== "disagree") return "";
+  const issues = (t.reviewNotes ?? []).at(-1)?.issues ?? [];
+  if (!issues.length) return "";
+  const blocking = issues.filter((i) => i.severity === "bloquant").length;
+  const list = issues.slice(0, 4).map((i) => `• ${i.file ? `${i.file} : ` : ""}${i.problem.length > 140 ? `${i.problem.slice(0, 139)}…` : i.problem}`).join("\n");
+  return ` data-open-points="${issues.length}" data-open-blocking="${blocking}" data-open-list="${esc(list)}"`;
+}
+
 /** Binôme : qui écrit, qui relit, où en est la relecture, et ce qui s'est dit à chaque tour. */
 const SEVERITY = { bloquant: "bloquant", important: "important", mineur: "mineur" };
 function renderCrossReview(t) {
@@ -543,7 +553,7 @@ function renderDevTask(t, nested = false) {
     ${
       open
         ? `<div class="card-actions">
-            ${t.status === "review" ? (t.compareWith ? `<button type="button" class="btn primary" data-dev-keep="${t.id}">Garder celle-ci</button>` : `<button type="button" class="btn primary" data-dev-action="accept">${t.prOf ? "Accepter et mettre à jour la PR" : "Accepter"}</button>`) : ""}
+            ${t.status === "review" ? (t.compareWith ? `<button type="button" class="btn primary" data-dev-keep="${t.id}">Garder celle-ci</button>` : `<button type="button" class="btn primary" data-dev-action="accept"${openPointsAttrs(t)}>${t.prOf ? "Accepter et mettre à jour la PR" : "Accepter"}</button>`) : ""}
             ${state.dev?.preview?.taskId === t.id ? "" : `<button type="button" class="btn secondary" data-design-open>Aperçu</button>`}
             ${renderDevMore(t, project, nested)}
           </div>
