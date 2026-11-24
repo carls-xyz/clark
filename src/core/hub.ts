@@ -36,6 +36,9 @@ const APPROVAL_TIMEOUT_MS = 10 * 60 * 1000;
 
 export type HubDeps = Deps & { conversation: Conversation };
 
+/** Ce qu'a donné une demande d'accord (validée, refusée, sans réponse, agent arrêté). */
+export type ApprovalOutcome = "ok" | "no" | "expired" | "stopped";
+
 export type Approval = {
   id: string;
   chatId: number;
@@ -125,7 +128,7 @@ export function createHub(
   if (moved) console.log(`[clark] ${moved} fil(s) de critique déplacé(s) hors de la plage des automatisations`);
   const execute = opts.execute ?? executeTask;
   const channels: Channel[] = [];
-  const pending = new Map<string, Approval & { settle: (ok: boolean, how: "ok" | "no" | "expired") => void }>();
+  const pending = new Map<string, Approval & { settle: (how: ApprovalOutcome) => void }>();
   const queues = new Map<number, Promise<unknown>>();
   const listeners = new Set<() => void>();
   let engine: EngineInfo = { name: "claude", model: deps.config.model, ready: null, account: null, problem: null };
@@ -296,20 +299,19 @@ export function createHub(
     await alert(task, text);
   };
 
-  const approverFor =
-    (chatId: number, taskId: number, agent?: string): Approver =>
-    ({ tool, summary }) =>
-      new Promise<boolean>((resolve) => {
+  /** Une demande d'accord : validée, refusée, sans réponse, ou annulée parce que l'agent a été arrêté. */
+  const ask = (chatId: number, taskId: number, agent: string | undefined, { tool, summary }: { tool: string; summary: string }) =>
+      new Promise<ApprovalOutcome>((resolve) => {
         const id = randomUUID().slice(0, 8);
         const now = Date.now();
-        const timer = setTimeout(() => settle(false, "expired"), APPROVAL_TIMEOUT_MS);
+        const timer = setTimeout(() => settle("expired"), APPROVAL_TIMEOUT_MS);
         timer.unref(); // n'empêche pas Clark (ou un test) de s'arrêter
-        const settle = (ok: boolean, how: "ok" | "no" | "expired") => {
+        const settle = (how: ApprovalOutcome) => {
           clearTimeout(timer);
-          pending.delete(id);
-          resolve(ok);
+          if (!pending.delete(id)) return;
+          resolve(how);
           const first = summary.split("\n").find((l) => l.trim() && !l.endsWith(":")) ?? summary;
-          const verdict = how === "ok" ? "Validé" : how === "no" ? "Refusé" : "Sans réponse après 10 minutes, refusé";
+          const verdict = how === "ok" ? "Validé" : how === "no" ? "Refusé" : how === "stopped" ? "Annulé (agent arrêté)" : "Sans réponse après 10 minutes, refusé";
           void say(chatId, `${verdict}${agent ? ` (${agent})` : ""} : ${short(first.trim(), 120)}`, "system", taskId);
         };
         const approval: Approval = { id, chatId, taskId, tool, summary, agent, createdAt: now, expiresAt: now + APPROVAL_TIMEOUT_MS };
@@ -317,6 +319,10 @@ export function createHub(
         changed();
         void each((c) => c.askApproval?.(approval), "approval", approval.summary.split("\n")[0]);
       });
+  const approverFor =
+    (chatId: number, taskId: number, agent?: string): Approver =>
+    (req) =>
+      ask(chatId, taskId, agent, req).then((how) => how === "ok");
 
   /**
    * File par chat, sans bloquer les canaux : une tâche qui attend une validation
@@ -850,6 +856,11 @@ export function createHub(
     stopTask(taskId: number): "stopped" | "not_running" {
       if (!stopRunning(taskId)) return "not_running";
       stalled.delete(taskId);
+      // Les accords encore en attente pour cette tâche (et ses agents d'équipe) ne valent plus rien.
+      for (const a of [...pending.values()]) {
+        if (a.taskId === taskId || journal.get(a.taskId)?.parent_id === taskId) a.settle("stopped");
+      }
+      journal.expireApprovals(taskId);
       const t = journal.get(taskId);
       void say(t && isDevChat(t.chat_id) ? t.chat_id : OWNER_CHAT, "Agent arrêté à ta demande.", "system", taskId);
       changed();
@@ -858,11 +869,24 @@ export function createHub(
 
     /** Accord demandé au nom d'une tâche (navigateur) : même bouton, même délai que les autres. */
     approveTask(taskId: number, req: { tool: string; summary: string }): Promise<boolean> {
+      return this.approveTaskOutcome(taskId, req).then((how) => how === "ok");
+    },
+
+    /** Pareil, avec le détail : validé, refusé, sans réponse, ou agent arrêté (journal du navigateur). */
+    approveTaskOutcome(taskId: number, req: { tool: string; summary: string }): Promise<ApprovalOutcome> {
       const t = journal.get(taskId);
-      if (!t) return Promise.resolve(false);
-      if (t.parent_id === null) return approverFor(t.chat_id, t.id)(req);
+      if (!t) return Promise.resolve("no");
+      if (t.parent_id === null) return ask(t.chat_id, t.id, undefined, req);
       const parent = journal.get(t.parent_id);
-      return approverFor(parent?.chat_id ?? t.chat_id, t.id, displayName(t))(req);
+      return ask(parent?.chat_id ?? t.chat_id, t.id, displayName(t), req);
+    },
+
+    /** Les tâches qu'un clic peut arrêter maintenant (pour /stop sur Telegram). */
+    stoppable(): { id: number; title: string }[] {
+      return journal
+        .unfinished()
+        .filter((t) => t.status === "running" && canStop(t.id))
+        .map((t) => ({ id: t.id, title: t.parent_id === null ? short(askedText(t.prompt), 60) : `${displayName(t)} (équipe #${t.parent_id})` }));
     },
 
     /** Message de Clark ou note du système, envoyé aux canaux (web, Telegram). */
@@ -962,7 +986,7 @@ export function createHub(
     resolveApproval(id: string, ok: boolean): boolean {
       const entry = pending.get(id);
       if (!entry) return false;
-      entry.settle(ok, ok ? "ok" : "no");
+      entry.settle(ok ? "ok" : "no");
       return true;
     },
 

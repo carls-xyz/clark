@@ -127,12 +127,17 @@ Clark a son propre Chrome (ton Google Chrome, avec un profil à part dans `data/
   - libre : ouvrir et lire une page, faire défiler, remplir un champ ordinaire, suivre un lien, ouvrir un menu ;
   - **ton accord** (bouton web ou Telegram) : tout ce qui envoie ou engage, c'est-à-dire un bouton qui envoie un formulaire, Entrée dans un champ, ou un bouton nommé Envoyer, Payer, Commander, Publier, Supprimer, Se connecter, S'inscrire, Réserver… ;
   - **jamais** : taper un mot de passe, un numéro de carte ou un code. Pour qu'il utilise un compte, ouvre sa fenêtre (Réglages › Connexions › **Ouvrir le navigateur**) et connecte-toi toi-même : la session reste dans son profil ;
-  - pas d'exécution de script, seulement des pages http(s), une tâche à la fois.
+  - pas d'exécution de script, seulement des pages http(s), une tâche à la fois ;
+  - **jamais de site sensible** : banque et paiement, crypto, gestionnaires de mots de passe, identité et authentification, comptes Apple, Google et Microsoft (environ 95 domaines par défaut, plus ceux de `CLARK_BROWSER_BLOCK`, séparés par des virgules). Un domaine couvre ses sous-domaines : bloquer `banque.fr` bloque `connexion.banque.fr`, pas `fausse-banque.fr`. L'adresse est vérifiée avant chaque action (ouvrir, cliquer un lien), puis l'adresse finale de chaque onglet après : une redirection, un nouvel onglet ou un retour arrière vers un site sensible est fermé avant d'être lu. Le mode vision suit les mêmes règles : pas de capture d'une page sensible ni pendant le verrou, onglet sensible fermé après un clic, une touche ou un défilement, et l'agent (jeton interne) ne reçoit que sa propre capture vision, jamais celle de ta vue distante. Une seule demande d'accord vision à la fois : une seconde, même de la même tâche, est refusée tant que la première attend.
+- **Toi sur un site sensible** : la vue distante (ou la fenêtre) y va librement. Pendant et après, l'agent n'a pas la main tant que tu n'as pas quitté le site ou fermé la page (bouton **Quitter le site sensible**, page Navigateur ou Réglages › Connexions). Rien de ces pages n'entre dans ce que lit l'agent, ni dans le journal ; la capture ne sert qu'à ta vue distante, pendant qu'elle est ouverte.
+- **Journal du navigateur** (page Navigateur, section Sécurité) : lu dans les étapes des tâches. Chaque action avec sa page en « origine + chemin » (sans paramètres ni fragment), l'adresse finale après redirection, et l'accord : demandé, donné, refusé, expiré, agent arrêté, site sensible bloqué. Jamais le contenu des pages : il est retiré des étapes dès leur écriture (et des anciennes étapes au démarrage) ; cookies, autorisations, codes, emails, cartes et IBAN sont masqués. De la vue distante, seulement « contrôle repris par Charles » et « contrôle rendu ». La même section liste les sites bloqués, par catégorie, avec leur provenance (défaut Clark ou `CLARK_BROWSER_BLOCK`).
+- **Arrêter l'agent** : chaque demande d'accord du navigateur sur Telegram a un bouton « Arrêter l'agent ». `/stop` montre les agents en cours, un bouton par tâche ; rien ne s'arrête sans ce clic. L'arrêt annule aussitôt les accords encore en attente pour la tâche (et ses agents d'équipe).
+- **Liste de confiance** : préparée, pas activée. Ce ne sera jamais une permission générale, seulement « site + type d'action + limite » (par exemple des brouillons sur un site précis).
 - **Si la page change pendant que tu décides** (rechargée, champs modifiés), rien n'est envoyé : Clark relit et redemande. Afficher ou masquer la fenêtre relance Chrome et recharge la page ; ce qu'il avait rempli est perdu, et il est prévenu.
 - **Suivi** : pendant qu'une tâche navigue, une carte au-dessus du fil montre la dernière capture, ce qu'il fait, et « Afficher la fenêtre ». Dans Réglages › Connexions : état, capture, Ouvrir / Masquer / Fermer, **Effacer ses connexions** (supprime son profil).
 - Invisible par défaut ; il se ferme après 15 minutes sans action (le Mac a 8 Go), sauf s'il est affiché.
 - Codex y accède par l'adresse interne de Clark (`/internal/browser`), avec un jeton tiré à chaque démarrage et écrit seulement dans `data/codex-home/config.toml` (lisible par toi seul).
-- Variables facultatives : `CLARK_BROWSER_EXECUTABLE` (autre Chrome), `CLARK_BROWSER_PROFILE`.
+- Variables facultatives : `CLARK_BROWSER_EXECUTABLE` (autre Chrome), `CLARK_BROWSER_PROFILE`, `CLARK_BROWSER_BLOCK` (sites bloqués en plus).
 - Démo : « Remplis le formulaire de contact sur le site de Studio Pixel » pilote le vrai Chrome (profil jetable) sur un site fictif local, jusqu'à ta validation.
 
 ## Contrôle de l'ordinateur
@@ -265,7 +270,7 @@ Ouvre **http://localhost:4310**. On y trouve :
 - les tâches à vérifier ;
 - la dépense du jour et la mémoire.
 
-Dans le chat privé Telegram (si configuré), `/taches` affiche les tâches en file ou en cours, l'avancement des agents et les boutons des tâches à vérifier. Les autres commandes sont `/nouveau`, `/memoire`, `/budget` et `/equipe`.
+Dans le chat privé Telegram (si configuré), `/taches` affiche les tâches en file ou en cours, l'avancement des agents et les boutons des tâches à vérifier. `/stop` montre les agents en cours, chacun avec son bouton « Arrêter » (rien ne s'arrête sans clic). Les autres commandes sont `/nouveau`, `/memoire`, `/budget` et `/equipe`.
 
 Pour voir l'interface sans clé API, lance `npm run demo` puis ouvre http://localhost:4311. Elle tourne avec un faux agent et des données fictives : rien n'est réellement lu ni écrit. Sa base (`data/demo.db`) survit à un redémarrage. Pour repartir de zéro : `npm run demo -- --reset`.
 

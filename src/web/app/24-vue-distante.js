@@ -51,6 +51,41 @@ function renderRemote() {
   img.hidden = !(b.running && b.shotAt);
   empty.hidden = !img.hidden;
   if (b.url && document.activeElement !== $("#remote-url-input") && !$("#remote-url-input").value) $("#remote-url-input").placeholder = b.url;
+  $("#browser-locked").hidden = !b.locked;
+  $("#browser-locked-text").textContent = b.locked ? `Site sensible ouvert : ${b.locked}. Clark n'a pas la main sur le navigateur tant que tu ne quittes pas ce site ou ne fermes pas la page.` : "";
+  void loadBrowserJournal();
+}
+
+// Journal et règles : relus au plus toutes les 5 secondes pendant que la page est affichée.
+let browserJournalAt = 0;
+async function loadBrowserJournal(force = false) {
+  if (!force && Date.now() - browserJournalAt < 5000) return;
+  browserJournalAt = Date.now();
+  try {
+    const res = await fetch("/api/browser/journal");
+    if (!res.ok) throw new Error(`Erreur ${res.status}`);
+    renderBrowserGuard(await res.json());
+  } catch (err) {
+    $("#browser-journal").innerHTML = `<p class="inline-error" role="alert">Journal indisponible : ${esc(err.message)}</p>`;
+  }
+}
+
+const journalWhen = (at) => {
+  const d = new Date(`${at.replace(" ", "T")}Z`);
+  return `${d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} ${time(d)}`;
+};
+
+function renderBrowserGuard(data) {
+  const rows = (data.entries ?? []).map((e) => {
+    if (e.kind === "controle") return `<li><span class="quiet">${journalWhen(e.at)}</span><span>${esc(e.label)}</span></li>`;
+    const target = e.target && e.target !== e.finalUrl ? ` ${esc(e.target)}` : "";
+    const final = e.finalUrl ? `<span class="health-error">${esc(e.finalUrl)}</span>` : "";
+    return `<li><span class="quiet">${journalWhen(e.at)}</span><span class="tag">${esc(e.label)}</span><span>${esc(e.action)}${target} · tâche #${e.taskId}</span>${final}</li>`;
+  });
+  $("#browser-journal").innerHTML = rows.length ? `<ul class="health-list">${rows.join("")}</ul>` : `<p class="quiet">Rien encore.</p>`;
+  $("#browser-rules").innerHTML = (data.rules ?? [])
+    .map((g) => `<details class="health-history"><summary>${esc(g.name)} · ${g.domains.length} · ${g.source === "defaut" ? "défaut Clark" : "CLARK_BROWSER_BLOCK"}</summary>${g.domains.length ? `<p class="health-error">${g.domains.map(esc).join(", ")}</p>` : `<p class="quiet">Aucun ajout.</p>`}</details>`)
+    .join("");
 }
 
 $("#remote-url").addEventListener("submit", (e) => {
@@ -82,6 +117,16 @@ $("#remote-mask").addEventListener("change", (e) => {
 });
 
 $("#view-browser").addEventListener("click", (e) => {
+  const leave = e.target.closest('[data-browser="leave"]');
+  if (leave) {
+    e.stopPropagation();
+    leave.disabled = true;
+    void post("/api/browser", { action: "leave" })
+      .then(() => loadBrowserJournal(true))
+      .catch((err) => remoteError(err.message))
+      .finally(() => (leave.disabled = false));
+    return;
+  }
   const key = e.target.closest("[data-remote-key]");
   if (key) return void remote({ action: "key", key: key.dataset.remoteKey });
   const btn = e.target.closest("[data-remote]");

@@ -306,6 +306,19 @@
             <img id="remote-shot" alt="La page dans le navigateur de Clark ; clique pour y cliquer" hidden />
             <p class="quiet" id="remote-empty">Ouvre un site pour commencer.</p>
           </div>
+          <section class="health-section browser-guard" aria-labelledby="h-browser-guard">
+            <h2 class="block-title" id="h-browser-guard">Sécurité du navigateur</h2>
+            <div class="browser-locked" id="browser-locked" hidden>
+              <p id="browser-locked-text"></p>
+              <button type="button" class="btn secondary" data-browser="leave">Quitter le site sensible</button>
+            </div>
+            <h3 class="block-title">Journal</h3>
+            <p class="quiet">Ce que l'agent a fait dans le navigateur : l'action, la page (sans paramètres) et l'accord. Jamais le contenu des pages ni ce qui est tapé ; de la vue distante, seulement « contrôle repris » et « rendu ».</p>
+            <div id="browser-journal"><p class="quiet">Chargement…</p></div>
+            <h3 class="block-title">Sites bloqués pour l'agent</h3>
+            <p class="quiet">L'agent n'ouvre jamais ces sites ni leurs sous-domaines (lien, redirection, nouvel onglet, retour arrière). Toi, tu peux y aller par la vue distante : rien n'en est montré à l'agent, et il n'a pas la main tant que la page reste ouverte. Pour en ajouter : <code>CLARK_BROWSER_BLOCK=</code> dans .env, puis redémarre Clark.</p>
+            <div id="browser-rules"></div>
+          </section>
         </div>
       </main>
 

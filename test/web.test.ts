@@ -251,7 +251,7 @@ function visionBrowser(hub: ReturnType<typeof createHub>, actions: string[]) {
   const { journal } = hub.deps;
   return new BrowserService({
     driver,
-    approve: (id, req) => hub.approveTask(id, req),
+    approve: (id, req) => hub.approveTaskOutcome(id, req),
     taskAlive: (id) => !wasStopped(id) && journal.get(id)?.status === "running",
     readOnly: (id) => journal.get(id)?.access !== "write",
     onChange: () => hub.touch(),
@@ -302,7 +302,7 @@ test("web vision : lecture seule, capture périmée et arrêt pendant l'accord",
     const approval = hub.approvals()[0];
     if (approval) await call(port, `/api/approvals/${approval.id}`, { method: "POST", headers: json(port), body: { ok: true } });
   }
-  assert.match((await clicking).body.text, /arrêtée pendant l'attente/);
+  assert.match((await clicking).body.text, /Charles a arrêté l'agent/);
   assert.deepEqual(actions, ["up"]);
   const state = (await call(port, "/api/state")).body.browser.vision;
   assert.equal(state.recent.at(-1).action, "click_at");
