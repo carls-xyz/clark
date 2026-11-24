@@ -135,6 +135,17 @@ Clark a son propre Chrome (ton Google Chrome, avec un profil à part dans `data/
 - Variables facultatives : `CLARK_BROWSER_EXECUTABLE` (autre Chrome), `CLARK_BROWSER_PROFILE`.
 - Démo : « Remplis le formulaire de contact sur le site de Studio Pixel » pilote le vrai Chrome (profil jetable) sur un site fictif local, jusqu'à ta validation.
 
+## Contrôle de l'ordinateur
+
+Dans ce premier lot, Clark voit la page ouverte dans son propre Chrome par capture et peut cliquer aux coordonnées de l'image. Le bureau du Mac et les autres apps restent hors de portée.
+
+- **Libre** : prendre une capture (`computer_screenshot`) et faire défiler la page (`computer_scroll`). Après un défilement, Clark reprend une capture avant d'agir.
+- **Ton accord** : chaque clic (`computer_click_at`) ou touche de navigation (`computer_key`) est lié à la dernière capture. Clark revérifie la capture et l'adresse de la page juste avant d'agir. Si la capture a été invalidée ou si l'adresse a changé, il doit reprendre une capture et te redemander ton accord.
+- **Pas de saisie libre** : seules certaines touches de navigation sont acceptées. Clark ne peut jamais taper de mot de passe, de numéro de carte ou de code dans ce mode.
+- Les actions s'exécutent une à la fois. Pendant que tu décides, le navigateur est réservé à la tâche qui attend ton accord.
+
+Le contrôle de tout le Mac (écran système et autres apps) reste un lot ultérieur, avec les autorisations macOS **Enregistrement d'écran** et **Accessibilité**.
+
 ## Gérer les conversations
 
 **Nouvelle conversation toute seule.** Après une longue pause (4 h par défaut, Réglages › Général › Conversations, 0 pour jamais), ton message suivant, depuis l'interface ou Telegram, ouvre une nouvelle conversation ; l'ancienne reste dans la liste avec sa session, tu peux la rouvrir. Une conversation que tu viens de rouvrir n'est pas concernée, ni une où une demande tourne encore.
@@ -620,7 +631,7 @@ La procédure pour le tester à la main est dans [recette/RECETTE.md](recette/RE
 
 - **MVP** (ici) : interface web locale et Telegram, moteurs Claude et Codex sur abonnement, mémoire confirmée, validations, tâches durables, équipe d'agents (plan composé par Clark, parallélisme, moteur par rôle), questions, points d'étape, automatisations, brief du matin, tour de veille avec propositions, Gmail et Google Agenda (envoi après accord).
 - **V1** : Drive (via un serveur MCP ajouté). Recherche vectorielle (sqlite-vec). Interface accessible depuis le téléphone (Tailscale) et installable (PWA). Passage sur VPS et sauvegarde nuit.
-- **V2** : améliorations de lui-même proposées en PR, comparaison multi-modèles, consolidation de la mémoire la nuit, computer use.
+- **V2** : améliorations de lui-même proposées en PR, comparaison multi-modèles, consolidation de la mémoire la nuit, contrôle de tout le Mac (premier lot limité au Chrome de Clark).
 - **Module Réseaux sociaux** (TikTok fait, voir plus haut ; Instagram, Reddit et les autres à venir). Préparer et adapter les contenus pour TikTok, Instagram, Reddit et d'autres plateformes. Clark produit les brouillons et les médias selon la plateforme, puis affiche un aperçu pour validation. La première version laisse la publication et la programmation dans les outils de chaque plateforme. Premier cas d'usage : une vidéo de démo produit pour TikTok, montée à partir de tes clips, avec sous-titres. Le même parcours s'étendra ensuite à Instagram, Reddit et aux autres plateformes, avec les formats et les règles de chacune.
 
 ## Tests
