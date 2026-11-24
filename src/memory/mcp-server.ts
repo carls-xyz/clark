@@ -6,7 +6,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { Store } from "./store.ts";
 import { boundTask } from "../engines/bindings.ts";
 import { READ_ONLY_REFUSAL } from "../policy/permissions.ts";
-import { memoryTools } from "./tools.ts";
+import { memoryTools, toolReply } from "./tools.ts";
 
 const db = process.env.CLARK_DB;
 if (!db) {
@@ -31,10 +31,11 @@ const writeRefusal = (): string | null => {
 const tools = memoryTools(store, { taskId: () => boundTask(store.db, binding)?.id, writeRefusal });
 const server = new McpServer({ name: "memory", version: "0.2.0" });
 
-type Reply = { content: { type: "text"; text: string }[]; isError?: boolean };
-const reply = async (run: () => string | Promise<string>): Promise<Reply> => {
+type ToolResult = Parameters<typeof toolReply>[0];
+type Reply = ReturnType<typeof toolReply> & { isError?: boolean };
+const reply = async (run: () => ToolResult | Promise<ToolResult>): Promise<Reply> => {
   try {
-    return { content: [{ type: "text", text: await run() }] };
+    return toolReply(await run());
   } catch (err) {
     return { isError: true, content: [{ type: "text", text: err instanceof Error ? err.message : String(err) }] };
   }
@@ -63,8 +64,8 @@ server.registerTool("recall", { description: recall.description, inputSchema: re
 server.registerTool("propose_correction", { description: propose_correction.description, inputSchema: propose_correction.shape }, async (a) =>
   reply(() => propose_correction.run(a)),
 );
-for (const name of ["note_idea", "idea_report", "mail_search", "mail_read", "calendar_events", "send_mail", "run_command", "vault_search", "vault_read", "vault_write", "report_goal", "use_skill", "messages_recent", "messages_read", "send_imessage", "browser_open", "browser_read", "browser_scroll", "browser_back", "browser_click", "browser_type", "browser_select"] as const) {
-  const t = tools[name] as { description: string; shape: any; run: (a: any) => string | Promise<string> };
+for (const name of ["note_idea", "idea_report", "mail_search", "mail_read", "calendar_events", "send_mail", "run_command", "vault_search", "vault_read", "vault_write", "report_goal", "use_skill", "messages_recent", "messages_read", "send_imessage", "browser_open", "browser_read", "browser_scroll", "browser_back", "browser_click", "browser_type", "browser_select", "computer_screenshot", "computer_click_at", "computer_scroll", "computer_key"] as const) {
+  const t = tools[name] as { description: string; shape: any; run: (a: any) => ToolResult | Promise<ToolResult> };
   server.registerTool(name, { description: t.description, inputSchema: t.shape }, async (a: any) => reply(() => t.run(a)));
 }
 server.registerTool("forget", { description: forget.description, inputSchema: forget.shape }, async (a) => reply(() => forget.run(a)));

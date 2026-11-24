@@ -1,3 +1,17 @@
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import type { BrowserDriver } from "../src/browser/driver.ts";
+import { BrowserService, setBrowser } from "../src/browser/service.ts";
+import { internalToken } from "../src/core/internal.ts";
+import { onStop, wasStopped } from "../src/core/stops.ts";
+import { Bindings } from "../src/engines/bindings.ts";
+import { memoryServer } from "../src/memory/tools.ts";
+import { effectOf, READ_ONLY_REFUSAL } from "../src/policy/permissions.ts";
 import assert from "node:assert/strict";
 import { request } from "node:http";
 import { createServer, type AddressInfo } from "node:net";
@@ -43,14 +57,15 @@ const freePort = () =>
     });
   });
 
-async function setup(execute = askingAgent) {
+async function setup(execute = askingAgent, opts: { db?: string; browser?: (hub: ReturnType<typeof createHub>) => BrowserService } = {}) {
   const port = await freePort();
-  const store = new Store(":memory:");
+  const store = new Store(opts.db ?? ":memory:");
   const journal = new TaskJournal(store.db);
   const conversation = new Conversation(store.db);
   const hub = createHub({ config: config(port), store, journal, conversation }, { execute });
-  const web = await startWeb(hub, { port });
-  return { port, hub, journal, conversation, web };
+  const browser = opts.browser?.(hub);
+  const web = await startWeb(hub, { port, browser });
+  return { port, hub, journal, conversation, web, store, browser };
 }
 
 function call(port: number, path: string, opts: { method?: string; headers?: Record<string, string>; body?: unknown } = {}) {
@@ -207,5 +222,205 @@ test("web : écrire le journal du jour, refusé sans la bonne origine, sans coff
     assert.equal(noEngine.body.error, "Pas de moteur Claude pour écrire le journal");
   } finally {
     await web2.close();
+  }
+});
+
+// JPEG d'un pixel, renvoyé tel quel par le faux navigateur.
+const jpeg = Buffer.from("/9j/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9sAQwACAgICAgIDAgIDBQMDAwUGBQUFBQYIBgYGBgYICggICAgICAoKCgoKCgoKDAwMDAwMDg4ODg4PDw8PDw8PDw8P/9sAQwECAgIEBAQHBAQHEAsJCxAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ/90ABAAB/9oADAMBAAIRAxEAPwD876KKK9Q/sg//2Q==", "base64");
+
+function visionBrowser(hub: ReturnType<typeof createHub>, actions: string[]) {
+  let running = false;
+  const driver: BrowserDriver = {
+    available: () => true,
+    running: () => running,
+    visible: () => false,
+    ensure: async () => { running = true; },
+    open: async () => {},
+    view: async () => ({ url: "https://example.org/", title: "Exemple", text: "", elements: [] }),
+    click: async () => {},
+    fill: async () => {},
+    press: async () => {},
+    select: async () => {},
+    scroll: async (direction) => { actions.push(direction); },
+    back: async () => {},
+    screenshot: async () => jpeg,
+    close: async () => { running = false; },
+    clickAt: async (x, y) => { actions.push(`clic ${x}, ${y}`); },
+    pressKey: async (key) => { actions.push(key); },
+  };
+  const { journal } = hub.deps;
+  return new BrowserService({
+    driver,
+    approve: (id, req) => hub.approveTask(id, req),
+    taskAlive: (id) => !wasStopped(id) && journal.get(id)?.status === "running",
+    readOnly: (id) => journal.get(id)?.access !== "write",
+    onChange: () => hub.touch(),
+  });
+}
+
+async function setupVision(db?: string) {
+  const actions: string[] = [];
+  const env = await setup(askingAgent, { db, browser: (hub) => visionBrowser(hub, actions) });
+  const taskId = env.journal.create(OWNER_CHAT, "chat", "Regarde la page");
+  env.journal.setStatus(taskId, "running");
+  env.journal.setAccess(taskId, "write");
+  const headers = { "Content-Type": "application/json", "X-Clark-Internal": internalToken() };
+  const vision = (action: string, args = {}) => call(env.port, "/internal/browser", {
+    method: "POST", headers, body: { taskId, action, args, vision: true },
+  });
+  return { ...env, taskId, vision, actions };
+}
+
+test("web vision : lecture seule, capture périmée et arrêt pendant l'accord", async (t) => {
+  const { port, web, browser, hub, journal, taskId, vision, actions } = await setupVision();
+  t.after(() => web.close());
+  t.after(() => browser?.close());
+  journal.setAccess(taskId, "read");
+  const capture = await vision("screenshot");
+  assert.equal(capture.status, 200);
+  assert.equal(capture.body.image, jpeg.toString("base64"));
+  const shotId = (await call(port, "/api/state")).body.browser.vision.shotId;
+  const position = { x: 10, y: 20, shotId };
+  assert.equal((await vision("click_at", position)).body.text, READ_ONLY_REFUSAL);
+  assert.equal((await vision("key", { key: "Enter", shotId })).body.text, READ_ONLY_REFUSAL);
+  assert.match((await vision("scroll", { direction: "up" })).body.text, /défilée/);
+
+  journal.setAccess(taskId, "write");
+  await vision("screenshot");
+  assert.match((await vision("click_at", position)).body.text, /n'est plus la dernière/);
+  assert.equal(hub.approvals().length, 0);
+
+  const current = (await call(port, "/api/state")).body.browser.vision.shotId;
+  // Le moteur interrompu peut mettre un instant à écrire son statut final.
+  t.after(onStop(taskId, () => {}));
+  const clicking = vision("click_at", { ...position, shotId: current });
+  try {
+    await until(() => hub.approvals().length === 1);
+    const stopped = await call(port, `/api/tasks/${taskId}/stop`, { method: "POST", headers: json(port), body: {} });
+    assert.equal(stopped.status, 200);
+  } finally {
+    const approval = hub.approvals()[0];
+    if (approval) await call(port, `/api/approvals/${approval.id}`, { method: "POST", headers: json(port), body: { ok: true } });
+  }
+  assert.match((await clicking).body.text, /arrêtée pendant l'attente/);
+  assert.deepEqual(actions, ["up"]);
+  const state = (await call(port, "/api/state")).body.browser.vision;
+  assert.equal(state.recent.at(-1).action, "click_at");
+  assert.equal(state.recent.at(-1).granted, false);
+});
+
+test("web vision : JPEG authentifié et rafraîchissement SSE", async (t) => {
+  const { port, web, browser, vision } = await setupVision();
+  t.after(() => web.close());
+  t.after(() => browser?.close());
+  const base = `http://127.0.0.1:${port}`;
+  const url = `${base}/api/browser/vision/screenshot`;
+  const events = await fetch(`${base}/api/events`, { signal: AbortSignal.timeout(5000) });
+  const reader = events.body!.getReader();
+  try {
+    const decoder = new TextDecoder();
+    let pending = "";
+    const nextState = async () => {
+      while (!pending.includes("\n\n")) {
+        const update = await reader.read();
+        assert.ok(update.value);
+        pending += decoder.decode(update.value, { stream: true });
+      }
+      const end = pending.indexOf("\n\n");
+      const event = pending.slice(0, end);
+      pending = pending.slice(end + 2);
+      const data = event.split("\n").find((line) => line.startsWith("data: "));
+      assert.ok(data);
+      return JSON.parse(data.slice(6));
+    };
+    assert.equal((await nextState()).browser.vision.shotId, null);
+    await vision("screenshot");
+    const state = await nextState();
+    assert.ok(state.browser.vision.shotAt);
+    assert.equal(state.browser.vision.recent.at(-1).action, "screenshot");
+  } finally {
+    await reader.cancel();
+  }
+  assert.equal((await call(port, "/api/browser/screenshot")).status, 403);
+  assert.equal((await call(port, "/api/browser/vision/screenshot")).status, 403);
+  const headers = { "X-Clark-Internal": internalToken() };
+  assert.equal((await call(port, "/api/browser/screenshot", { headers: { ...headers, Origin: "https://example.org" } })).status, 403);
+  assert.equal((await call(port, "/api/browser/screenshot", { headers: { ...headers, Host: "example.org" } })).status, 421);
+  const internal = await fetch(url, { headers });
+  assert.equal(internal.status, 200);
+  assert.equal(internal.headers.get("content-type"), "image/jpeg");
+  assert.equal(internal.headers.get("cache-control"), "no-store");
+  assert.deepEqual(Buffer.from(await internal.arrayBuffer()), jpeg);
+
+  const page = await fetch(base);
+  const cookie = page.headers.get("set-cookie")!.split(";")[0];
+  await page.arrayBuffer();
+  const ui = await fetch(`${base}/api/browser/screenshot`, { headers: { Cookie: cookie } });
+  assert.equal(ui.status, 200);
+  assert.deepEqual(Buffer.from(await ui.arrayBuffer()), jpeg);
+});
+
+async function checkImage(client: Client) {
+  const result = await client.callTool({ name: "computer_screenshot", arguments: {} });
+  assert.ok(Array.isArray(result.content));
+  const [text, image] = result.content;
+  assert.equal(text.type, "text");
+  assert.match(text.text, /Capture v\d+/);
+  assert.equal(image.type, "image");
+  assert.equal(image.mimeType, "image/jpeg");
+  assert.deepEqual(Buffer.from(image.data, "base64"), jpeg);
+}
+
+test("vision Claude : le serveur MCP en processus reçoit la vraie image", async () => {
+  assert.equal(effectOf("mcp__memory__computer_screenshot"), "read");
+  assert.equal(effectOf("mcp__memory__computer_scroll"), "read");
+  assert.equal(effectOf("mcp__memory__computer_click_at"), "write");
+  assert.equal(effectOf("mcp__memory__computer_key"), "write");
+  const store = new Store(":memory:");
+  const journal = new TaskJournal(store.db);
+  const conversation = new Conversation(store.db);
+  const hub = createHub({ config: config(0), store, journal, conversation }, { execute: askingAgent });
+  const browser = visionBrowser(hub, []);
+  const taskId = journal.create(OWNER_CHAT, "chat", "Regarde la page");
+  setBrowser(browser);
+  const claude = new Client({ name: "test-claude", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const sdk = memoryServer(store, { taskId, readOnly: true }).instance;
+  try {
+    await sdk.connect(serverTransport);
+    await claude.connect(clientTransport);
+    await checkImage(claude);
+  } finally {
+    setBrowser(null);
+    await claude.close();
+    await sdk.close();
+    await browser.close();
+    store.db.close();
+  }
+});
+
+test("web vision : le serveur MCP de Codex reçoit la vraie image", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "clark-web-vision-"));
+  const db = join(dir, "clark.sqlite");
+  const { port, web, store, browser, taskId } = await setupVision(db);
+  t.after(async () => {
+    await browser?.close();
+    await web.close();
+    store.db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const bindings = new Bindings(store.db);
+  const binding = bindings.forThread(null);
+  bindings.setTask(binding, taskId);
+  const codex = new Client({ name: "test-codex", version: "1.0.0" });
+  try {
+    await codex.connect(new StdioClientTransport({
+      command: process.execPath,
+      args: [fileURLToPath(new URL("../src/memory/mcp-server.ts", import.meta.url))],
+      env: { CLARK_DB: db, CLARK_BINDING: binding, CLARK_INTERNAL_URL: `http://127.0.0.1:${port}`, CLARK_INTERNAL_TOKEN: internalToken() },
+    }));
+    await checkImage(codex);
+  } finally {
+    await codex.close();
   }
 });

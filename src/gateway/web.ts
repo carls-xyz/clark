@@ -17,6 +17,7 @@ import { NEW_CONVERSATION_NOTE } from "../core/conversation.ts";
 import { CONTACTS, isConversationAgent } from "../core/contacts.ts";
 import { canActAlone, decisionsOf, isAutonomous, maxPerDay, parisDayStart, undoDecision } from "../core/autonomy.ts";
 import { createReadStream, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, readdirSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { join, resolve } from "node:path";
@@ -63,7 +64,7 @@ import { deleteCommand, listCommands, listSkills, saveCommand, validateCommand, 
 import { DEFAULT_MAX_TURNS, MAX_TURNS_LIMIT } from "../core/goals.ts";
 import { PERSONALITY_LIMIT, readPersonality, savePersonality } from "../core/personality.ts";
 import { frenchVoices, resolveVoice, speak, transcribe, voiceStatus } from "../voice/voice.ts";
-import { BROWSER_ACTIONS, BROWSER_WRITES, type BrowserAction, type BrowserService } from "../browser/service.ts";
+import { BROWSER_ACTIONS, BROWSER_WRITES, VISION_ACTIONS, VISION_WRITES, type BrowserAction, type BrowserService, type VisionAction } from "../browser/service.ts";
 import { isInternal } from "../core/internal.ts";
 import { READ_ONLY_REFUSAL } from "../policy/permissions.ts";
 import type { MessagesService } from "../imessage/service.ts";
@@ -493,6 +494,7 @@ export function snapshot(hub: Hub, opts: { remote?: unknown; health?: () => Heal
     // Décisions demandées par un plan dev.
     gates: store.dev.openGates().map((x) => ({ id: x.id, group: x.group_id, groupTitle: store.dev.group(x.group_id)?.title ?? "", question: x.question, options: x.options, tasks: x.task_ids })),
     // Le navigateur de Clark : où il en est, et sa dernière capture (servie à part).
+    // L'état du navigateur inclut le shotId et le journal vision, sans les octets de la capture.
     browser: opts.browser?.state() ?? null,
     // iMessage : accès à la base de Messages, et canal (ta conversation avec toi-même).
     imessage: opts.messages?.status() ?? null,
@@ -807,6 +809,8 @@ export function startWeb(hub: Hub, opts: { health?: (fresh?: boolean) => HealthR
   // Adresses acceptées : localhost, plus celles de CLARK_WEB_HOSTS (le téléphone, par Tailscale).
   const access = accessRules(opts.port);
   const origins = access.origins;
+  // Une session de l'interface reste soumise aux contrôles d'accès locaux et Tailscale.
+  const browserSession = `clark_browser=${randomBytes(24).toString("hex")}`;
   // Tailscale lu une fois (puis à la demande) : pour la carte « Accès depuis le téléphone ».
   let tailscale = tailscaleInfo();
   const streams = new Set<ServerResponse>();
@@ -849,7 +853,12 @@ export function startWeb(hub: Hub, opts: { health?: (fresh?: boolean) => HealthR
       }
       const file = STATIC[path];
       if (file) {
-        res.writeHead(200, { ...SECURITY_HEADERS, "Content-Type": file[1] });
+        const headers = { ...SECURITY_HEADERS, "Content-Type": file[1] };
+        if (path === "/") {
+          const secure = req.headers["x-forwarded-proto"] === "https" ? "; Secure" : "";
+          res.setHeader("Set-Cookie", `${browserSession}; Path=/api/browser; HttpOnly; SameSite=Strict${secure}`);
+        }
+        res.writeHead(200, headers);
         res.end(readFileSync(resolve(PUBLIC, file[0])));
         return;
       }
@@ -995,10 +1004,13 @@ export function startWeb(hub: Hub, opts: { health?: (fresh?: boolean) => HealthR
         res.end(JSON.stringify(data, null, 2));
         return;
       }
-      if (path === "/api/browser/screenshot") {
+      if (path === "/api/browser/screenshot" || path === "/api/browser/vision/screenshot") {
+        if (req.headers.origin !== undefined && !origins.has(req.headers.origin)) throw new HttpError(403, "Origine non autorisée");
+        const session = req.headers.cookie?.split(/;\s*/).includes(browserSession);
+        if (!session && !isInternal(req.headers["x-clark-internal"])) throw new HttpError(403, "Refusé");
         const shot = opts.browser?.screenshot();
         if (!shot) throw new HttpError(404, "Pas de capture");
-        res.writeHead(200, { ...SECURITY_HEADERS, "Content-Type": "image/jpeg" });
+        res.writeHead(200, { ...SECURITY_HEADERS, "Content-Type": "image/jpeg", "Cross-Origin-Resource-Policy": "same-origin" });
         res.end(shot);
         return;
       }
@@ -1052,13 +1064,23 @@ export function startWeb(hub: Hub, opts: { health?: (fresh?: boolean) => HealthR
       if (!isInternal(req.headers["x-clark-internal"])) throw new HttpError(403, "Refusé");
       const body = await readJson(req);
       const taskId = Number(body.taskId);
-      const action = body.action as BrowserAction;
-      if (!Number.isInteger(taskId) || !journal.get(taskId)) throw new HttpError(400, "Tâche inconnue");
-      if (!(BROWSER_ACTIONS as readonly string[]).includes(action)) throw new HttpError(400, "Action inconnue");
-      if (BROWSER_WRITES.has(action) && journal.get(taskId)?.access === "read") return json(res, 200, { text: READ_ONLY_REFUSAL });
+      const task = Number.isInteger(taskId) ? journal.get(taskId) : undefined;
+      if (!task) throw new HttpError(400, "Tâche inconnue");
+      const action = body.action as BrowserAction | VisionAction;
+      // « scroll » existe dans les deux modes. Les appels browser_* gardent leur comportement.
+      const vision = body.vision === true || action === "screenshot" || action === "click_at" || action === "key";
+      const actions: readonly string[] = vision ? VISION_ACTIONS : BROWSER_ACTIONS;
+      if (!actions.includes(action)) throw new HttpError(400, "Action inconnue");
+      const writes = vision ? VISION_WRITES.has(action as VisionAction) : BROWSER_WRITES.has(action as BrowserAction);
+      if (writes && task.access === "read") return json(res, 200, { text: READ_ONLY_REFUSAL });
       if (!opts.browser) return json(res, 200, { text: "Le navigateur n'est pas disponible ici." });
       const args = body.args && typeof body.args === "object" ? (body.args as Record<string, unknown>) : {};
-      return json(res, 200, { text: await opts.browser.act(taskId, action, args) });
+      if (vision) {
+        // Le service signale déjà les changements à hub.touch(), qui pousse l'état par SSE.
+        const result = await opts.browser.vision(taskId, action as VisionAction, args);
+        return json(res, 200, { text: result.text, image: result.shot?.image.toString("base64") });
+      }
+      return json(res, 200, { text: await opts.browser.act(taskId, action as BrowserAction, args) });
     }
 
     // Pareil pour iMessage : lire tes conversations, envoyer avec ton accord.

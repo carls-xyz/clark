@@ -54,6 +54,8 @@ const READ_ONLY = new Set([
   "mcp__memory__browser_read",
   "mcp__memory__browser_scroll",
   "mcp__memory__browser_back",
+  "mcp__memory__computer_screenshot",
+  "mcp__memory__computer_scroll",
   // Lire ses iMessages ne change rien ; envoyer (send_imessage) est une écriture.
   "mcp__memory__messages_recent",
   "mcp__memory__messages_read",
