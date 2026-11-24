@@ -13,3 +13,4 @@ Le code qui s'exécute au chargement (écouteurs, démarrage) doit venir après 
 - `22-activite-notes.js` : Activité › « Ce qui s'est passé » (les notes sorties de ta conversation : dev, PR, mémoire, propositions…).
 - `23-sante.js` : la page Santé (file, moteurs et quotas, sauvegarde, version, place, échecs et erreurs du journal).
 - `24-vue-distante.js` : la vue distante du navigateur (te connecter à un site sur un serveur sans écran, ou depuis le téléphone).
+- `25-ordinateur.js` : le mode vision du navigateur, en lecture seule (la dernière capture vue par l'agent, l'état actif/disponible, le journal des actions).
