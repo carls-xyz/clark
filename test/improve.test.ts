@@ -402,3 +402,20 @@ test("recordSignatures ignore les comptes nuls", () => {
   assert.equal(store.dailyCounts("error", "e1", 7, NOW).total, 3);
   assert.equal(store.dailyCounts("silent", "s1", 7, NOW).total, 0);
 });
+
+test("remplacement avec le même inode (cas courant sous Linux) : le nouveau journal est relu depuis le début", () => {
+  const dir = mkdtempSync(join(tmpdir(), "clark-improve-"));
+  after(() => rmSync(dir, { recursive: true, force: true }));
+  const logFile = join(dir, "clark.log");
+  writeFileSync(logFile, "[clark] démarré — moteur claude\n" + "[clark] erreur un\n".repeat(3));
+  const db = new DatabaseSync(":memory:");
+  const store = new ImproveStore(db);
+  const sources = improveSources({ db, logFile, alerts: () => ({ seen: {}, active: {}, gone: {}, history: [] }), stalled: () => [] });
+  const now = new Date("2026-11-24T10:00:00Z");
+  recordSignatures(store, sources, now);
+  // Réécrit sur place : même fichier, même inode, contenu nouveau et plus gros.
+  writeFileSync(logFile, "[clark] démarré — moteur codex\n" + "[clark] erreur trois en place\n".repeat(4));
+  recordSignatures(store, sources, now);
+  const trois = store.histories("2026-11-18").find((h) => h.signature === sigOf("erreur trois en place"));
+  assert.equal(trois?.days.find((d) => d.day === "2026-11-24")?.count, 4);
+});
