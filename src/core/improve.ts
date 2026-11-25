@@ -3,10 +3,12 @@ import type { DatabaseSync } from "node:sqlite";
 import { countErrors, errorSignature } from "./health.ts";
 import { redactSecrets } from "./redact.ts";
 import type { AlertState } from "./alerts.ts";
+import { OWNER_CHAT } from "./conversation.ts";
 import type { Hub } from "./hub.ts";
+import type { startDevGroup } from "../dev/groups.ts";
 
 /**
- * Auto-amélioration encadrée de Clark, phase 1/3 : DÉTECTER.
+ * Auto-amélioration encadrée de Clark : détecter, puis proposer.
  *
  * On relève en continu quatre sources de friction — erreurs répétées du journal, tâches en échec
  * par type, alertes de santé répétées, agents silencieux — et on range, jour par jour (jour réel à
@@ -14,8 +16,7 @@ import type { Hub } from "./hub.ts";
  * Quand une même signature revient assez souvent et sur plusieurs jours (règle de RÉCURRENCE), on
  * ouvre une fiche « detected ».
  *
- * Ici on ne fait QUE détecter : on ne propose rien et on ne déploie rien (sous-tâches 2 et 3). Rien
- * de réel n'est stocké sans passer par redactSecrets : jamais de contenu de page, de .env, de clé
+ * Rien de réel n'est stocké sans passer par redactSecrets : jamais de contenu de page, de .env, de clé
  * ni de jeton — seulement une ligne d'erreur courte et expurgée, et des titres tirés de libellés
  * maîtrisés.
  */
@@ -27,14 +28,30 @@ export type ImproveSourceKind = "error" | "task" | "alert" | "silent";
 export const IMPROVE_MIN_OCCURRENCES = 5;
 export const IMPROVE_MIN_DAYS = 2;
 export const IMPROVE_WINDOW_DAYS = 7;
-/** Une fiche mise en sommeil redevient proposable après 3 jours (helper isSnoozed ; utilisé en phase 2). */
+/** Une fiche mise en sommeil redevient proposable après 3 jours. */
 export const IMPROVE_SNOOZE_DAYS = 3;
+/**
+ * Un raté (fiche 'done', `outcome = 'rate'`) ne se repropose pas tout de suite : la MÊME correction
+ * vient d'échouer, la reproposer aussitôt tournerait en rond. On attend 14 jours (comme un 'dismissed'
+ * assoupli) ; passé ce délai, si la friction persiste, la détection peut retenter — le problème est
+ * peut-être devenu différent entre-temps.
+ */
+export const IMPROVE_RATE_GUARD_DAYS = 14;
+
+export type FicheStatus = "detected" | "proposed" | "snoozed" | "dismissed" | "launched" | "merged" | "deploying" | "watching" | "reverting" | "done";
+export type ImprovementAction = "launch" | "snooze" | "dismiss" | "deploy";
 
 /**
- * États d'une fiche. Ici on ne produit que 'detected' (et on respecte 'dismissed'/'snoozed'/'done'
- * posés plus tard). Les autres servent aux sous-tâches suivantes.
+ * Phase FINE du cycle de déploiement, persistée AVANT chaque commande système (en plus du `status`, plus
+ * grossier). Elle rend la reprise après coupure précise : on sait exactement où la séquence s'est arrêtée.
+ *   deploy_pending → pulled → restarting → watching          (déploiement réussi)
+ *   watching → rollback_pending → rollback_done              (régression puis retour arrière)
+ *   … → failed                                               (échec/sans effet, revenu à 'merged')
  */
-export type FicheStatus = "detected" | "proposed" | "snoozed" | "dismissed" | "launched" | "merged" | "deploying" | "watching" | "done";
+export type DeployPhase = "deploy_pending" | "pulled" | "restarting" | "watching" | "rollback_pending" | "rollback_done" | "failed";
+/** Durée par défaut de la fenêtre d'observation serrée (minutes), si aucune échéance figée n'est fournie. */
+const WATCH_MINUTES_FALLBACK = 120;
+export const IMPROVEMENT_TITLE_PREFIX = "Auto-amélioration :";
 
 /** Mesure « avant » : les occurrences par jour sur la fenêtre, et leur total. */
 export type Before = { days: { day: string; count: number }[]; total: number };
@@ -63,6 +80,24 @@ export type Improvement = {
   group_id: number | null;
   pr_url: string | null;
   deploy_commit: string | null;
+  /** Instant du clic « Déployer » (UTC SQLite) : base du bilan J+3 (l'observation démarre à watch_at). */
+  deploy_at: string | null;
+  /** Commit ATTENDU après le déploiement (la version qu'on vise, figée avant le redémarrage). */
+  deploy_target: string | null;
+  /** État « avant » figé au déploiement (JSON RegressionBefore) : sert à comparer pendant l'observation. */
+  watch_baseline: string | null;
+  /** Instant où l'observation a RÉELLEMENT commencé (confirmation du déploiement sur la nouvelle version). */
+  watch_at: string | null;
+  /** Instant où la fenêtre serrée a été close proprement (plus de retour arrière automatique après). */
+  watch_closed_at: string | null;
+  /** Échéance FIGÉE de la fenêtre d'observation (UTC SQLite), posée au démarrage confirmé : ne bouge plus. */
+  watch_deadline: string | null;
+  /** Phase fine du cycle de déploiement (cf. DeployPhase), écrite avant chaque commande système. */
+  deploy_phase: string | null;
+  /** Commit de fusion de la PR (oid) : on vérifie au déploiement qu'il est ancêtre de la version visée. */
+  merge_commit: string | null;
+  /** Signes de régression figés (JSON) avant le retour arrière : rendent le retour reprenable après coupure. */
+  revert_signs: string | null;
   outcome: string | null;
   outcome_note: string | null;
   bilan_at: string | null;
@@ -214,6 +249,14 @@ export function isSnoozed(fiche: Pick<Improvement, "status" | "decided_at">, now
   return now.getTime() - decided.getTime() < IMPROVE_SNOOZE_DAYS * 86_400_000;
 }
 
+/** Un raté est-il encore sous garde (le délai des 14 jours depuis le bilan n'est pas écoulé) ? */
+export function isRateGuarded(fiche: Pick<Improvement, "status" | "outcome" | "bilan_at">, now: Date): boolean {
+  if (fiche.status !== "done" || fiche.outcome !== "rate") return false;
+  const at = parseSqlUtc(fiche.bilan_at);
+  if (!at) return true; // raté sans date de bilan : on ne retente pas
+  return now.getTime() - at.getTime() < IMPROVE_RATE_GUARD_DAYS * 86_400_000;
+}
+
 /** Peut-on (re)poser une fiche 'detected' pour cette signature, vu la fiche déjà en base ? */
 function canRefresh(fiche: Improvement, now: Date): boolean {
   switch (fiche.status) {
@@ -221,8 +264,11 @@ function canRefresh(fiche: Improvement, now: Date): boolean {
       return true; // on rafraîchit sa mesure « avant »
     case "snoozed":
       return !isSnoozed(fiche, now); // seulement si le sommeil est écoulé
+    case "done":
+      // Un raté se retente une fois la garde écoulée ; une réussite (atteint/partiel) ne se repropose pas.
+      return fiche.outcome === "rate" && !isRateGuarded(fiche, now);
     default:
-      // 'dismissed' (écartée), 'done' (close en cette phase) et tous les états en cours : on n'y touche pas.
+      // 'dismissed' (écartée) et tous les états en cours : on n'y touche pas.
       return false;
   }
 }
@@ -238,6 +284,7 @@ export class ImproveStore {
   constructor(db: DatabaseSync) {
     this.db = db;
     db.exec(`
+      CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT (datetime('now')));
       CREATE TABLE IF NOT EXISTS improve_signatures (
         day       TEXT NOT NULL,
         source    TEXT NOT NULL DEFAULT 'error',
@@ -260,12 +307,26 @@ export class ImproveStore {
         group_id      INTEGER,
         pr_url        TEXT,
         deploy_commit TEXT,
+        deploy_at     TEXT,
+        deploy_target TEXT,
+        watch_baseline TEXT,
+        watch_at      TEXT,
+        watch_closed_at TEXT,
+        watch_deadline TEXT,
+        deploy_phase  TEXT,
+        merge_commit  TEXT,
+        revert_signs  TEXT,
         outcome       TEXT,
         outcome_note  TEXT,
         bilan_at      TEXT,
         UNIQUE (signature, source)
       );
     `);
+    // Colonnes ajoutées après coup (bases déjà créées par une version précédente des fiches).
+    for (const [col, def] of [["deploy_at", "TEXT"], ["deploy_target", "TEXT"], ["watch_baseline", "TEXT"], ["watch_at", "TEXT"], ["watch_closed_at", "TEXT"], ["watch_deadline", "TEXT"], ["deploy_phase", "TEXT"], ["merge_commit", "TEXT"], ["revert_signs", "TEXT"]] as const) {
+      const cols = db.prepare("PRAGMA table_info(improvements)").all() as { name: string }[];
+      if (!cols.some((c) => c.name === col)) db.exec(`ALTER TABLE improvements ADD COLUMN ${col} ${def}`);
+    }
   }
 
   /**
@@ -282,6 +343,18 @@ export class ImproveStore {
            count   = MAX(improve_signatures.count, excluded.count)`,
       )
       .run(day, source, signature, count, clean(example));
+  }
+
+  /**
+   * Occurrences d'une signature à partir d'un jour donné (inclus), SANS fenêtre glissante : on somme les
+   * jours >= fromDay. Sert à mesurer les récidives DEPUIS le déploiement, à l'abri de la sortie d'anciennes
+   * occurrences de la fenêtre de 7 jours (qui fausserait une soustraction de deux totaux glissants).
+   */
+  countFromDay(source: ImproveSourceKind, signature: string, fromDay: string): number {
+    const row = this.db
+      .prepare("SELECT COALESCE(SUM(count), 0) AS n FROM improve_signatures WHERE source = ? AND signature = ? AND day >= ?")
+      .get(source, signature, fromDay) as { n: number };
+    return row.n;
   }
 
   /** Les occurrences par jour d'une signature (source comprise) sur la fenêtre, et leur total. */
@@ -324,6 +397,42 @@ export class ImproveStore {
     return this.db.prepare("SELECT * FROM improvements ORDER BY updated_at DESC").all() as Improvement[];
   }
 
+  get(id: number): Improvement | undefined {
+    return this.db.prepare("SELECT * FROM improvements WHERE id = ?").get(id) as Improvement | undefined;
+  }
+
+  /** Réserve une proposition et son quota journalier dans la même transaction. */
+  propose(now: Date): Improvement | undefined {
+    const day = parisDay(now);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const last = this.db.prepare("SELECT value FROM app_settings WHERE key = 'improve_proposed_day'").get() as { value: string } | undefined;
+      let proposed: Improvement | undefined;
+      if (last?.value !== day && !this.fiches(["proposed", "launched", "merged", "deploying", "watching", "reverting"]).length) {
+        const candidate = this.fiches(["detected", "snoozed"])
+          .filter((f) => !isSnoozed(f, now))
+          .sort((a, b) => improvementBefore(b).total - improvementBefore(a).total || a.id - b.id)[0];
+        if (candidate) {
+          this.setStatus(candidate.source, candidate.signature, "proposed", now);
+          this.db.prepare(`INSERT INTO app_settings (key, value) VALUES ('improve_proposed_day', ?)
+            ON CONFLICT DO UPDATE SET value = excluded.value, updated_at = datetime('now')`).run(day);
+          proposed = this.get(candidate.id);
+        }
+      }
+      this.db.exec("COMMIT");
+      return proposed;
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
+  }
+
+  decide(id: number, status: "launched" | "snoozed" | "dismissed", now: Date, groupId: number | null = null): boolean {
+    const at = toSqlUtc(now);
+    return this.db.prepare("UPDATE improvements SET status = ?, decided_at = ?, updated_at = ?, group_id = ? WHERE id = ? AND status = 'proposed'")
+      .run(status, at, at, groupId, id).changes === 1;
+  }
+
   /** Crée ou rafraîchit une fiche. Titre et exemples sont expurgés avant d'être stockés (défense). */
   upsertFiche(f: { signature: string; source: ImproveSourceKind; title: string; examples: string[]; before: Before; status?: FicheStatus }) {
     const status = f.status ?? "detected";
@@ -334,9 +443,114 @@ export class ImproveStore {
         `INSERT INTO improvements (signature, source, title, examples, "before", status) VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(signature, source) DO UPDATE SET
            title = excluded.title, examples = excluded.examples,
-           "before" = excluded."before", status = excluded.status, updated_at = datetime('now')`,
+           "before" = excluded."before", status = excluded.status, updated_at = datetime('now'),
+           -- Nouveau cycle de détection : on efface l'ancien parcours (lancement, PR, déploiement, bilan).
+           decided_at = NULL, group_id = NULL, pr_url = NULL, deploy_commit = NULL, deploy_at = NULL,
+           deploy_target = NULL, watch_baseline = NULL, watch_at = NULL, watch_closed_at = NULL,
+           watch_deadline = NULL, deploy_phase = NULL, merge_commit = NULL,
+           revert_signs = NULL, outcome = NULL, outcome_note = NULL, bilan_at = NULL`,
       )
       .run(f.signature, f.source, clean(f.title), examples, before, status);
+  }
+
+  /** PR du groupe fusionnée : la fiche 'launched' passe 'merged', garde l'URL de la PR et son commit de fusion. */
+  setMerged(id: number, prUrl: string | null, mergeCommit: string | null = null, now = new Date()): boolean {
+    return this.db
+      .prepare("UPDATE improvements SET status = 'merged', pr_url = ?, merge_commit = ?, updated_at = ? WHERE id = ? AND status = 'launched'")
+      .run(prUrl, mergeCommit, toSqlUtc(now), id).changes === 1;
+  }
+
+  /**
+   * Renseigne le commit de fusion d'une fiche 'merged' qui ne l'avait pas encore (métadonnée de PR arrivée
+   * après coup). Ne touche qu'une fiche 'merged' au champ vide : on ne réécrit jamais un commit déjà connu.
+   */
+  setMergeCommit(id: number, mergeCommit: string, now = new Date()): boolean {
+    return this.db
+      .prepare("UPDATE improvements SET merge_commit = ?, updated_at = ? WHERE id = ? AND status = 'merged' AND merge_commit IS NULL")
+      .run(mergeCommit, toSqlUtc(now), id).changes === 1;
+  }
+
+  /** Écrit la phase fine du cycle de déploiement (traçabilité + reprise), sans toucher au `status`. */
+  setDeployPhase(id: number, phase: DeployPhase, now = new Date()): void {
+    this.db.prepare("UPDATE improvements SET deploy_phase = ?, updated_at = ? WHERE id = ?").run(phase, toSqlUtc(now), id);
+  }
+
+  /** Sur le clic « Déployer » : fige le commit de SECOURS et l'état « avant », phase 'deploy_pending', passe 'deploying'. */
+  setDeploying(id: number, deployCommit: string, baseline: string, now = new Date()): boolean {
+    const at = toSqlUtc(now);
+    return this.db
+      .prepare("UPDATE improvements SET status = 'deploying', deploy_phase = 'deploy_pending', deploy_commit = ?, deploy_at = ?, deploy_target = NULL, watch_baseline = ?, watch_at = NULL, watch_closed_at = NULL, watch_deadline = NULL, updated_at = ? WHERE id = ? AND status = 'merged'")
+      .run(deployCommit, at, baseline, at, id).changes === 1;
+  }
+
+  /** Cible du déploiement : le commit qu'on vise, figé APRÈS le pull et AVANT le redémarrage (phase 'pulled'). */
+  setDeployTarget(id: number, target: string, now = new Date()): boolean {
+    return this.db
+      .prepare("UPDATE improvements SET deploy_target = ?, deploy_phase = 'pulled', updated_at = ? WHERE id = ? AND status = 'deploying'")
+      .run(target, toSqlUtc(now), id).changes === 1;
+  }
+
+  /**
+   * Le déploiement n'a pas pu se faire AVANT tout redémarrage (switch/pull/cible/ancêtre) : on revient à
+   * 'merged', phase 'failed'. Les références de récupération (deploy_commit) sont effacées car rien n'a
+   * démarré de neuf et le dépôt a été remis sur la version d'avant.
+   */
+  backToMerged(id: number, now = new Date()): boolean {
+    return this.db
+      .prepare("UPDATE improvements SET status = 'merged', deploy_phase = 'failed', deploy_commit = NULL, deploy_at = NULL, deploy_target = NULL, watch_baseline = NULL, watch_at = NULL, watch_closed_at = NULL, watch_deadline = NULL, updated_at = ? WHERE id = ? AND status = 'deploying'")
+      .run(toSqlUtc(now), id).changes === 1;
+  }
+
+  /**
+   * Le redémarrage n'a pas pris effet mais le dépôt a été REMIS (et vérifié) sur le commit de secours : on
+   * revient à 'merged', phase 'failed', en GARDANT la référence de récupération (deploy_commit) et le commit
+   * de fusion — on ne les efface pas tant qu'on ne repart pas d'un déploiement propre.
+   */
+  failAfterRestart(id: number, now = new Date()): boolean {
+    return this.db
+      .prepare("UPDATE improvements SET status = 'merged', deploy_phase = 'failed', deploy_at = NULL, deploy_target = NULL, watch_baseline = NULL, watch_at = NULL, watch_closed_at = NULL, watch_deadline = NULL, updated_at = ? WHERE id = ? AND status = 'deploying'")
+      .run(toSqlUtc(now), id).changes === 1;
+  }
+
+  /**
+   * Déploiement confirmé sur la nouvelle version : DÉBUT RÉEL de l'observation (watch_at), phase 'watching'.
+   * L'échéance est FIGÉE ici (watch_deadline) et ne dépend plus de watchMinutes : elle ne bougera pas si la
+   * configuration change, ni à une reprise après coupure.
+   */
+  setWatching(id: number, now = new Date(), deadline?: Date): boolean {
+    const at = toSqlUtc(now);
+    const end = toSqlUtc(deadline ?? new Date(now.getTime() + WATCH_MINUTES_FALLBACK * 60_000));
+    return this.db
+      .prepare("UPDATE improvements SET status = 'watching', deploy_phase = 'watching', watch_at = ?, watch_deadline = ?, watch_closed_at = NULL, updated_at = ? WHERE id = ? AND status = 'deploying'")
+      .run(at, end, at, id).changes === 1;
+  }
+
+  /** La fenêtre serrée s'est close proprement (aucune régression jusqu'à l'échéance) : plus de retour arrière auto. */
+  setWatchClosed(id: number, now = new Date()): boolean {
+    const at = toSqlUtc(now);
+    return this.db
+      .prepare("UPDATE improvements SET watch_closed_at = ?, updated_at = ? WHERE id = ? AND status = 'watching' AND watch_closed_at IS NULL")
+      .run(at, at, id).changes === 1;
+  }
+
+  /**
+   * Régression constatée : on PERSISTE l'intention de revenir en arrière (statut 'reverting' + signes figés)
+   * AVANT toute commande. Ainsi, si le redémarrage coupe Clark ou si la santé se rétablit, le retour arrière
+   * n'est jamais oublié : la boucle le reprend tant que la fiche est 'reverting'. Jamais clôturée 'atteint'.
+   */
+  enterReverting(id: number, signsJson: string, now = new Date()): boolean {
+    const at = toSqlUtc(now);
+    return this.db
+      .prepare("UPDATE improvements SET status = 'reverting', deploy_phase = 'rollback_pending', revert_signs = ?, updated_at = ? WHERE id = ? AND status IN ('watching', 'deploying')")
+      .run(signsJson, at, id).changes === 1;
+  }
+
+  /** Close la fiche (retour arrière confirmé ou bilan J+3) : résultat, note et instant du bilan. */
+  finishImprovement(id: number, outcome: "atteint" | "partiel" | "rate", note: string, now = new Date()): boolean {
+    const at = toSqlUtc(now);
+    return this.db
+      .prepare("UPDATE improvements SET status = 'done', outcome = ?, outcome_note = ?, bilan_at = ?, updated_at = ? WHERE id = ? AND status IN ('watching', 'deploying', 'reverting')")
+      .run(outcome, clean(note), at, at, id).changes === 1;
   }
 
   /** Change l'état d'une fiche ; pour 'snoozed'/'dismissed', note l'instant de la décision (decided_at). */
@@ -348,6 +562,77 @@ export class ImproveStore {
       this.db.prepare(`UPDATE improvements SET status = ?, updated_at = ? WHERE source = ? AND signature = ?`).run(status, at, source, signature);
     }
   }
+}
+
+function improvementBefore(fiche: Improvement): Before {
+  return JSON.parse(fiche.before) as Before;
+}
+
+export function improvementProposal(fiche: Improvement) {
+  const [example] = JSON.parse(fiche.examples) as string[];
+  const before = improvementBefore(fiche);
+  const measurement = `Avant (${before.total} occurrences) : ${before.days.map(({ day, count }) => `${day} : ${count}`).join(" · ")}.`;
+  // `status`/`prUrl` servent l'interface : une fiche 'proposed' montre Lancer/Pas maintenant/Ignorer,
+  // une fiche 'merged' montre « Déployer » (et un lien vers la PR).
+  return { id: fiche.id, title: fiche.title, example, measurement, proposedAt: fiche.updated_at, status: fiche.status, prUrl: fiche.pr_url };
+}
+
+export function proposeOne(hub: Hub, now: Date): Improvement | undefined {
+  const fiche = hub.deps.store.improve.propose(now);
+  if (!fiche) return;
+  const { title, example, measurement, id, proposedAt } = improvementProposal(fiche);
+  void hub.post(OWNER_CHAT, `${IMPROVEMENT_TITLE_PREFIX} ${title}\n${example ? `${example}\n` : ""}${measurement}`, "system", "health", { id, proposedAt });
+  return fiche;
+}
+
+export function launchImprovement(hub: Hub, fiche: Improvement, now: Date, start: typeof startDevGroup): ReturnType<typeof startDevGroup> {
+  const { store } = hub.deps;
+  const project = store.dev.projects().find((p) => p.name === "clark");
+  if (!project) return { ok: false, error: "Projet dev « clark » introuvable." } as const;
+  const { measurement } = improvementProposal(fiche);
+  const examples = (JSON.parse(fiche.examples) as string[]).join("\n");
+  const result = start(hub, {
+    projectId: project.id,
+    binome: true,
+    title: `${IMPROVEMENT_TITLE_PREFIX} ${fiche.title}`,
+    instruction: `${fiche.title} (source : ${fiche.source}, signature : ${fiche.signature})
+Exemples expurgés :
+${examples}
+${measurement}
+
+Ajoute un TEST qui reproduit le problème et passe après le correctif. Critère : la signature d'erreur ne doit plus réapparaître.
+Lis AGENTS.md. Aucun secret dans les fichiers versionnés, les logs ou les messages. Respecte la lecture seule et les accords de Charles. Aucun ajout silencieux de permission. Clark ne modifie jamais ses propres permissions de lui-même.
+Garde le pilote automatique désactivé. La PR attend les accords de Charles et le binôme ne la fusionne jamais.`,
+  });
+  // Les groupes et leurs sous-tâches sont créés avec autopilot = 0 (valeur par défaut du DevStore).
+  if (result.ok === true) store.improve.decide(fiche.id, "launched", now, result.id);
+  return result;
+}
+
+const SENSITIVE_FILES = new Set([
+  "src/browser/sensitive.ts",
+  "src/browser/service.ts",
+  "src/core/agent.ts",
+  "src/core/autonomy.ts",
+  "src/core/hub.ts",
+  "src/core/internal.ts",
+  "src/dev/autopilot.ts",
+  "src/gateway/access.ts",
+  "src/gateway/telegram.ts",
+  "src/gateway/web.ts",
+  "src/terminal/terminal.ts",
+  "src/web/app/03-focus-cartes.js",
+  "src/web/app/07-activite-objectifs.js",
+  "src/web/app/25-ordinateur.js",
+]);
+
+/** Fichiers du contrôle des sites sensibles, des accords ou des permissions. */
+export function sensitivePaths(files: string[]): string[] {
+  return files.filter((file) =>
+    file.startsWith("src/policy/") ||
+    SENSITIVE_FILES.has(file) ||
+    /(?:^|[/._-])(?:approvals?|accords?|permissions?)(?:$|[/._-])/i.test(file),
+  );
 }
 
 /** Range dans la base les relevés datés des quatre sources (chacun sur son jour réel). */
@@ -559,7 +844,7 @@ function makeSilentSource(stalled: () => { taskId: number; since: number }[]): (
 
 /**
  * Boucle légère : à chaque passage, range les relevés datés du moment et rafraîchit les fiches
- * 'detected'. Pour l'instant elle ne propose rien et ne notifie rien (ce sera la sous-tâche 2).
+ * 'detected', puis propose au plus une fiche par jour.
  * Minuterie .unref().
  */
 export function startImproveLoop(hub: Hub, sources: ImproveSources, now: () => Date = () => new Date(), everyMs = 5 * 60_000): () => void {
@@ -569,8 +854,9 @@ export function startImproveLoop(hub: Hub, sources: ImproveSources, now: () => D
       const n = now();
       recordSignatures(store, sources, n);
       refreshFiches(store, n);
+      proposeOne(hub, n);
     } catch (err) {
-      console.warn("[clark] auto-amélioration : détection impossible :", err instanceof Error ? err.message : err);
+      console.warn("[clark] auto-amélioration : passage impossible :", err instanceof Error ? err.message : err);
     }
   };
   const timer = setInterval(tick, everyMs);

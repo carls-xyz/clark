@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Approver } from "../policy/permissions.ts";
 import { askedText, checkAlertText, describeStep, MESSAGE_MARK, planRecovery, resumePrompt, uncertainSteps, type Task } from "../tasks/journal.ts";
 import { executeTask, type Deps, type RunResult } from "./agent.ts";
-import { cleanTitle, NEW_CONVERSATION_NOTE, newConversationHours, titlePrompt, type Conversation, type Message, type Role } from "./conversation.ts";
+import { cleanTitle, NEW_CONVERSATION_NOTE, newConversationHours, OWNER_CHAT, titlePrompt, type Conversation, type Message, type Role } from "./conversation.ts";
 import { createTeam, displayName, StaleAttempt, TEAM_LABEL, teamCheckText } from "./team.ts";
 import { resumeVerified } from "./recovery.ts";
 import { CHARLES_SOURCES } from "./reminders.ts";
@@ -29,9 +29,12 @@ import { notifyAllowed, type NotifyKind } from "./notify.ts";
 import { AUTOMATION_CHAT_BASE, isAutomationChat } from "../scheduler/automations.ts";
 import { DECLINE_LABEL, SNOOZE_DAYS, type DeclineKind } from "./initiatives.ts";
 import { createSleepWatch, type SleepWatch } from "./sleep.ts";
+import { IMPROVE_SNOOZE_DAYS, launchImprovement, type ImprovementAction } from "./improve.ts";
 
-/** Clark n'a qu'un interlocuteur : l'utilisateur. Une seule conversation, quel que soit le canal. */
-export const OWNER_CHAT = 1;
+export { OWNER_CHAT } from "./conversation.ts";
+
+/** Déploie une auto-amélioration 'merged' (branché par l'index, qui connaît le dépôt et le service). */
+export type ImproveDeployHook = (id: number) => Promise<"done" | "already" | { error: string }>;
 
 const APPROVAL_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -56,10 +59,12 @@ export type Approval = {
  * Un canal (Telegram, interface web…) affiche ce que fait Clark. Tout est optionnel :
  * l'interface web lit l'état dans la base et n'a besoin d'aucune de ces méthodes.
  */
+type ImprovementNotice = { id: number; proposedAt: string };
+
 export type Channel = {
   name: string;
   /** Réponse de Clark ou note du système. */
-  deliver?(m: Message): Promise<void>;
+  deliver?(m: Message, improvement?: ImprovementNotice): Promise<void>;
   /** Demande de validation, avec ses boutons. */
   askApproval?(a: Approval): Promise<void>;
   /** Question d'un agent à l'utilisateur, avec ses réponses proposées. */
@@ -178,6 +183,8 @@ export function createHub(
     changed();
   });
   let autonomy: AutonomyHooks = {};
+  // Déploiement d'une auto-amélioration : branché par l'index (il connaît la racine du dépôt, git et le service).
+  let improveDeployHook: ImproveDeployHook | null = null;
   // Propositions du tour de veille : dans ton fil et sur les canaux, avec Accepter / Refuser.
   store.initiatives.onEvent((event, i) => {
     // Autonomie : ce que l'utilisateur a permis à Clark de trancher seul ne lui est pas proposé.
@@ -275,10 +282,10 @@ export function createHub(
   };
 
   /** Écrit dans le fil, puis le pousse sur les canaux. */
-  const say = async (chatId: number, text: string, role: Exclude<Role, "user"> = "clark", taskId?: number, kind?: NotifyKind, agent?: string | null) => {
+  const say = async (chatId: number, text: string, role: Exclude<Role, "user"> = "clark", taskId?: number, kind?: NotifyKind, agent?: string | null, improvement?: ImprovementNotice) => {
     const m = conversation.add({ chatId, role, text, taskId, kind: kind ?? (role === "clark" ? "reply" : "system"), agent: agent ?? null });
     // Ta conversation seulement : les fils des objectifs et du dev restent dans l'interface.
-    await each((c) => c.deliver?.(m), (m.kind ?? "system") as NotifyKind, chatId === OWNER_CHAT ? text : undefined);
+    await each((c) => c.deliver?.(m, improvement), (m.kind ?? "system") as NotifyKind, chatId === OWNER_CHAT ? text : undefined);
   };
 
   /**
@@ -729,7 +736,7 @@ export function createHub(
     }
   };
 
-  return {
+  const hub = {
     deps,
     engine: () => engine,
     /** Moteur de chaque rôle : demandé, et réellement utilisé (le principal si le demandé manque). */
@@ -905,7 +912,8 @@ export function createHub(
     },
 
     /** Message de Clark ou note du système, envoyé aux canaux (web, Telegram). */
-    post: (chatId: number, text: string, role: "clark" | "system" = "system", kind?: NotifyKind) => say(chatId, text, role, undefined, kind),
+    post: (chatId: number, text: string, role: "clark" | "system" = "system", kind?: NotifyKind, improvement?: ImprovementNotice) =>
+      say(chatId, text, role, undefined, kind, undefined, improvement),
     /** Réponse d'un agent de l'équipe, signée de son nom, dans la conversation d'une tâche. */
     postAs: (chatId: number, text: string, agent: string, taskId?: number, kind: NotifyKind = "quiet") => say(chatId, text, "clark", taskId, kind, agent),
     /** Le moteur à utiliser pour un rôle (moteur par rôle, sinon le principal). */
@@ -941,6 +949,33 @@ export function createHub(
 
     posts: () => store.posts.pending(),
     initiatives: () => store.initiatives.pending(),
+
+    async decideImprovement(id: number, action: ImprovementAction, proposedAt?: string): Promise<"done" | "already" | { error: string }> {
+      // Déployer une fiche 'merged' : sur le clic de l'utilisateur, via le module branché par l'index.
+      if (action === "deploy") {
+        if (!improveDeployHook) return { error: "Le déploiement n'est pas disponible pour l'instant." };
+        return improveDeployHook(id);
+      }
+      // Le module Dev dépend du hub. On le charge au clic, avant de vérifier à nouveau la fiche.
+      const dev = action === "launch" ? await import("../dev/groups.ts") : null;
+      const fiche = store.improve.get(id);
+      if (!fiche || fiche.status !== "proposed" || (proposedAt !== undefined && fiche.updated_at !== proposedAt)) return "already";
+      const now = new Date();
+      if (dev) {
+        // Le démarrage crée le groupe de façon synchrone : aucun autre clic ne s'intercale.
+        const result = launchImprovement(hub, fiche, now, dev.startDevGroup);
+        if (result.ok === false) {
+          void say(OWNER_CHAT, `Auto-amélioration : lancement impossible. ${result.error}`, "system");
+          return { error: result.error };
+        }
+        void say(OWNER_CHAT, `Auto-amélioration : binôme #${result.id} lancé pour « ${fiche.title} ».`, "system");
+      } else if (action === "snooze" || action === "dismiss") {
+        if (!store.improve.decide(id, action === "snooze" ? "snoozed" : "dismissed", now)) return "already";
+        const note = action === "snooze" ? `Je pourrai te la reproposer dans ${IMPROVE_SNOOZE_DAYS} jours.` : "Je ne reproposerai plus cette signature.";
+        void say(OWNER_CHAT, `Auto-amélioration : « ${fiche.title} ». ${note}`, "system");
+      } else return { error: "Action inconnue" };
+      return "done";
+    },
 
     /** Décision de l'utilisateur sur une proposition : acceptée, elle devient une tâche ; refusée, Clark s'en souvient. */
     decideInitiative(id: number, action: "accept" | "decline", reason?: string, kind?: DeclineKind): "done" | "already" {
@@ -1055,6 +1090,10 @@ export function createHub(
     setAutonomy(hooks: AutonomyHooks) {
       autonomy = hooks;
     },
+    /** Branche le déploiement d'auto-amélioration (src/core/improve-deploy.ts), monté par l'index. */
+    setImproveDeploy(hook: ImproveDeployHook) {
+      improveDeployHook = hook;
+    },
     /** Un souvenir proposé ailleurs (Codex) : Clark peut-il le retenir seul ? */
     autoMemory: (m: Memory) => autonomy.memory?.(m) ?? false,
 
@@ -1148,4 +1187,5 @@ export function createHub(
       return "ok";
     },
   };
+  return hub;
 }

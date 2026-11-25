@@ -25,6 +25,8 @@ export type PrStatus = {
   reviewDecision: string | null;
   checks: PrCheck[];
   comments: PrComment[];
+  /** Commit de fusion de la PR (oid), quand elle est fusionnée : sert à vérifier qu'il est bien dans la version déployée. */
+  mergeCommit?: string | null;
   readAt: number;
   /** Commentaires déjà vus par l'utilisateur (ids) : les nouveaux sont signalés. */
   seen: string[];
@@ -46,7 +48,7 @@ const checkState = (c: any): PrCheck["state"] => {
 
 /** L'état de la PR, lu par `gh pr view` et `gh api` (commentaires sur des lignes). */
 export async function readPr(cwd: string, url: string, previous: PrStatus | null): Promise<PrStatus> {
-  const raw = JSON.parse(await gh(cwd, ["pr", "view", url, "--json", "state,isDraft,number,headRefName,reviewDecision,statusCheckRollup,reviews,comments"]));
+  const raw = JSON.parse(await gh(cwd, ["pr", "view", url, "--json", "state,isDraft,number,headRefName,reviewDecision,statusCheckRollup,reviews,comments,mergeCommit"]));
   const checks: PrCheck[] = (raw.statusCheckRollup ?? []).map((c: any) => ({ name: String(c.name ?? c.context ?? "check"), state: checkState(c), url: c.detailsUrl ?? c.targetUrl ?? null }));
   const comments: PrComment[] = [
     ...(raw.reviews ?? [])
@@ -71,6 +73,7 @@ export async function readPr(cwd: string, url: string, previous: PrStatus | null
     reviewDecision: raw.reviewDecision || null,
     checks,
     comments: comments.sort((a, b) => a.at.localeCompare(b.at)),
+    mergeCommit: (raw.mergeCommit && typeof raw.mergeCommit.oid === "string" ? raw.mergeCommit.oid : null),
     readAt: Date.now(),
     seen: previous?.seen ?? [],
     error: null,

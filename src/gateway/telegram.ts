@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { speak, transcribe, voiceStatus } from "../voice/voice.ts";
 import { addIdeaFromOwner } from "../scheduler/ideas.ts";
+import type { ImprovementAction } from "../core/improve.ts";
 
 /** Ce dont le canal a besoin pour la voix (remplaçable dans les tests). */
 export type TelegramVoice = {
@@ -135,8 +136,17 @@ export function createTelegram(hub: Hub, opts: { token: string; ownerId: number;
     name: "telegram",
     // Les messages de l'utilisateur ne lui sont pas renvoyés ; le reste du fil, si.
     // Seule ta conversation part sur Telegram (pas le tour de veille, qui a la sienne).
-    deliver: async (m) => {
+    deliver: async (m, improvement) => {
       if (m.role === "user" || m.chat_id !== OWNER_CHAT) return;
+      if (improvement) {
+        const { id, proposedAt } = improvement;
+        const keyboard = new InlineKeyboard()
+          .text("Lancer", `imp:launch:${id}:${proposedAt}`)
+          .text("Pas maintenant", `imp:snooze:${id}:${proposedAt}`)
+          .text("Ignorer", `imp:dismiss:${id}:${proposedAt}`);
+        await bot.api.sendMessage(chat, m.text, { reply_markup: keyboard });
+        return;
+      }
       await send(m.text);
       // Le texte d'abord (il arrive tout de suite), le vocal ensuite, sans retenir le fil.
       if (wantsVoice(m)) void sendSpoken(m.text);
@@ -322,6 +332,17 @@ export function createTelegram(hub: Hub, opts: { token: string; ownerId: number;
     const kind = ({ pu: "pas_utile", pm: "pas_maintenant", df: "deja_fait", no: "autre" } as const)[verdict as "pu" | "pm" | "df" | "no"];
     const outcome = hub.decideInitiative(Number(id), verdict === "ok" ? "accept" : "decline", undefined, kind);
     await ctx.answerCallbackQuery({ text: outcome === "done" ? (verdict === "ok" ? "Accepté : je m'y mets" : "Refusé") : "Déjà traité." });
+  });
+
+  bot.callbackQuery(/^imp:(launch|snooze|dismiss):(\d+):(.+)$/, async (ctx) => {
+    const [, action, id, proposedAt] = ctx.match;
+    const outcome = await hub.decideImprovement(Number(id), action as ImprovementAction, proposedAt);
+    if (typeof outcome === "object") {
+      await ctx.answerCallbackQuery({ text: outcome.error, show_alert: true });
+      return;
+    }
+    await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+    await ctx.answerCallbackQuery({ text: outcome === "done" ? "Décision enregistrée." : "Cette proposition n'est plus disponible." });
   });
 
   bot.callbackQuery(/^sp:(ok|no):(\d+)$/, async (ctx) => {

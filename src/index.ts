@@ -53,6 +53,7 @@ import { startInitiativeLoop } from "./core/initiative-loop.ts";
 import { createPinger } from "./core/ping.ts";
 import { cachedHealth } from "./core/health.ts";
 import { improveSources, startImproveLoop } from "./core/improve.ts";
+import { deployImprovement, realGit, startImproveDeployLoop } from "./core/improve-deploy.ts";
 
 // Le journal ne garde jamais un secret en clair (jeton Telegram dans une erreur réseau, clé d'API…).
 installLogRedaction();
@@ -381,17 +382,29 @@ const watchdogNote = join(paths.root, "data", "watchdog-restart.txt");
 if (existsSync(watchdogNote)) {
   const at = readFileSync(watchdogNote, "utf8").trim();
   rmSync(watchdogNote, { force: true });
+  // Mémorisé (survit au redémarrage) : la fenêtre d'observation de l'auto-amélioration y voit une régression.
+  if (at) store.db.prepare("INSERT INTO app_settings (key, value) VALUES ('last_watchdog_restart', ?) ON CONFLICT DO UPDATE SET value = excluded.value, updated_at = datetime('now')").run(at);
   void hub.post(OWNER_CHAT, `Je ne répondais plus : la surveillance locale m'a relancé${at ? ` (${new Date(at).toLocaleString("fr-FR", { timeZone: "Europe/Paris" })})` : ""}. Le journal dit peut-être pourquoi (scripts/service.sh logs).`, "system", "health");
 }
 // Alertes de santé (Telegram, selon Réglages › Notifications) et ping externe (CLARK_PING_URL).
 // Boucle d'initiatives : chaque proposition lancée est mesurée contre son critère, puis bilan par catégorie.
 const stopInitiatives = startInitiativeLoop(hub, claude.mode !== "none" ? claudeJudge : undefined);
 const stopAlerts = startAlerts({ store: alertStore, report: () => health(true), post: (text, urgent) => void hub.post(OWNER_CHAT, text, "system", urgent ? "alert" : "health") });
-// Auto-amélioration encadrée (1/3) : détection seule. Range les frictions récurrentes en fiches, sans rien proposer ni déployer.
+// Auto-amélioration encadrée : range les frictions récurrentes en fiches et propose une correction à l'utilisateur.
 const stopImprove = startImproveLoop(
   hub,
   improveSources({ db: store.db, logFile: join(paths.root, "data", "logs", "clark.log"), alerts: () => alertStore.get(), stalled: () => hub.stalled() }),
 );
+// Auto-amélioration 3/3 : déployer (sur ton clic), observer 2 h, revenir en arrière en cas de régression,
+// bilan à J+3. Le déploiement engage la machine → il attend TOUJOURS un clic ; seul le retour arrière est auto.
+// Le commit que CETTE instance exécute, figé au démarrage (le processus a chargé ce code depuis le disque à
+// l'instant du boot). Il reste fixe pendant toute la vie du processus : si un `git pull` avance ensuite le
+// disque sans qu'un redémarrage ait remplacé le processus, runningCommit garde l'ANCIEN commit — ce qui dit à
+// la finalisation du déploiement que la nouvelle version ne tourne pas encore.
+const bootCommit = (await realGit(paths.root)(["rev-parse", "HEAD"])).stdout.trim();
+const improveDeployOpts = { root: paths.root, healthBad: () => health().level === "bad", runningCommit: () => bootCommit };
+hub.setImproveDeploy((id) => deployImprovement(hub, id, improveDeployOpts));
+const stopImproveDeploy = startImproveDeployLoop(hub, improveDeployOpts);
 const stopPing = pinger.start();
 const stopAutomations = startScheduler({ config, store, enqueue: hub.enqueue, automations: store.automations, launch: (a, slot) => launchAutomation(hub, a, { slot }) });
 // Tour de veille : propositions proactives, de jour, quand un moteur est connecté.
@@ -438,6 +451,7 @@ stopScheduler = () => {
   stopPing();
   stopInitiatives();
   stopImprove();
+  stopImproveDeploy();
 };
 
 console.log(`[clark] démarré — moteur ${hub.engine().name} (${hub.engine().model}), ${store.count()} souvenirs`);

@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -10,6 +10,7 @@ import { devSlug, launchReady, startDevTask, worktreesDir, type DevOutcome } fro
 import { DEV_CRITIQUE_PREFIX, DEV_PLAN_PREFIX, devCritiqueChat, devGroupChat } from "./store.ts";
 import { authorOf, otherEngine, planCritiquePrompt, planRevisePrompt } from "./binome.ts";
 import { once } from "./in-flight.ts";
+import { IMPROVEMENT_TITLE_PREFIX, sensitivePaths } from "../core/improve.ts";
 
 const run = promisify(execFile);
 const short = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
@@ -283,6 +284,24 @@ export function startDevGroups(hub: Hub) {
 
 // ── Pull requests ──
 
+const SENSITIVE_PR_PREFIX = "⚠️ Sensible :";
+
+function improvementWarning(path: string, base: string, branch: string): string {
+  try {
+    // Sans détection de renommage, on vérifie aussi les chemins supprimés.
+    const diff = execFileSync("git", ["diff", "--name-only", "--no-renames", "-z", `refs/heads/${base}...refs/heads/${branch}`, "--"], {
+      cwd: path,
+      encoding: "utf8",
+      timeout: 3000,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const files = sensitivePaths(diff.split("\0").filter(Boolean));
+    return files.length ? `${SENSITIVE_PR_PREFIX} relis les changements qui touchent aux accords, aux permissions ou aux sites sensibles.\n\n` : "";
+  } catch {
+    return `${SENSITIVE_PR_PREFIX} les chemins du diff réuni n'ont pas pu être vérifiés. Relis le diff avant de fusionner.\n\n`;
+  }
+}
+
 /** Ce que la PR proposera par défaut (l'utilisateur le relit et le modifie avant d'envoyer). */
 export function prDraft(hub: Hub, kind: "task" | "group", id: number): { title: string; body: string; branch: string; base: string } | null {
   const { store } = hub.deps;
@@ -300,13 +319,14 @@ export function prDraft(hub: Hub, kind: "task" | "group", id: number): { title: 
   const g = store.dev.group(id);
   if (!g || g.status !== "integrated" || !g.branch) return null;
   const p = store.dev.project(g.project_id)!;
+  const warning = g.title.startsWith(IMPROVEMENT_TITLE_PREFIX) ? improvementWarning(p.path, p.base_branch, g.branch) : "";
   const parts = store.dev
     .groupTasks(id)
     .filter((t) => t.status === "accepted" && t.commit)
     .map((t) => `- ${t.title}${t.summary ? ` : ${short(t.summary.replace(/\s+/g, " "), 200)}` : ""}`);
   return {
     title: g.title,
-    body: `${g.instruction}\n\nSous-tâches réunies :\n${parts.join("\n")}${g.issue_number ? `\n\nCloses #${g.issue_number}` : ""}\n\n---\nGroupe dev #${g.id}, fait par Clark et relu par Charles.`,
+    body: `${warning}${g.instruction}\n\nSous-tâches réunies :\n${parts.join("\n")}${g.issue_number ? `\n\nCloses #${g.issue_number}` : ""}\n\n---\nGroupe dev #${g.id}, fait par Clark et relu par Charles.`,
     branch: g.branch,
     base: p.base_branch,
   };
@@ -328,6 +348,10 @@ async function openPullRequestNow(hub: Hub, kind: "task" | "group", id: number, 
   if (existing) return "already";
   const title = input.title.trim();
   const body = input.body.trim();
+  if (kind === "group" && draft.title.startsWith(IMPROVEMENT_TITLE_PREFIX)) {
+    if (!title.startsWith(IMPROVEMENT_TITLE_PREFIX)) return { error: `Le titre doit commencer par « ${IMPROVEMENT_TITLE_PREFIX} ».` };
+    if (draft.body.startsWith(SENSITIVE_PR_PREFIX) && !body.startsWith(SENSITIVE_PR_PREFIX)) return { error: "Garde la mention « ⚠️ Sensible : » au début de la description." };
+  }
   if (title.length < 3 || title.length > 200) return { error: "Titre : 3 à 200 caractères." };
   if (body.length > 20_000) return { error: "Texte trop long." };
   const projectId = kind === "task" ? store.dev.get(id)!.project_id : store.dev.group(id)!.project_id;

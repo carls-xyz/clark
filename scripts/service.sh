@@ -257,8 +257,26 @@ case "${1:-status}" in
     healthy && echo "Clark répond (http://localhost:$PORT)." || { echo "Clark ne répond pas : scripts/service.sh logs"; exit 1; }
     ;;
   restart)
-    # Installé avant la surveillance locale : elle est ajoutée au passage.
-    if [ -z "$FAKE" ] && [ ! -f "$WD_PLIST" ] && [ ! -f "$WD_UNIT_DIR/clark-watchdog.timer" ]; then watchdog_install && echo "Surveillance locale ajoutée (toutes les 5 minutes)."; fi
+    if [ "${2:-}" = "--rollback" ]; then
+      # Redémarrage de RETOUR ARRIÈRE lancé par Clark : le dépôt a DÉJÀ été placé sur le commit de secours.
+      # On contrôle seulement la santé — JAMAIS d'installation de surveillance, et JAMAIS de retour à
+      # data/last-good-commit (qui pourrait désigner la version en régression et défaire le retour arrière).
+      svc_restart
+      echo "Clark redémarre (retour arrière)."
+      if healthy; then
+        now="$(head_commit)"
+        # La version de secours répond : on la note bonne (corrige au passage un last-good resté sur la régression).
+        [ -n "$now" ] && echo "$now" > "$GOOD"
+        echo "Clark répond (http://localhost:$PORT)."
+        exit 0
+      fi
+      echo "Clark ne répond pas après $WAIT s, même après le retour arrière : scripts/service.sh logs"
+      exit 1
+    fi
+    # Installé avant la surveillance locale : elle est ajoutée au passage — SAUF pour un redémarrage lancé
+    # par Clark lui-même (CLARK_RESTART_NO_INSTALL=1 : déploiement ou retour arrière automatique), qui ne doit
+    # rien installer de neuf. Seul un `restart` tapé à la main par l'utilisateur complète une vieille install.
+    if [ -z "$FAKE" ] && [ -z "${CLARK_RESTART_NO_INSTALL:-}" ] && [ ! -f "$WD_PLIST" ] && [ ! -f "$WD_UNIT_DIR/clark-watchdog.timer" ]; then watchdog_install && echo "Surveillance locale ajoutée (toutes les 5 minutes)."; fi
     svc_restart
     echo "Clark redémarre."
     check_or_rollback
