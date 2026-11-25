@@ -862,3 +862,37 @@ test("tâche arrêtée avant que sa copie soit prête : « Reprendre » la relan
   await until(() => store.dev.get(r.id)!.status === "review");
   assert.ok(store.dev.get(r.id)!.base_commit, "copie recréée, avec son point de départ");
 });
+
+test("dépendances : une sous-tâche dont la dépendance a été fusionnée en « squash » (avec une retouche) démarre sans conflit", async () => {
+  const dir = repo("squash");
+  let n = 0;
+  const { hub, store } = setup((cwd, prompt) => {
+    n++;
+    // La consigne d'une tâche cite celles dont elle dépend : on regarde la plus récente d'abord.
+    if (/Consigne de Charles : Tâche C/.test(prompt)) writeFileSync(join(cwd, "c.txt"), "C\n");
+    else if (/Consigne de Charles : Tâche B/.test(prompt)) writeFileSync(join(cwd, "b.txt"), "B\n");
+    else writeFileSync(join(cwd, "app.txt"), "ligne 1\nA\n");
+    return {};
+  });
+  const p = (await addProject(hub, { name: "squash", path: dir })) as any;
+  const a = startDevTask(hub, { projectId: p.id, instruction: "Tâche A : complète app.txt" }) as any;
+  await until(() => store.dev.get(a.id)!.status === "review");
+  assert.equal(await acceptDevTask(hub, a.id), "done");
+  const b = startDevTask(hub, { projectId: p.id, instruction: "Tâche B : ajoute b.txt", dependsOn: [a.id] }) as any;
+  await until(() => store.dev.get(b.id)!.status === "review");
+  assert.equal(await acceptDevTask(hub, b.id), "done");
+
+  // La PR de A est fusionnée sur main en « squash », avec une retouche faite sur GitHub (même fichier, même ligne).
+  writeFileSync(join(dir, "app.txt"), "ligne 1\nA (corrigé)\n");
+  sh(dir, "-c", "core.hooksPath=/dev/null", "commit", "-qam", "A (#1)");
+  store.dev.update(a.id, { pr_status: JSON.stringify({ state: "MERGED" }) });
+
+  const c = startDevTask(hub, { projectId: p.id, instruction: "Tâche C : ajoute c.txt", dependsOn: [b.id] }) as any;
+  await until(() => ["review", "failed"].includes(store.dev.get(c.id)!.status));
+  const t = store.dev.get(c.id)!;
+  assert.equal(t.status, "review", t.error ?? "");
+  assert.equal(readFileSync(join(t.worktree, "app.txt"), "utf8"), "ligne 1\nA (corrigé)\n", "la version fusionnée de A est gardée");
+  assert.equal(readFileSync(join(t.worktree, "b.txt"), "utf8"), "B\n", "le travail de B est là");
+  assert.equal(readFileSync(join(t.worktree, "c.txt"), "utf8"), "C\n");
+  assert.ok(n >= 3);
+});

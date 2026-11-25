@@ -2,7 +2,8 @@ import { announceDev, crossReview } from "./binome.ts";
 import { autopilotReady, isAutopilot } from "./autopilot.ts";
 import { integrateGroup, openPullRequest, prDraft } from "./groups.ts";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, realpathSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, resolve, sep } from "node:path";
 import { paths, type EngineName } from "../config.ts";
 import type { Hub } from "../core/hub.ts";
@@ -237,16 +238,16 @@ async function prepareAndRun(hub: Hub, id: number) {
     const note = warm ? warm.note : start?.note;
     if (note) baseNote.set(id, note);
     let baseCommit = warm ? warm.commit : t.existing_branch ? await checkoutExisting(p.path, t.worktree, t.branch) : await addWorktree(p.path, t.worktree, t.branch, p.base_branch, start!.ref);
-    for (const d of deps) {
-      try {
-        await git(t.worktree, ["-c", "core.hooksPath=/dev/null", "merge", "--no-ff", "--no-verify", "-m", `Part du travail de la sous-tâche #${d.id} : ${d.title}`, d.branch]);
-      } catch {
-        const conflicts = (await git(t.worktree, ["diff", "--name-only", "--diff-filter=U"]).catch(() => "")).trim().split("\n").filter(Boolean);
-        await git(t.worktree, ["merge", "--abort"]).catch(() => {});
-        throw new Error(`le travail des sous-tâches dont elle dépend entre en conflit${conflicts.length ? ` (${conflicts.join(", ")})` : ""}`);
-      }
+    // Le travail des sous-tâches dont elle dépend (et de leurs propres dépendances), une par une, dans l'ordre :
+    // seulement ce que chacune a écrit. Une sous-tâche déjà dans la base (PR fusionnée, même en « squash ») est
+    // sautée : rejouer sa branche entière la ferait entrer en conflit avec elle-même.
+    let brought = 0;
+    for (const d of dependencyChain(store, t)) {
+      if (await alreadyInBase(t.worktree, d)) continue;
+      await bringOwnWork(t.worktree, d);
+      brought++;
     }
-    if (deps.length) baseCommit = (await git(t.worktree, ["rev-parse", "HEAD"])).trim();
+    if (brought) baseCommit = (await git(t.worktree, ["rev-parse", "HEAD"])).trim();
     // Résolution de conflit : la fusion est lancée et laissée en conflit ; l'agent retire les marqueurs.
     if (t.merge_branch) {
       await git(t.worktree, ["-c", "core.hooksPath=/dev/null", "merge", "--no-ff", "--no-commit", "--no-verify", t.merge_branch]).catch(() => {});
@@ -269,6 +270,71 @@ async function prepareAndRun(hub: Hub, id: number) {
   const resolve = conflictNote.get(id);
   conflictNote.delete(id);
   await runTurn(hub, id, devPrompt(fresh, p.name, p.base_branch, p.test_command) + from + setupNote + (startNote ? `\n\nPoint de départ : ${startNote}.` : "") + (resolve ? `\n\n${resolve}` : ""));
+}
+
+/** Les sous-tâches acceptées dont celle-ci dépend, directement ou non, dépendances d'abord, sans doublon. */
+export function dependencyChain(store: Hub["deps"]["store"], t: Pick<DevTask, "depends_on">): DevTask[] {
+  const out: DevTask[] = [];
+  const seen = new Set<number>();
+  const visit = (x: Pick<DevTask, "depends_on">) => {
+    for (const id of dependsOn(x)) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const d = store.dev.get(id);
+      if (!d || d.status !== "accepted" || !d.commit) continue;
+      visit(d);
+      out.push(d);
+    }
+  };
+  visit(t);
+  return out;
+}
+
+/** Le travail de cette sous-tâche est-il déjà dans la copie ? (sa PR fusionnée, ou son commit déjà là) */
+async function alreadyInBase(dir: string, d: DevTask): Promise<boolean> {
+  try {
+    if (d.pr_status && JSON.parse(d.pr_status)?.state === "MERGED") return true;
+  } catch {}
+  return git(dir, ["merge-base", "--is-ancestor", d.commit!, "HEAD"]).then(() => true, () => false);
+}
+
+/**
+ * Apporte ce qu'une sous-tâche a écrit elle-même (de son point de départ à son commit accepté), en un commit.
+ * Sans point de départ connu : sa branche entière, comme avant.
+ */
+async function bringOwnWork(dir: string, d: DevTask) {
+  const message = `Part du travail de la sous-tâche #${d.id} : ${d.title}`;
+  const conflict = async () => {
+    const files = (await git(dir, ["diff", "--name-only", "--diff-filter=U"]).catch(() => "")).trim().split("\n").filter(Boolean);
+    return new Error(`le travail des sous-tâches dont elle dépend entre en conflit${files.length ? ` (${files.join(", ")})` : ""}`);
+  };
+  if (!d.base_commit) {
+    try {
+      await git(dir, ["-c", "core.hooksPath=/dev/null", "merge", "--no-ff", "--no-verify", "-m", message, d.branch]);
+    } catch {
+      const err = await conflict();
+      await git(dir, ["merge", "--abort"]).catch(() => {});
+      throw err;
+    }
+    return;
+  }
+  const patch = await git(dir, ["diff", "--binary", d.base_commit, d.commit!]);
+  if (!patch.trim()) return;
+  const tmp = mkdtempSync(join(tmpdir(), "clark-dep-"));
+  const file = join(tmp, "travail.patch");
+  try {
+    writeFileSync(file, patch.endsWith("\n") ? patch : `${patch}\n`);
+    try {
+      await git(dir, ["apply", "--3way", "--index", file]);
+    } catch {
+      const err = await conflict();
+      await git(dir, ["reset", "-q", "--hard", "HEAD"]).catch(() => {});
+      throw err;
+    }
+    await git(dir, ["-c", "core.hooksPath=/dev/null", "commit", "--no-verify", "-q", "-m", message]);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 }
 
 /**
