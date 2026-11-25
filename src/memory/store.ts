@@ -10,6 +10,7 @@ import { TerminalRequests } from "../terminal/terminal.ts";
 import { McpServers } from "../mcp/servers.ts";
 import { Goals } from "../core/goals.ts";
 import { DevStore } from "../dev/store.ts";
+import { ImproveStore } from "../core/improve.ts";
 import { VoiceSettings } from "../voice/voice.ts";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
@@ -91,6 +92,8 @@ export class Store {
   readonly goals: Goals;
   /** Côté dev : projets et tâches dans leurs copies du dépôt. */
   readonly dev: DevStore;
+  /** Auto-amélioration encadrée : frictions détectées et fiches d'amélioration. */
+  readonly improve: ImproveStore;
   readonly voice: VoiceSettings;
   /** Commandes proposées par Clark pour le Terminal de l'utilisateur (src/terminal/terminal.ts). */
   readonly terminal: TerminalRequests;
@@ -111,6 +114,7 @@ export class Store {
     this.mcp = new McpServers(this.db);
     this.goals = new Goals(this.db);
     this.dev = new DevStore(this.db);
+    this.improve = new ImproveStore(this.db);
     this.voice = new VoiceSettings(this.db);
     this.terminal = new TerminalRequests(this.db);
   }
