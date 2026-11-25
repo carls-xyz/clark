@@ -581,7 +581,7 @@ function renderDevTask(t, nested = false) {
       t.blockedOn
         ? `<div class="dev-blocked" role="status"><p><strong>L'agent attend ton accord</strong> : ${esc(t.blockedOn)}</p><div class="card-actions"><button type="button" class="btn primary" data-dev-action="unblock">Autoriser et reprendre</button><button type="button" class="btn ghost" data-dev-action="discard">Jeter</button></div><p class="quiet">Ou écris une autre consigne dans le champ Retouche.</p></div>`
         : t.error
-          ? `<p class="goal-reason">${esc(t.error)}</p>${t.status === "failed" ? `<div class="card-actions"><button type="button" class="btn primary" data-dev-action="resume">Reprendre</button></div>` : ""}`
+          ? `<p class="goal-reason">${esc(t.error)}</p>${t.status === "failed" ? `<div class="card-actions"><button type="button" class="btn primary" data-dev-action="resume">${t.prepared ? "Reprendre" : "Relancer depuis le début"}</button></div>` : ""}`
           : ""
     }
     ${/* Les actions en haut, sous l'état : sur une longue tâche, elles ne se perdent plus sous le résumé et le diff. */ ""}

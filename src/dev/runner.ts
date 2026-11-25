@@ -415,8 +415,13 @@ export async function collect(hub: Hub, id: number) {
   if (!t || t.status !== "working") return;
   const run = journal.lastByLabel(`${DEV_LABEL_PREFIX}${id}`);
   let diff: Diff | null = null;
+  // Copie sans point de départ (préparation interrompue) : pas de diff possible, et on le dit clairement.
+  if (!t.base_commit) {
+    store.dev.update(id, { status: "failed", error: "La copie de cette tâche n'a jamais été préparée jusqu'au bout : « Reprendre » la recrée et relance la consigne depuis le début." });
+    return;
+  }
   try {
-    diff = await worktreeDiff(t.worktree, t.base_commit!);
+    diff = await worktreeDiff(t.worktree, t.base_commit);
   } catch (err) {
     store.dev.update(id, { status: "failed", error: `Diff impossible : ${err instanceof Error ? err.message : String(err)}` });
     return;
@@ -547,6 +552,11 @@ export function retouchDevTask(hub: Hub, id: number, instruction: string, design
   const t = store.dev.get(id);
   if (!t) return "missing";
   if (instruction.trim().length < 3) return { error: "Écris la retouche" };
+  // Une retouche suppose une copie prête : sans point de départ, il faut la recréer (« Reprendre »).
+  if (!t.base_commit) return { error: "La copie de cette tâche n'a jamais été préparée : utilise « Reprendre », qui la recrée et relance la consigne." };
+  // L'agent n'a encore jamais tourné sur cette tâche : sa consigne d'origine passe avec la retouche.
+  const p = store.dev.project(t.project_id);
+  const never = !hub.deps.journal.lastByLabel(`${DEV_LABEL_PREFIX}${id}`);
   if (!store.dev.transition(id, ["review", "failed"], "working")) return "already";
   store.dev.update(id, { blocked_on: null, error: null, arbiter: null });
   // Binôme : une retouche de l'utilisateur ouvre un nouveau cycle de relecture croisée.
@@ -557,7 +567,7 @@ export function retouchDevTask(hub: Hub, id: number, instruction: string, design
   void runTurn(
     hub,
     id,
-    `Retouche demandée par Charles pour la tâche dev #${id} : ${instruction.trim()}${context}\n\nMêmes règles : seulement cette copie, pas de git, pas de réseau. Termine par un résumé de ce que tu as changé.`,
+    `${never && p ? `${devPrompt(t, p.name, p.base_branch, p.test_command)}\n\n` : ""}Retouche demandée par Charles pour la tâche dev #${id} : ${instruction.trim()}${context}\n\nMêmes règles : seulement cette copie, pas de git, pas de réseau. Termine par un résumé de ce que tu as changé.`,
     design?.shot ? [design.shot] : [],
   );
   return "done";
@@ -585,10 +595,13 @@ export function unblockDevTask(hub: Hub, id: number): DevOutcome {
  * « Reprendre » une tâche arrêtée (par toi, une coupure, une limite) : l'agent repart de sa copie, avec son
  * contexte, et termine la consigne. Une tâche bloquée passe par « Autoriser et reprendre ».
  */
-export function resumeDevTask(hub: Hub, id: number): DevOutcome {
+export async function resumeDevTask(hub: Hub, id: number): Promise<DevOutcome> {
   const t = hub.deps.store.dev.get(id);
   if (!t) return "missing";
   if (t.status !== "failed" || t.blocked_on) return "already";
+  // Arrêtée avant que sa copie soit prête (l'agent n'a jamais eu sa consigne) : on la relance depuis le début,
+  // avec le même moteur, plutôt que de lui dire « reprends » sur rien.
+  if (!t.base_commit) return retryDevTask(hub, id, { engine: (t.engine as EngineName | null) ?? null, model: t.model, effort: t.effort });
   return retouchDevTask(
     hub,
     id,

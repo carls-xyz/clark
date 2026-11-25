@@ -783,11 +783,11 @@ test("veille de la machine : le temps où le Mac dormait n'est pas du silence ; 
   const r = startDevTask(hub, { projectId: p.id, instruction: "Ajoute a.txt proprement" }) as any;
   await until(() => store.dev.get(r.id)!.status === "failed");
   const before = runs.length;
-  assert.equal(resumeDevTask(hub, r.id), "done");
+  assert.equal(await resumeDevTask(hub, r.id), "done");
   await until(() => runs.length > before);
   assert.match(runs.at(-1)!.prompt, /Reprends où tu en étais/);
   await until(() => store.dev.get(r.id)!.status === "review");
-  assert.equal(resumeDevTask(hub, r.id), "already");
+  assert.equal(await resumeDevTask(hub, r.id), "already");
 });
 
 test("binôme en désaccord : Clark résume, dit qui a raison, propose une retouche ; elle repart d'un clic", async () => {
@@ -839,4 +839,26 @@ test("binôme en désaccord : Clark résume, dit qui a raison, propose une retou
   // Plus en désaccord : pas d'avis possible.
   await until(() => store.dev.get(r.id)!.status === "review");
   assert.equal(await arbitrate(hub, r.id), false);
+});
+
+test("tâche arrêtée avant que sa copie soit prête : « Reprendre » la relance depuis le début, avec sa consigne", async () => {
+  const { resumeDevTask } = await import("../src/dev/runner.ts");
+  const dir = repo("sans-copie");
+  const { hub, store, runs } = setup((cwd) => {
+    writeFileSync(join(cwd, "a.txt"), "fait\n");
+    return {};
+  });
+  const p = (await addProject(hub, { name: "sans-copie", path: dir })) as any;
+  const r = startDevTask(hub, { projectId: p.id, instruction: "Ajoute a.txt avec le mot fait" }) as any;
+  await until(() => store.dev.get(r.id)!.status === "review");
+  // Comme la sous-tâche #20 : arrêtée sans point de départ (préparation interrompue).
+  store.dev.update(r.id, { status: "failed", base_commit: null, error: "Copie du dépôt impossible : interrompue" });
+  assert.match((retouchDevTask(hub, r.id, "reprends") as any).error, /jamais été préparée/, "une retouche sur rien est refusée");
+  const before = runs.length;
+  assert.equal(await resumeDevTask(hub, r.id), "done");
+  await until(() => runs.length > before);
+  assert.match(runs.at(-1)!.prompt, /Consigne de Charles : Ajoute a\.txt avec le mot fait/, "l'agent reçoit sa consigne");
+  assert.doesNotMatch(runs.at(-1)!.prompt, /Reprends où tu en étais/);
+  await until(() => store.dev.get(r.id)!.status === "review");
+  assert.ok(store.dev.get(r.id)!.base_commit, "copie recréée, avec son point de départ");
 });
