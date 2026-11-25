@@ -52,6 +52,7 @@ import { AlertStore, startAlerts } from "./core/alerts.ts";
 import { startInitiativeLoop } from "./core/initiative-loop.ts";
 import { createPinger } from "./core/ping.ts";
 import { cachedHealth } from "./core/health.ts";
+import { improveSources, startImproveLoop } from "./core/improve.ts";
 
 // Le journal ne garde jamais un secret en clair (jeton Telegram dans une erreur réseau, clé d'API…).
 installLogRedaction();
@@ -386,6 +387,11 @@ if (existsSync(watchdogNote)) {
 // Boucle d'initiatives : chaque proposition lancée est mesurée contre son critère, puis bilan par catégorie.
 const stopInitiatives = startInitiativeLoop(hub, claude.mode !== "none" ? claudeJudge : undefined);
 const stopAlerts = startAlerts({ store: alertStore, report: () => health(true), post: (text, urgent) => void hub.post(OWNER_CHAT, text, "system", urgent ? "alert" : "health") });
+// Auto-amélioration encadrée (1/3) : détection seule. Range les frictions récurrentes en fiches, sans rien proposer ni déployer.
+const stopImprove = startImproveLoop(
+  hub,
+  improveSources({ db: store.db, logFile: join(paths.root, "data", "logs", "clark.log"), alerts: () => alertStore.get(), stalled: () => hub.stalled() }),
+);
 const stopPing = pinger.start();
 const stopAutomations = startScheduler({ config, store, enqueue: hub.enqueue, automations: store.automations, launch: (a, slot) => launchAutomation(hub, a, { slot }) });
 // Tour de veille : propositions proactives, de jour, quand un moteur est connecté.
@@ -431,6 +437,7 @@ stopScheduler = () => {
   stopAlerts();
   stopPing();
   stopInitiatives();
+  stopImprove();
 };
 
 console.log(`[clark] démarré — moteur ${hub.engine().name} (${hub.engine().model}), ${store.count()} souvenirs`);

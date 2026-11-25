@@ -75,7 +75,7 @@ function diskFree(path: string): number | null {
 }
 
 /** La fin du journal (les derniers 400 ko), sans tout relire. */
-function logTail(file: string, max = 400_000): string {
+export function logTail(file: string, max = 400_000): string {
   let fd: number;
   try {
     fd = openSync(file, "r");
@@ -117,7 +117,12 @@ export function errorSignature(line: string): string {
   return createHash("sha1").update(key).digest("hex").slice(0, 10);
 }
 
-export function repeatedErrors(log: string): { text: string; count: number; signature: string }[] {
+/**
+ * Toutes les signatures d'erreur depuis le dernier démarrage, triées par fréquence, SANS troncature.
+ * `repeatedErrors` n'en garde que les 8 premières pour la page Santé ; l'auto-amélioration a besoin
+ * du relevé complet pour suivre une base de comparaison stable même quand une signature quitte le top 8.
+ */
+export function countErrors(log: string): { text: string; count: number; signature: string }[] {
   const start = log.lastIndexOf("[clark] démarré");
   const lines = (start >= 0 ? log.slice(start) : log).split("\n");
   const counts = new Map<string, { text: string; count: number; signature: string }>();
@@ -130,7 +135,11 @@ export function repeatedErrors(log: string): { text: string; count: number; sign
     if (e) e.count++;
     else counts.set(signature, { text, count: 1, signature });
   }
-  return [...counts.values()].sort((a, b) => b.count - a.count).slice(0, 8);
+  return [...counts.values()].sort((a, b) => b.count - a.count);
+}
+
+export function repeatedErrors(log: string): { text: string; count: number; signature: string }[] {
+  return countErrors(log).slice(0, 8);
 }
 
 export function healthReport(hub: Hub, src: HealthSources) {
