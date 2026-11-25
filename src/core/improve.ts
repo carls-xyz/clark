@@ -402,6 +402,10 @@ function makeErrorSource(logFile: string): (now: Date) => DayReading[] {
   let attributed = new Map<string, { count: number; example: string }>();
   let offset: number | null = null;
   let fileId: string | null = null;
+  // Le début du fichier : un journal remplacé ne commence pas par les mêmes octets. Sur Linux, un fichier
+  // supprimé puis recréé reprend souvent le même numéro d'inode : l'identité seule ne suffit pas.
+  let head: Buffer | null = null;
+  const HEAD_BYTES = 256;
   return (now: Date) => {
     const today = parisDay(now);
     if (day !== null && today !== day) attributed = new Map(); // nouveau jour : on repart de zéro
@@ -417,9 +421,15 @@ function makeErrorSource(logFile: string): (now: Date) => DayReading[] {
       const st = fstatSync(fd);
       const size = st.size;
       const id = `${st.dev}:${st.ino}`;
+      const start = Buffer.alloc(Math.min(HEAD_BYTES, size));
+      const startRead = start.length ? readSync(fd, start, 0, start.length, 0) : 0;
+      const nowHead = start.subarray(0, startRead);
+      // Même fichier si son début prolonge celui qu'on connaissait (un journal grandit, il ne réécrit pas son début).
+      const sameStart = head === null || (nowHead.length >= head.length ? nowHead.subarray(0, head.length).equals(head) : head.subarray(0, nowHead.length).equals(nowHead));
       if (offset === null) offset = Math.max(0, size - INITIAL_TAIL);
-      else if (id !== fileId || size < offset) offset = 0; // nouveau fichier (rotation) ou troncature en place
+      else if (id !== fileId || size < offset || !sameStart) offset = 0; // nouveau fichier (rotation) ou troncature en place
       fileId = id;
+      if (head === null || nowHead.length > head.length || !sameStart) head = Buffer.from(nowHead);
       if (size > offset) {
         const buf = Buffer.alloc(size - offset);
         const bytesRead = readSync(fd, buf, 0, buf.length, offset);
