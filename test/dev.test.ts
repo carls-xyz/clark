@@ -789,3 +789,54 @@ test("veille de la machine : le temps où le Mac dormait n'est pas du silence ; 
   await until(() => store.dev.get(r.id)!.status === "review");
   assert.equal(resumeDevTask(hub, r.id), "already");
 });
+
+test("binôme en désaccord : Clark résume, dit qui a raison, propose une retouche ; elle repart d'un clic", async () => {
+  const { arbiterPrompt, parseArbiter, arbitrate, arbiterOf } = await import("../src/dev/binome.ts");
+  assert.equal(parseArbiter("pas de json"), null);
+  assert.equal(parseArbiter('{"summary": "", "recommendation": "accepter"}'), null);
+  const parsed = parseArbiter('{"summary":"Reste la fenêtre du journal.","recommendation":"retoucher","retouch":"Suis le journal par position de lecture.","points":[{"point":"Fenêtre de 400 ko","side":"relecteur","why":"fausses récurrences"},{"point":"x","side":"???","why":""}]}');
+  assert.equal(parsed?.recommendation, "retoucher");
+  assert.deepEqual(parsed?.points.map((p) => p.side), ["relecteur", "entre les deux"]);
+  assert.equal(parseArbiter('{"summary":"ok","recommendation":"accepter","retouch":"inutile"}')?.retouch, "", "pas de retouche si on accepte");
+
+  const prompt = arbiterPrompt({ title: "Détection", instruction: "Fais la détection", summary: "DÉSACCORD : je garde les exemples", tests: JSON.stringify({ ok: true, round: 3 }), rounds: 3 }, [{ round: 3, approve: false, summary: "Reste un point", issues: [{ file: "src/core/improve.ts", problem: "texte libre persisté", fix: "libellés", severity: "bloquant" }], reviewer: "codex", at: "" }], "claude");
+  assert.match(prompt, /DÉSACCORD : je garde les exemples/);
+  assert.match(prompt, /\[bloquant\] src\/core\/improve\.ts : texte libre persisté/);
+  assert.match(prompt, /tous verts/);
+
+  // Une vraie tâche en désaccord : l'avis est rangé, puis effacé par la retouche lancée.
+  const dir = repo("arbitre");
+  const store = new Store(":memory:");
+  const journal = new TaskJournal(store.db);
+  const conversation = new Conversation(store.db);
+  const runs: string[] = [];
+  const fake = (async (deps: any, taskId: number, opts: RunOptions) => {
+    runs.push(opts.prompt);
+    writeFileSync(join(opts.cwd!, "a.txt"), `v${runs.length}\n`);
+    deps.journal.finish(taskId, "done", "Fait.\nBILAN : réussi", 0);
+    return { text: "fini", costUsd: 0, status: "done" };
+  }) as unknown as typeof executeTask;
+  const asked: string[] = [];
+  const judge = async (p: string) => {
+    asked.push(p);
+    return '{"summary":"Claude a raison sur les exemples, Codex sur la fenêtre du journal.","recommendation":"retoucher","retouch":"Suis le journal par position de lecture et teste le passage de minuit.","points":[{"point":"Fenêtre de 400 ko","side":"relecteur","why":"fausses récurrences"}]}';
+  };
+  const hub = createHub({ config, store, journal, conversation }, { execute: fake, executors: { claude: fake, codex: fake }, judge });
+  const p = (await addProject(hub, { name: "arbitre", path: dir })) as any;
+  const r = startDevTask(hub, { projectId: p.id, instruction: "Ajoute a.txt" }) as any;
+  await until(() => store.dev.get(r.id)!.status === "review");
+  store.dev.update(r.id, { reviewer: "codex", review_state: "disagree", review_rounds: 3 });
+  assert.equal(await arbitrate(hub, r.id), true);
+  const a = arbiterOf(store.dev.get(r.id)!);
+  assert.equal(a?.recommendation, "retoucher");
+  assert.match(a?.retouch ?? "", /position de lecture/);
+  assert.equal(asked.length, 1);
+
+  assert.equal(retouchDevTask(hub, r.id, a!.retouch), "done");
+  assert.equal(store.dev.get(r.id)!.arbiter, null, "nouvel essai : l'ancien avis disparaît");
+  await until(() => runs.length >= 2);
+  assert.match(runs.at(-1)!, /Suis le journal par position de lecture/);
+  // Plus en désaccord : pas d'avis possible.
+  await until(() => store.dev.get(r.id)!.status === "review");
+  assert.equal(await arbitrate(hub, r.id), false);
+});

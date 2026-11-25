@@ -472,6 +472,34 @@ function openPointsAttrs(t) {
   return ` data-open-points="${issues.length}" data-open-blocking="${blocking}" data-open-list="${esc(list)}"`;
 }
 
+/** Désaccord : l'avis de Clark (résumé, qui a raison, recommandation) et la retouche prête à lancer. */
+const ARBITER_SIDE = { auteur: "l'auteur a raison", relecteur: "le relecteur a raison", "entre les deux": "entre les deux" };
+function renderArbiter(t) {
+  const a = t.arbiter;
+  if (!a) {
+    return t.canArbitrate && t.status === "review"
+      ? `<div class="card-actions"><button type="button" class="btn secondary" data-dev-action="arbitrate">Demander l'avis de Clark</button></div>`
+      : "";
+  }
+  const points = a.points.length
+    ? `<ul class="review-issues">${a.points.map((p) => `<li><p class="review-issue-head"><span class="tag">${esc(ARBITER_SIDE[p.side] ?? p.side)}</span></p><p>${esc(p.point)}</p>${p.why ? `<p class="quiet">${esc(p.why)}</p>` : ""}</li>`).join("")}</ul>`
+    : "";
+  const retouch =
+    a.retouch && t.status === "review"
+      ? `<form class="dev-arbiter-retouch" data-dev-arbiter>
+          <label for="dev-arbiter-${t.id}">Retouche proposée (modifiable)</label>
+          <textarea id="dev-arbiter-${t.id}" name="instruction" rows="5">${esc(a.retouch)}</textarea>
+          <div class="card-actions"><button type="submit" class="btn primary">Lancer cette retouche</button></div>
+        </form>`
+      : "";
+  return `<section class="dev-arbiter" aria-label="Avis de Clark">
+    <p><strong>Avis de Clark</strong> · recommande : <strong>${esc(a.recommendation)}</strong></p>
+    <p>${esc(a.summary)}</p>
+    ${points}
+    ${retouch}
+  </section>`;
+}
+
 /** Binôme : qui écrit, qui relit, où en est la relecture, et ce qui s'est dit à chaque tour. */
 const SEVERITY = { bloquant: "bloquant", important: "important", mineur: "mineur" };
 function renderCrossReview(t) {
@@ -505,7 +533,8 @@ function renderCrossReview(t) {
   return `<div class="dev-binome${t.reviewState === "disagree" ? " is-disagree" : ""}">
     <p class="quiet">Écrite par <strong>${esc(author)}</strong> · relue par <strong>${esc(reviewer)}</strong></p>
     <p class="${t.reviewState === "disagree" ? "dev-stalled" : "quiet"}" role="status">${esc(state)}</p>
-    ${notes ? `<details class="goal-log"${t.reviewState === "disagree" ? " open" : ""}><summary>Relectures (${t.reviewNotes.length})</summary><ol class="dev-review-notes">${notes}</ol></details>` : ""}
+    ${t.reviewState === "disagree" ? renderArbiter(t) : ""}
+    ${notes ? `<details class="goal-log"${t.reviewState === "disagree" && !t.arbiter ? " open" : ""}><summary>Relectures (${t.reviewNotes.length})</summary><ol class="dev-review-notes">${notes}</ol></details>` : ""}
   </div>`;
 }
 

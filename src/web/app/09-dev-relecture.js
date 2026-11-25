@@ -358,6 +358,21 @@ side.addEventListener("submit", async (e) => {
     renderDev();
     return;
   }
+  // La retouche proposée par Clark sur un désaccord : envoyée comme une retouche ordinaire.
+  const arbiter = e.target.closest("[data-dev-arbiter]");
+  if (arbiter) {
+    e.preventDefault();
+    const instruction = arbiter.elements.instruction.value.trim();
+    if (!instruction) return arbiter.elements.instruction.focus();
+    arbiter.querySelectorAll("button, textarea").forEach((el) => (el.disabled = true));
+    try {
+      await post(`/api/dev/tasks/${arbiter.closest("[data-dev]").dataset.dev}`, { action: "retouch", instruction });
+    } catch (err) {
+      arbiter.querySelectorAll("button, textarea").forEach((el) => (el.disabled = false));
+      arbiter.insertAdjacentHTML("beforeend", `<p class="inline-error" role="alert">${esc(err.message)}</p>`);
+    }
+    return;
+  }
   const retouch = e.target.closest("[data-dev-retouch]");
   if (!retouch) return;
   e.preventDefault();

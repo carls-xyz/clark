@@ -27,6 +27,7 @@ function renderDetailView() {
   }
   const keep = [
     ...[...root.querySelectorAll("[data-dev-retouch]")].filter((f) => f.elements.instruction.value || f.contains(document.activeElement)).map((f) => `[data-dev="${f.closest("[data-dev]").dataset.dev}"] [data-dev-retouch]`),
+    ...[...root.querySelectorAll("[data-dev-arbiter]")].filter((f) => f.contains(document.activeElement)).map((f) => `[data-dev="${f.closest("[data-dev]").dataset.dev}"] [data-dev-arbiter]`),
     ...[...root.querySelectorAll("[data-goal-answer]")].filter((f) => f.elements.note.value || f.contains(document.activeElement)).map((f) => `[data-goal="${f.closest("[data-goal]").dataset.goal}"] [data-goal-answer]`),
     // Un commentaire en cours d'écriture, un « Réessayer » ouvert, une décision en cours : gardés tels quels.
     ...(commentDraft && root.querySelector("[data-comment-form]") ? [`[data-dev="${commentDraft.task}"] [data-comment-form]`] : []),

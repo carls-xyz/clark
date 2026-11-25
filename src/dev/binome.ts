@@ -203,13 +203,108 @@ export async function crossReview(
   if (round >= BINOME_ROUNDS) {
     store.dev.update(id, { status: "review", review_state: "disagree" });
     if (await deps.ready?.(id)) return;
+    // Clark lit les deux côtés et propose une retouche, avant de te prévenir.
+    const advised = await arbitrate(hub, id);
+    const a = advised ? arbiterOf(store.dev.get(id)!) : null;
     const open = verdict.issues.slice(0, 3).map((i) => `- ${i.file ? `${i.file} : ` : ""}${short(i.problem, 160)}`).join("\n");
-    await deps.announce(`Tâche dev ${name} : ${ENGINE_NAME[author]} et ${ENGINE_NAME[reviewer]} ne sont pas d'accord après ${round} tours. À toi de trancher dans Dev :\n${open}`);
+    await deps.announce(
+      a
+        ? `Tâche dev ${name} : ${ENGINE_NAME[author]} et ${ENGINE_NAME[reviewer]} ne sont pas d'accord après ${round} tours.\n\n${a.summary}\n\nMon avis : ${a.recommendation}${a.retouch ? " — une retouche est prête dans Dev, tu la lances d'un clic" : ""}.`
+        : `Tâche dev ${name} : ${ENGINE_NAME[author]} et ${ENGINE_NAME[reviewer]} ne sont pas d'accord après ${round} tours. À toi de trancher dans Dev :\n${open}`,
+    );
     return;
   }
   // Pas encore : l'auteur corrige (sa conversation garde le contexte), puis une nouvelle relecture.
   await deps.runTurn(hub, id, fixPrompt(id, reviewer, verdict, round));
 }
+
+// ── Arbitrage d'un désaccord ─────────────────────────────────────────────────
+
+export type ArbiterPoint = { point: string; side: "auteur" | "relecteur" | "entre les deux"; why: string };
+export type Arbiter = { summary: string; recommendation: "accepter" | "retoucher" | "jeter"; retouch: string; points: ArbiterPoint[]; at: string };
+
+/**
+ * Après 3 tours sans accord, Clark lit les deux côtés et propose : un résumé court, qui a raison point par
+ * point, une recommandation, et une retouche prête à lancer. L'utilisateur garde la décision.
+ */
+export function arbiterPrompt(t: Pick<DevTask, "title" | "instruction" | "summary" | "tests" | "rounds">, notes: ReviewNote[], author: EngineName): string {
+  const reviewer = ENGINE_NAME[otherEngine(author)];
+  const rounds = notes
+    .map((n) => `Tour ${n.round} — ${n.approve ? "approuvé" : `${n.issues.length} point(s)`} : ${short(n.summary, 500)}\n${n.issues.map((i) => `  - [${i.severity}] ${i.file ? `${i.file} : ` : ""}${short(i.problem, 500)}${i.fix ? ` → ${short(i.fix, 400)}` : ""}`).join("\n")}`)
+    .join("\n");
+  return `Tu arbitres un désaccord entre deux agents de code, pour Charles, qui décidera. Sois factuel, court, et juge sur le fond : sécurité et justesse d'abord, pas qui parle le plus.
+
+Sous-tâche : « ${t.title} »
+${short(t.instruction, 2500)}
+
+${testsForReview(t)}
+
+Relectures de ${reviewer} (le relecteur), tour par tour :
+${rounds}
+
+Réponse de ${ENGINE_NAME[author]} (l'auteur) après le dernier tour, avec ses désaccords :
+${short(t.summary ?? "(rien)", 5000)}
+
+Réponds uniquement par ce JSON :
+{"summary": "2 ou 3 phrases : où ils en sont, ce qui reste vraiment ouvert", "points": [{"point": "le point ouvert, en une phrase", "side": "auteur|relecteur|entre les deux", "why": "pourquoi, en une phrase"}], "recommendation": "accepter|retoucher|jeter", "retouch": "si retoucher : la consigne exacte à donner à l'auteur, concrète (fichiers, comportement attendu, test à ajouter), qui règle les points où le relecteur a raison et tranche ceux entre les deux ; sinon vide"}
+« accepter » seulement s'il ne reste rien d'important où le relecteur a raison. Au plus 4 points.`;
+}
+
+export function parseArbiter(text: string | null | undefined): Omit<Arbiter, "at"> | null {
+  if (!text) return null;
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  let d: any;
+  try {
+    d = JSON.parse(text.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+  const rec = ["accepter", "retoucher", "jeter"].includes(d?.recommendation) ? d.recommendation : null;
+  const summary = String(d?.summary ?? "").trim();
+  if (!rec || !summary) return null;
+  const points: ArbiterPoint[] = (Array.isArray(d.points) ? d.points : [])
+    .filter((p: any) => typeof p?.point === "string" && p.point.trim())
+    .slice(0, 4)
+    .map((p: any) => ({
+      point: short(String(p.point).trim(), 300),
+      side: p.side === "auteur" || p.side === "relecteur" ? p.side : "entre les deux",
+      why: short(String(p.why ?? "").trim(), 300),
+    }));
+  const retouch = rec === "retoucher" ? short(String(d.retouch ?? "").trim(), 3000) : "";
+  // Une recommandation de retouche sans consigne ne sert à rien : on la garde, mais en « à toi de voir ».
+  return { summary: short(summary, 600), recommendation: rec === "retoucher" && !retouch ? "retoucher" : rec, retouch, points };
+}
+
+/** Demande l'avis de Clark sur un désaccord et le range dans la tâche. false sans modèle ou sur une réponse illisible. */
+export async function arbitrate(hub: Hub, id: number): Promise<boolean> {
+  const { store } = hub.deps;
+  const t = store.dev.get(id);
+  if (!t || !hub.judge || t.status !== "review" || t.review_state !== "disagree") return false;
+  const author = (t.engine === "codex" ? "codex" : "claude") as EngineName;
+  try {
+    const a = parseArbiter(await hub.judge(arbiterPrompt(t, notesOf(t), author)));
+    if (!a) return false;
+    // La tâche a pu bouger pendant l'arbitrage (acceptée, retouchée) : on ne range l'avis que si elle attend toujours.
+    const now = store.dev.get(id);
+    if (!now || now.status !== "review" || now.review_state !== "disagree") return false;
+    store.dev.update(id, { arbiter: JSON.stringify({ ...a, at: new Date().toISOString() }) });
+    hub.touch();
+    return true;
+  } catch (err) {
+    console.warn(`[clark] arbitrage de la tâche dev #${id} impossible :`, err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
+export const arbiterOf = (t: Pick<DevTask, "arbiter">): Arbiter | null => {
+  try {
+    return t.arbiter ? (JSON.parse(t.arbiter) as Arbiter) : null;
+  } catch {
+    return null;
+  }
+};
 
 /** Pour l'annonce dans la conversation de l'utilisateur. */
 export const announceDev = (hub: Hub) => (text: string) => hub.post(OWNER_CHAT, text, "system", "dev");

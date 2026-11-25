@@ -851,6 +851,8 @@ export function createHub(
 
     /** Un changement hors de la base (fichiers de commandes) : l'interface se met à jour. */
     touch: () => changed(),
+    /** Le modèle rapide sans outils (arbitrage d'un désaccord du binôme, vérifications). Absent sans moteur Claude. */
+    judge: opts.judge,
 
     /** Les tâches silencieuses (voir checkStalls), pour « À toi ». */
     stalled(): { taskId: number; since: number; stoppable: boolean }[] {

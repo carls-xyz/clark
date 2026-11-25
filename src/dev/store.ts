@@ -209,6 +209,8 @@ export type DevTask = {
   review_state: string | null;
   /** L'agent s'est dit bloqué (« BILAN : bloqué — … ») : ce qu'il attend de l'utilisateur. Effacé à la reprise. */
   blocked_on: string | null;
+  /** Désaccord du binôme : l'avis de Clark (JSON : résumé, recommandation, retouche proposée). Effacé à la retouche. */
+  arbiter: string | null;
   /** JSON : un élément par tour de relecture { round, reviewer, approve, issues, summary }. */
   review_notes: string | null;
   /** Relances automatiques faites après la limite d'étapes d'un tour (3 au plus par consigne). */
@@ -357,6 +359,7 @@ export class DevStore {
       ["review_state", "TEXT"],
       ["review_notes", "TEXT"],
       ["blocked_on", "TEXT"],
+      ["arbiter", "TEXT"],
       // Tâches longues : relances automatiques après la limite d'étapes, corrections après des tests rouges.
       ["auto_continues", "INTEGER NOT NULL DEFAULT 0"],
       ["test_fixes", "INTEGER NOT NULL DEFAULT 0"],
@@ -631,7 +634,7 @@ export class DevStore {
         DevTask,
         | "status" | "error" | "summary" | "diff_stat" | "commit" | "tests" | "base_commit" | "rounds" | "pr_url" | "instruction" | "branch" | "worktree"
         | "engine" | "model" | "effort" | "attempts" | "depends_on" | "existing_branch" | "pr_of" | "issue_number" | "issue_url" | "pr_status" | "setup_log" | "at_round" | "agent_note" | "compare_with" | "pending_turn" | "merge_branch"
-        | "reviewer" | "review_rounds" | "review_state" | "review_notes" | "auto_continues" | "test_fixes" | "autopilot" | "blocked_on"
+        | "reviewer" | "review_rounds" | "review_state" | "review_notes" | "auto_continues" | "test_fixes" | "autopilot" | "blocked_on" | "arbiter"
       >
     >,
   ) {
