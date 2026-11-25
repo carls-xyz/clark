@@ -387,7 +387,7 @@ if (existsSync(watchdogNote)) {
 // Boucle d'initiatives : chaque proposition lancée est mesurée contre son critère, puis bilan par catégorie.
 const stopInitiatives = startInitiativeLoop(hub, claude.mode !== "none" ? claudeJudge : undefined);
 const stopAlerts = startAlerts({ store: alertStore, report: () => health(true), post: (text, urgent) => void hub.post(OWNER_CHAT, text, "system", urgent ? "alert" : "health") });
-// Auto-amélioration encadrée (1/3) : détection seule. Range les frictions récurrentes en fiches, sans rien proposer ni déployer.
+// Auto-amélioration encadrée : range les frictions récurrentes en fiches et propose une correction à l'utilisateur.
 const stopImprove = startImproveLoop(
   hub,
   improveSources({ db: store.db, logFile: join(paths.root, "data", "logs", "clark.log"), alerts: () => alertStore.get(), stalled: () => hub.stalled() }),

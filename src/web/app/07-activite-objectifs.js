@@ -249,6 +249,7 @@ function waitingCount() {
     state.checks.length +
     state.proposals.length +
     (state.initiatives ?? []).length +
+    (state.improvements ?? []).length +
     (state.goals ?? []).filter((g) => g.status === "waiting").length +
     (state.gates ?? []).length +
     (state.stalled ?? []).length +
@@ -332,6 +333,40 @@ side.addEventListener("click", async (e) => {
   }
 });
 
+function improvementCards(list) {
+  return list.map((i) => `<div class="card" data-improvement="${i.id}" data-proposed-at="${esc(i.proposedAt)}">
+    <p class="card-title">${esc(i.title)}</p>
+    ${i.example ? `<p class="card-note">${esc(i.example)}</p>` : ""}
+    <p class="card-note">${esc(i.measurement)}</p>
+    <div class="card-actions">
+      <button type="button" class="btn primary" data-improvement-action="launch">Lancer</button>
+      <button type="button" class="btn ghost" data-improvement-action="snooze">Pas maintenant</button>
+      <button type="button" class="btn ghost" data-improvement-action="dismiss">Ignorer</button>
+    </div>
+    <p class="inline-error" role="alert" hidden></p>
+  </div>`).join("");
+}
+
+$("#inbox").addEventListener("click", async (e) => {
+  const button = e.target.closest("[data-improvement-action]");
+  if (!button || button.disabled) return;
+  const card = button.closest("[data-improvement]");
+  const buttons = card.querySelectorAll("button");
+  const error = card.querySelector(".inline-error");
+  error.hidden = true;
+  buttons.forEach((b) => (b.disabled = true));
+  try {
+    await post(`/api/improvements/${card.dataset.improvement}`, {
+      action: button.dataset.improvementAction,
+      proposedAt: card.dataset.proposedAt,
+    });
+  } catch (err) {
+    error.textContent = err.message;
+    error.hidden = false;
+    buttons.forEach((b) => (b.disabled = false));
+  }
+});
+
 function renderInbox() {
   const { checks, proposals } = state;
   const dev = state.dev ?? { tasks: [], groups: [] };
@@ -383,6 +418,8 @@ function renderInbox() {
   if (proposals.length) html += sub("proposals", "Souvenirs à confirmer", proposals.length, proposals.map(renderProposal).join(""));
   const initiatives = state.initiatives ?? [];
   if (initiatives.length) html += sub("initiatives", "Propositions de Clark", initiatives.length, initiativeCards(initiatives));
+  const improvements = state.improvements ?? [];
+  if (improvements.length) html += sub("improvements", "Auto-amélioration", improvements.length, improvementCards(improvements));
   const toRate = state.initiativeLoop?.feedback ?? [];
   if (toRate.length) html += sub("initiatives-feedback", "C'était utile ?", toRate.length, feedbackCards(toRate));
   // Le filtre écarte des tâches dev : le compte suit ce qui est affiché.

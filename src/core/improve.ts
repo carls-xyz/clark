@@ -3,10 +3,12 @@ import type { DatabaseSync } from "node:sqlite";
 import { countErrors, errorSignature } from "./health.ts";
 import { redactSecrets } from "./redact.ts";
 import type { AlertState } from "./alerts.ts";
+import { OWNER_CHAT } from "./conversation.ts";
 import type { Hub } from "./hub.ts";
+import type { startDevGroup } from "../dev/groups.ts";
 
 /**
- * Auto-amélioration encadrée de Clark, phase 1/3 : DÉTECTER.
+ * Auto-amélioration encadrée de Clark : détecter, puis proposer.
  *
  * On relève en continu quatre sources de friction — erreurs répétées du journal, tâches en échec
  * par type, alertes de santé répétées, agents silencieux — et on range, jour par jour (jour réel à
@@ -14,8 +16,7 @@ import type { Hub } from "./hub.ts";
  * Quand une même signature revient assez souvent et sur plusieurs jours (règle de RÉCURRENCE), on
  * ouvre une fiche « detected ».
  *
- * Ici on ne fait QUE détecter : on ne propose rien et on ne déploie rien (sous-tâches 2 et 3). Rien
- * de réel n'est stocké sans passer par redactSecrets : jamais de contenu de page, de .env, de clé
+ * Rien de réel n'est stocké sans passer par redactSecrets : jamais de contenu de page, de .env, de clé
  * ni de jeton — seulement une ligne d'erreur courte et expurgée, et des titres tirés de libellés
  * maîtrisés.
  */
@@ -27,14 +28,12 @@ export type ImproveSourceKind = "error" | "task" | "alert" | "silent";
 export const IMPROVE_MIN_OCCURRENCES = 5;
 export const IMPROVE_MIN_DAYS = 2;
 export const IMPROVE_WINDOW_DAYS = 7;
-/** Une fiche mise en sommeil redevient proposable après 3 jours (helper isSnoozed ; utilisé en phase 2). */
+/** Une fiche mise en sommeil redevient proposable après 3 jours. */
 export const IMPROVE_SNOOZE_DAYS = 3;
 
-/**
- * États d'une fiche. Ici on ne produit que 'detected' (et on respecte 'dismissed'/'snoozed'/'done'
- * posés plus tard). Les autres servent aux sous-tâches suivantes.
- */
 export type FicheStatus = "detected" | "proposed" | "snoozed" | "dismissed" | "launched" | "merged" | "deploying" | "watching" | "done";
+export type ImprovementAction = "launch" | "snooze" | "dismiss";
+export const IMPROVEMENT_TITLE_PREFIX = "Auto-amélioration :";
 
 /** Mesure « avant » : les occurrences par jour sur la fenêtre, et leur total. */
 export type Before = { days: { day: string; count: number }[]; total: number };
@@ -238,6 +237,7 @@ export class ImproveStore {
   constructor(db: DatabaseSync) {
     this.db = db;
     db.exec(`
+      CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT (datetime('now')));
       CREATE TABLE IF NOT EXISTS improve_signatures (
         day       TEXT NOT NULL,
         source    TEXT NOT NULL DEFAULT 'error',
@@ -324,6 +324,42 @@ export class ImproveStore {
     return this.db.prepare("SELECT * FROM improvements ORDER BY updated_at DESC").all() as Improvement[];
   }
 
+  get(id: number): Improvement | undefined {
+    return this.db.prepare("SELECT * FROM improvements WHERE id = ?").get(id) as Improvement | undefined;
+  }
+
+  /** Réserve une proposition et son quota journalier dans la même transaction. */
+  propose(now: Date): Improvement | undefined {
+    const day = parisDay(now);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const last = this.db.prepare("SELECT value FROM app_settings WHERE key = 'improve_proposed_day'").get() as { value: string } | undefined;
+      let proposed: Improvement | undefined;
+      if (last?.value !== day && !this.fiches(["proposed", "launched", "merged", "deploying", "watching"]).length) {
+        const candidate = this.fiches(["detected", "snoozed"])
+          .filter((f) => !isSnoozed(f, now))
+          .sort((a, b) => improvementBefore(b).total - improvementBefore(a).total || a.id - b.id)[0];
+        if (candidate) {
+          this.setStatus(candidate.source, candidate.signature, "proposed", now);
+          this.db.prepare(`INSERT INTO app_settings (key, value) VALUES ('improve_proposed_day', ?)
+            ON CONFLICT DO UPDATE SET value = excluded.value, updated_at = datetime('now')`).run(day);
+          proposed = this.get(candidate.id);
+        }
+      }
+      this.db.exec("COMMIT");
+      return proposed;
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
+  }
+
+  decide(id: number, status: "launched" | "snoozed" | "dismissed", now: Date, groupId: number | null = null): boolean {
+    const at = toSqlUtc(now);
+    return this.db.prepare("UPDATE improvements SET status = ?, decided_at = ?, updated_at = ?, group_id = ? WHERE id = ? AND status = 'proposed'")
+      .run(status, at, at, groupId, id).changes === 1;
+  }
+
   /** Crée ou rafraîchit une fiche. Titre et exemples sont expurgés avant d'être stockés (défense). */
   upsertFiche(f: { signature: string; source: ImproveSourceKind; title: string; examples: string[]; before: Before; status?: FicheStatus }) {
     const status = f.status ?? "detected";
@@ -348,6 +384,75 @@ export class ImproveStore {
       this.db.prepare(`UPDATE improvements SET status = ?, updated_at = ? WHERE source = ? AND signature = ?`).run(status, at, source, signature);
     }
   }
+}
+
+function improvementBefore(fiche: Improvement): Before {
+  return JSON.parse(fiche.before) as Before;
+}
+
+export function improvementProposal(fiche: Improvement) {
+  const [example] = JSON.parse(fiche.examples) as string[];
+  const before = improvementBefore(fiche);
+  const measurement = `Avant (${before.total} occurrences) : ${before.days.map(({ day, count }) => `${day} : ${count}`).join(" · ")}.`;
+  return { id: fiche.id, title: fiche.title, example, measurement, proposedAt: fiche.updated_at };
+}
+
+export function proposeOne(hub: Hub, now: Date): Improvement | undefined {
+  const fiche = hub.deps.store.improve.propose(now);
+  if (!fiche) return;
+  const { title, example, measurement, id, proposedAt } = improvementProposal(fiche);
+  void hub.post(OWNER_CHAT, `${IMPROVEMENT_TITLE_PREFIX} ${title}\n${example ? `${example}\n` : ""}${measurement}`, "system", "health", { id, proposedAt });
+  return fiche;
+}
+
+export function launchImprovement(hub: Hub, fiche: Improvement, now: Date, start: typeof startDevGroup): ReturnType<typeof startDevGroup> {
+  const { store } = hub.deps;
+  const project = store.dev.projects().find((p) => p.name === "clark");
+  if (!project) return { ok: false, error: "Projet dev « clark » introuvable." } as const;
+  const { measurement } = improvementProposal(fiche);
+  const examples = (JSON.parse(fiche.examples) as string[]).join("\n");
+  const result = start(hub, {
+    projectId: project.id,
+    binome: true,
+    title: `${IMPROVEMENT_TITLE_PREFIX} ${fiche.title}`,
+    instruction: `${fiche.title} (source : ${fiche.source}, signature : ${fiche.signature})
+Exemples expurgés :
+${examples}
+${measurement}
+
+Ajoute un TEST qui reproduit le problème et passe après le correctif. Critère : la signature d'erreur ne doit plus réapparaître.
+Lis AGENTS.md. Aucun secret dans les fichiers versionnés, les logs ou les messages. Respecte la lecture seule et les accords de Charles. Aucun ajout silencieux de permission. Clark ne modifie jamais ses propres permissions de lui-même.
+Garde le pilote automatique désactivé. La PR attend les accords de Charles et le binôme ne la fusionne jamais.`,
+  });
+  // Les groupes et leurs sous-tâches sont créés avec autopilot = 0 (valeur par défaut du DevStore).
+  if (result.ok === true) store.improve.decide(fiche.id, "launched", now, result.id);
+  return result;
+}
+
+const SENSITIVE_FILES = new Set([
+  "src/browser/sensitive.ts",
+  "src/browser/service.ts",
+  "src/core/agent.ts",
+  "src/core/autonomy.ts",
+  "src/core/hub.ts",
+  "src/core/internal.ts",
+  "src/dev/autopilot.ts",
+  "src/gateway/access.ts",
+  "src/gateway/telegram.ts",
+  "src/gateway/web.ts",
+  "src/terminal/terminal.ts",
+  "src/web/app/03-focus-cartes.js",
+  "src/web/app/07-activite-objectifs.js",
+  "src/web/app/25-ordinateur.js",
+]);
+
+/** Fichiers du contrôle des sites sensibles, des accords ou des permissions. */
+export function sensitivePaths(files: string[]): string[] {
+  return files.filter((file) =>
+    file.startsWith("src/policy/") ||
+    SENSITIVE_FILES.has(file) ||
+    /(?:^|[/._-])(?:approvals?|accords?|permissions?)(?:$|[/._-])/i.test(file),
+  );
 }
 
 /** Range dans la base les relevés datés des quatre sources (chacun sur son jour réel). */
@@ -559,7 +664,7 @@ function makeSilentSource(stalled: () => { taskId: number; since: number }[]): (
 
 /**
  * Boucle légère : à chaque passage, range les relevés datés du moment et rafraîchit les fiches
- * 'detected'. Pour l'instant elle ne propose rien et ne notifie rien (ce sera la sous-tâche 2).
+ * 'detected', puis propose au plus une fiche par jour.
  * Minuterie .unref().
  */
 export function startImproveLoop(hub: Hub, sources: ImproveSources, now: () => Date = () => new Date(), everyMs = 5 * 60_000): () => void {
@@ -569,8 +674,9 @@ export function startImproveLoop(hub: Hub, sources: ImproveSources, now: () => D
       const n = now();
       recordSignatures(store, sources, n);
       refreshFiches(store, n);
+      proposeOne(hub, n);
     } catch (err) {
-      console.warn("[clark] auto-amélioration : détection impossible :", err instanceof Error ? err.message : err);
+      console.warn("[clark] auto-amélioration : passage impossible :", err instanceof Error ? err.message : err);
     }
   };
   const timer = setInterval(tick, everyMs);

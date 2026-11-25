@@ -1,5 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
 
+/** Clark n'a qu'un interlocuteur : l'utilisateur. Une seule conversation, quel que soit le canal. */
+export const OWNER_CHAT = 1;
+
 /**
  * Fil de la conversation, tel que l'utilisateur le voit : ses messages, les réponses
  * de Clark et les notes du système (reprise, validation…). Il est durable, pour
