@@ -731,6 +731,65 @@ test("binôme : le relecteur reçoit les vrais tests de Clark et les règles du 
   assert.match(author, /modifie-le et signale-le/);
 });
 
+test("veille de la machine : le temps où le Mac dormait n'est pas du silence ; « Reprendre » relance une tâche arrêtée", async () => {
+  const { createSleepWatch } = await import("../src/core/sleep.ts");
+  const { resumeDevTask } = await import("../src/dev/runner.ts");
+  // Le minuteur voit un trou de 10 min : une veille ; des battements réguliers n'en sont pas.
+  let now = 1_000_000;
+  const watch = createSleepWatch({ now: () => now, timer: false });
+  now += 15_000;
+  watch.tick();
+  now += 10 * 60_000;
+  watch.tick();
+  assert.equal(watch.sleptBetween(0, now), 10 * 60_000 + 0);
+  assert.equal(watch.sleptBetween(now - 60_000, now), 60_000, "seule la part de veille dans l'intervalle compte");
+
+  // Agent silencieux depuis 2 min, mais la machine a dormi tout ce temps : pas signalé.
+  process.env.CLARK_STALL_MINUTES = "1";
+  try {
+    const store = new Store(":memory:");
+    const journal = new TaskJournal(store.db);
+    const conversation = new Conversation(store.db);
+    const slept = { tick() {}, sleptBetween: (from: number, to: number) => to - from, stop() {} };
+    const execute = (async (deps: any, taskId: number) => {
+      deps.journal.setStatus(taskId, "running");
+      await new Promise<void>((r) => onStop(taskId, r));
+      deps.journal.finish(taskId, "failed", "Arrêté", 0);
+      return { text: "Arrêté", costUsd: 0, status: "failed" };
+    }) as unknown as typeof executeTask;
+    const hub = createHub({ config, store, journal, conversation }, { execute, sleepWatch: slept });
+    void hub.enqueue(OWNER_CHAT, "Une tâche pendant que le Mac dort", "chat", "web");
+    await until(() => journal.unfinished().some((t) => t.status === "running"));
+    const task = journal.unfinished()[0];
+    store.db.prepare("UPDATE tasks SET updated_at = datetime('now', '-2 minutes') WHERE id = ?").run(task.id);
+    hub.checkStalls();
+    assert.equal(hub.stalled().length, 0, "la machine dormait");
+    assert.ok(hub.sleptSinceActivity(task.id) >= 110_000);
+    assert.equal(conversation.recent(OWNER_CHAT).filter((m) => /ne donne plus signe de vie/.test(m.text)).length, 0);
+    hub.stopTask(task.id);
+  } finally {
+    delete process.env.CLARK_STALL_MINUTES;
+  }
+
+  // « Reprendre » : une tâche dev arrêtée repart dans sa copie, avec la consigne de finir.
+  const dir = repo("reprise");
+  let turn = 0;
+  const { hub, store, runs } = setup((cwd) => {
+    turn++;
+    writeFileSync(join(cwd, "a.txt"), `tour ${turn}\n`);
+    return turn === 1 ? { status: "failed" } : {};
+  });
+  const p = (await addProject(hub, { name: "reprise", path: dir })) as any;
+  const r = startDevTask(hub, { projectId: p.id, instruction: "Ajoute a.txt proprement" }) as any;
+  await until(() => store.dev.get(r.id)!.status === "failed");
+  const before = runs.length;
+  assert.equal(resumeDevTask(hub, r.id), "done");
+  await until(() => runs.length > before);
+  assert.match(runs.at(-1)!.prompt, /Reprends où tu en étais/);
+  await until(() => store.dev.get(r.id)!.status === "review");
+  assert.equal(resumeDevTask(hub, r.id), "already");
+});
+
 test("binôme en désaccord : Clark résume, dit qui a raison, propose une retouche ; elle repart d'un clic", async () => {
   const { arbiterPrompt, parseArbiter, arbitrate, arbiterOf } = await import("../src/dev/binome.ts");
   assert.equal(parseArbiter("pas de json"), null);

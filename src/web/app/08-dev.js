@@ -568,14 +568,20 @@ function renderDevTask(t, nested = false) {
     ${t.prOf ? `<p class="quiet">Suivi de la PR${t.pr ? ` <a href="${esc(t.pr)}" target="_blank" rel="noreferrer noopener">${esc(t.pr.replace(/^.*\/pull\//, "#"))}</a>` : ""}, sur sa branche : accepter met la PR à jour (sans forcer).</p>` : ""}
     ${t.status === "waiting" ? waitingFor(t) : t.dependsOn?.length ? `<p class="quiet">Part du travail de ${t.dependsOn.map((d) => `#${d}`).join(", ")}.</p>` : ""}
     ${t.reviewer ? renderCrossReview(t) : ""}
-    ${t.stalledSince ? `<p class="dev-stalled" role="status">Silencieux depuis ${minutesSince(t.stalledSince)} min : l'agent est peut-être bloqué.</p>` : ""}
+    ${
+      t.stalledSince
+        ? `<p class="dev-stalled" role="status">Silencieux depuis ${minutesSince(t.stalledSince)} min : l'agent est peut-être bloqué.</p>`
+        : t.sleptMinutes
+          ? `<p class="quiet" role="status">Le Mac était en veille (${t.sleptMinutes} min) : l'agent reprend à son réveil, rien à faire.</p>`
+          : ""
+    }
     ${t.status === "working" && t.stoppable ? `<div class="card-actions"><button type="button" class="btn ghost" data-dev-action="stop"${t.waiting ? " data-waiting" : ""}>${t.waiting ? "Annuler" : "Arrêter l'agent"}</button></div>` : ""}
     ${t.status === "working" ? (t.waiting ? `<p class="quiet">En attente d'un agent libre (${state.dev?.parallel ?? 2} en même temps au plus).</p>` : `${t.checkpoint ? `<p class="checkpoint solo">${esc(t.checkpoint)}</p>` : ""}${t.steps.length ? renderSteps(t.steps) : `<p class="quiet">L'agent lit le projet.</p>`}`) : ""}
     ${
       t.blockedOn
         ? `<div class="dev-blocked" role="status"><p><strong>L'agent attend ton accord</strong> : ${esc(t.blockedOn)}</p><div class="card-actions"><button type="button" class="btn primary" data-dev-action="unblock">Autoriser et reprendre</button><button type="button" class="btn ghost" data-dev-action="discard">Jeter</button></div><p class="quiet">Ou écris une autre consigne dans le champ Retouche.</p></div>`
         : t.error
-          ? `<p class="goal-reason">${esc(t.error)}</p>`
+          ? `<p class="goal-reason">${esc(t.error)}</p>${t.status === "failed" ? `<div class="card-actions"><button type="button" class="btn primary" data-dev-action="resume">Reprendre</button></div>` : ""}`
           : ""
     }
     ${/* Les actions en haut, sous l'état : sur une longue tâche, elles ne se perdent plus sous le résumé et le diff. */ ""}
