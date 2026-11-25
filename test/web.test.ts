@@ -23,6 +23,7 @@ import { createHub, OWNER_CHAT } from "../src/core/hub.ts";
 import { startWeb } from "../src/gateway/web.ts";
 import { Store } from "../src/memory/store.ts";
 import { TaskJournal } from "../src/tasks/journal.ts";
+import { detectMerges } from "../src/core/improve-deploy.ts";
 
 const config = (port: number): Config => ({
   telegram: null,
@@ -396,6 +397,58 @@ test("vision Claude : le serveur MCP en processus reçoit la vraie image", async
     await sdk.close();
     await browser.close();
     store.db.close();
+  }
+});
+
+test("web : une fiche fusionnée s'affiche avec son bouton, et le POST réel déclenche le déploiement branché", async () => {
+  // Hermétique : on ne dépend pas (ni ne scanne) le dossier de skills réel de la machine — sans rapport
+  // avec ce test, et potentiellement volumineux ou illisible selon l'environnement.
+  const skillsDir = mkdtempSync(join(tmpdir(), "clark-web-skills-"));
+  const savedSkills = process.env.CLARK_CLAUDE_SKILLS_DIR;
+  process.env.CLARK_CLAUDE_SKILLS_DIR = skillsDir;
+  const { port, web, hub, store } = await setup();
+  try {
+    // On amène une fiche jusqu'à 'merged' (PR fusionnée) : c'est l'état qui fait apparaître « Déployer ».
+    const now = new Date("2026-11-25T10:00:00Z");
+    store.improve.upsertFiche({
+      signature: "timeout", source: "error", title: "Correctif timeout", examples: ["timeout"],
+      before: { days: [{ day: "2026-11-24", count: 7 }], total: 7 }, status: "proposed",
+    });
+    const fid = store.improve.fiche("error", "timeout")!.id;
+    const projectId = store.dev.addProject({ name: "clark-timeout", path: "/clark-timeout", baseBranch: "main" });
+    const groupId = store.dev.createGroup({ projectId, title: "Auto-amélioration : timeout", instruction: "x", engine: "claude", planWorktree: "/plan" });
+    store.dev.updateGroup(groupId, { pr_status: JSON.stringify({ state: "MERGED", comments: [], seen: [] }), pr_url: "https://github.com/x/y/pull/9" });
+    store.improve.decide(fid, "launched", now, groupId);
+    detectMerges(hub, now);
+
+    // Ce que l'interface lit pour dessiner la carte + le bouton : /api/state expose la fiche 'merged'.
+    const state = await call(port, "/api/state");
+    assert.equal(state.status, 200);
+    const card = (state.body.improvements as any[]).find((i) => i.id === fid);
+    assert.ok(card, "la fiche fusionnée figure dans l'état");
+    assert.equal(card.status, "merged");
+    assert.equal(card.prUrl, "https://github.com/x/y/pull/9");
+
+    // Déploiement branché (ce que fait l'index au démarrage) : on l'espionne.
+    let deployed = 0;
+    hub.setImproveDeploy((id) => { deployed = id; return Promise.resolve("done"); });
+
+    // Le VRAI POST de la route, tel que le bouton l'envoie.
+    const res = await call(port, `/api/improvements/${fid}`, { method: "POST", headers: json(port), body: { action: "deploy" } });
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, { ok: true });
+    assert.equal(deployed, fid, "la route a bien appelé le déploiement avec l'id de la fiche");
+
+    // Un déploiement refusé par le module remonte en 409 (le bouton ne « réussit » pas en silence).
+    hub.setImproveDeploy(() => Promise.resolve({ error: "Une autre amélioration est déjà en observation." }));
+    const refused = await call(port, `/api/improvements/${fid}`, { method: "POST", headers: json(port), body: { action: "deploy" } });
+    assert.equal(refused.status, 409);
+    assert.equal(refused.body.error, "Une autre amélioration est déjà en observation.");
+  } finally {
+    await web.close();
+    if (savedSkills === undefined) delete process.env.CLARK_CLAUDE_SKILLS_DIR;
+    else process.env.CLARK_CLAUDE_SKILLS_DIR = savedSkills;
+    rmSync(skillsDir, { recursive: true, force: true });
   }
 });
 

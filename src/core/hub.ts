@@ -33,6 +33,9 @@ import { IMPROVE_SNOOZE_DAYS, launchImprovement, type ImprovementAction } from "
 
 export { OWNER_CHAT } from "./conversation.ts";
 
+/** Déploie une auto-amélioration 'merged' (branché par l'index, qui connaît le dépôt et le service). */
+export type ImproveDeployHook = (id: number) => Promise<"done" | "already" | { error: string }>;
+
 const APPROVAL_TIMEOUT_MS = 10 * 60 * 1000;
 
 export type HubDeps = Deps & { conversation: Conversation };
@@ -180,6 +183,8 @@ export function createHub(
     changed();
   });
   let autonomy: AutonomyHooks = {};
+  // Déploiement d'une auto-amélioration : branché par l'index (il connaît la racine du dépôt, git et le service).
+  let improveDeployHook: ImproveDeployHook | null = null;
   // Propositions du tour de veille : dans ton fil et sur les canaux, avec Accepter / Refuser.
   store.initiatives.onEvent((event, i) => {
     // Autonomie : ce que l'utilisateur a permis à Clark de trancher seul ne lui est pas proposé.
@@ -946,6 +951,11 @@ export function createHub(
     initiatives: () => store.initiatives.pending(),
 
     async decideImprovement(id: number, action: ImprovementAction, proposedAt?: string): Promise<"done" | "already" | { error: string }> {
+      // Déployer une fiche 'merged' : sur le clic de l'utilisateur, via le module branché par l'index.
+      if (action === "deploy") {
+        if (!improveDeployHook) return { error: "Le déploiement n'est pas disponible pour l'instant." };
+        return improveDeployHook(id);
+      }
       // Le module Dev dépend du hub. On le charge au clic, avant de vérifier à nouveau la fiche.
       const dev = action === "launch" ? await import("../dev/groups.ts") : null;
       const fiche = store.improve.get(id);
@@ -1079,6 +1089,10 @@ export function createHub(
     /** Branche les règles d'autonomie (src/core/autonomy.ts). */
     setAutonomy(hooks: AutonomyHooks) {
       autonomy = hooks;
+    },
+    /** Branche le déploiement d'auto-amélioration (src/core/improve-deploy.ts), monté par l'index. */
+    setImproveDeploy(hook: ImproveDeployHook) {
+      improveDeployHook = hook;
     },
     /** Un souvenir proposé ailleurs (Codex) : Clark peut-il le retenir seul ? */
     autoMemory: (m: Memory) => autonomy.memory?.(m) ?? false,

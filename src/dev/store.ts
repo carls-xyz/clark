@@ -491,9 +491,28 @@ export class DevStore {
   watchedPrs(): { kind: "task" | "group"; id: number; project_id: number; url: string; status: string | null }[] {
     const tasks = this.db.prepare("SELECT 'task' AS kind, id, project_id, pr_url AS url, pr_status AS status FROM dev_tasks WHERE pr_url IS NOT NULL AND pr_of IS NULL").all() as any[];
     const groups = this.db.prepare("SELECT 'group' AS kind, id, project_id, pr_url AS url, pr_status AS status FROM dev_groups WHERE pr_url IS NOT NULL").all() as any[];
+    // Groupes dont une fiche d'auto-amélioration FUSIONNÉE attend encore le commit de fusion : on garde leur PR
+    // sous suivi même MERGED, le temps d'un rafraîchissement qui fournira `mergeCommit` (un ancien statut MERGED
+    // enregistré avant ce champ laisserait sinon la fiche bloquée au déploiement, « commit de fusion inconnu »).
+    // On réutilise le suivi existant (refreshPr réécrira le statut) ; ici on ne fait que LIRE.
+    let awaiting = new Set<number>();
+    try {
+      awaiting = new Set(
+        (this.db.prepare("SELECT DISTINCT group_id FROM improvements WHERE status = 'merged' AND merge_commit IS NULL AND group_id IS NOT NULL").all() as { group_id: number }[]).map((r) => r.group_id),
+      );
+    } catch {
+      awaiting = new Set();
+    }
     return [...tasks, ...groups].filter((r) => {
-      const st = r.status ? JSON.parse(r.status).state : "OPEN";
-      return st !== "MERGED" && st !== "CLOSED";
+      let st = "OPEN";
+      try {
+        st = r.status ? JSON.parse(r.status).state : "OPEN";
+      } catch {
+        st = "OPEN";
+      }
+      if (st === "CLOSED") return false;
+      if (st !== "MERGED") return true;
+      return r.kind === "group" && awaiting.has(r.id);
     });
   }
 

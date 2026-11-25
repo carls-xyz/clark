@@ -338,10 +338,13 @@ function improvementCards(list) {
     <p class="card-title">${esc(i.title)}</p>
     ${i.example ? `<p class="card-note">${esc(i.example)}</p>` : ""}
     <p class="card-note">${esc(i.measurement)}</p>
+    ${i.status === "merged" ? `<p class="card-note">PR fusionnée${i.prUrl ? ` · <a href="${esc(i.prUrl)}" target="_blank" rel="noreferrer">voir la PR</a>` : ""}. Le déploiement redémarre Clark, puis j'observe 2 h (retour arrière automatique en cas de régression).</p>` : ""}
     <div class="card-actions">
-      <button type="button" class="btn primary" data-improvement-action="launch">Lancer</button>
+      ${i.status === "merged"
+        ? `<button type="button" class="btn primary" data-improvement-action="deploy">Déployer</button>`
+        : `<button type="button" class="btn primary" data-improvement-action="launch">Lancer</button>
       <button type="button" class="btn ghost" data-improvement-action="snooze">Pas maintenant</button>
-      <button type="button" class="btn ghost" data-improvement-action="dismiss">Ignorer</button>
+      <button type="button" class="btn ghost" data-improvement-action="dismiss">Ignorer</button>`}
     </div>
     <p class="inline-error" role="alert" hidden></p>
   </div>`).join("");

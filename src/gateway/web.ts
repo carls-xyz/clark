@@ -549,7 +549,8 @@ export function snapshot(hub: Hub, opts: { remote?: unknown; health?: () => Heal
     mails: hub.mails().map((m) => ({ id: m.id, to: m.to_addr, cc: m.cc, subject: m.subject, body: m.body, reply: Boolean(m.thread_id), at: m.created_at })),
     // Tour de veille : ses propositions en attente, et où il en est.
     initiatives: hub.initiatives().map((i) => ({ id: i.id, title: i.title, why: i.why, action: i.action, source: i.source, at: i.created_at, category: i.category, success: i.success })),
-    improvements: store.improve.fiches(["proposed"]).map(improvementProposal),
+    // 'proposed' : Lancer / Pas maintenant / Ignorer. 'merged' : PR fusionnée, bouton « Déployer ».
+    improvements: store.improve.fiches(["proposed", "merged"]).map(improvementProposal),
     // Boucle d'initiatives : ton avis attendu, le parcours des dernières, et le bilan par catégorie (30 jours).
     initiativeLoop: {
       feedback: store.initiatives.awaitingFeedback().map((i) => ({ id: i.id, title: i.title, success: i.success, outcome: i.outcome, note: i.outcome_note, at: i.outcome_at })),
@@ -641,7 +642,7 @@ export function snapshot(hub: Hub, opts: { remote?: unknown; health?: () => Heal
  * besoin pour lire et avancer dans une vidéo. Seuls les fichiers des brouillons sont servis.
  */
 /** Ce que le calendrier range, en plus des automatisations : le brief du matin et le tour d'idées. */
-const CALENDAR_TASKS: Record<string, string> = { brief: "Brief du matin", idees: "Tour d'idées", bilan: "Bilan des propositions" };
+const CALENDAR_TASKS: Record<string, string> = { brief: "Brief du matin", idees: "Tour d'idées", bilan: "Bilan des propositions", ameliore: "Auto-amélioration" };
 
 /**
  * Un mois du calendrier (« AAAA-MM ») : les exécutions des automatisations rangées dans
@@ -693,7 +694,7 @@ export function calendarMonth(hub: Hub, month: string) {
     const ideas = row.label === "idees" ? (store.db.prepare("SELECT id, title, kind, status FROM ideas WHERE task_id = ? ORDER BY id").all(row.id) as { id: number; title: string; kind: string; status: string }[]) : [];
     return {
       key: `t${row.id}`,
-      kind: row.label === "brief" ? ("brief" as const) : row.label === "bilan" ? ("bilan" as const) : ("ideas" as const),
+      kind: row.label === "brief" ? ("brief" as const) : row.label === "bilan" ? ("bilan" as const) : row.label === "ameliore" ? ("ameliore" as const) : ("ideas" as const),
       name: CALENDAR_TASKS[row.label],
       at: row.created_at,
       manual: false,
@@ -1474,7 +1475,7 @@ export function startWeb(hub: Hub, opts: { health?: (fresh?: boolean) => HealthR
     const improvement = path.match(/^\/api\/improvements\/(\d+)$/);
     if (improvement) {
       const { action, proposedAt } = body;
-      if (action !== "launch" && action !== "snooze" && action !== "dismiss") throw new HttpError(400, "Action inconnue");
+      if (action !== "launch" && action !== "snooze" && action !== "dismiss" && action !== "deploy") throw new HttpError(400, "Action inconnue");
       if (proposedAt !== undefined && typeof proposedAt !== "string") throw new HttpError(400, "Date de proposition invalide");
       const outcome = await hub.decideImprovement(Number(improvement[1]), action, proposedAt);
       if (outcome === "already") throw new HttpError(409, "Cette proposition n'est plus disponible.");
