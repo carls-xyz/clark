@@ -1,7 +1,7 @@
 import type { LoginEngine, Logins } from "../engines/login.ts";
 import type { Terminal } from "../terminal/terminal.ts";
 import { attachmentContext, pickPath } from "../core/attachments.ts";
-import { reviewNotes } from "../dev/binome.ts";
+import { arbiterOf, arbitrate, reviewNotes } from "../dev/binome.ts";
 
 /**
  * Le coffre Obsidian branché à la mémoire : son état pour Réglages › Connexions, « Synchroniser »,
@@ -299,6 +299,9 @@ export function snapshot(hub: Hub, opts: { remote?: unknown; health?: () => Heal
       reviewState: t.review_state,
       reviewing: Boolean(t.reviewer) && t.status === "working" && journal.unfinished().some((x) => x.label === `${DEV_REVIEW_PREFIX}${t.id}`),
       reviewNotes: reviewNotes(t),
+      // Désaccord : l'avis de Clark (résumé, recommandation, retouche prête), et s'il peut en donner un.
+      arbiter: t.review_state === "disagree" ? arbiterOf(t) : null,
+      canArbitrate: t.status === "review" && t.review_state === "disagree" && Boolean(hub.judge),
       autopilot: Boolean(t.autopilot) || Boolean(t.group_id && store.dev.group(t.group_id)?.autopilot),
       model: t.model,
       effort: t.effort,
@@ -1653,6 +1656,11 @@ export function startWeb(hub: Hub, opts: { health?: (fresh?: boolean) => HealthR
       if (body.action === "accept") return devReply(await acceptDevTask(hub, id));
       if (body.action === "discard") return devReply(await discardDevTask(hub, id));
       if (body.action === "unblock") return devReply(unblockDevTask(hub, id));
+      if (body.action === "arbitrate") {
+        if (!hub.judge) throw new HttpError(409, "Pas de modèle rapide (moteur Claude non connecté) : pas d'avis possible.");
+        if (!(await arbitrate(hub, id))) throw new HttpError(409, "Avis impossible : la tâche n'est plus en désaccord, ou la réponse était illisible. Réessaie.");
+        return json(res, 200, { ok: true });
+      }
       if (body.action === "retouch") {
         const design = readDesignPick(id, body.design);
         if (design && "error" in design) throw new HttpError(400, design.error);

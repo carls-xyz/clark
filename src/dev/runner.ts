@@ -548,7 +548,7 @@ export function retouchDevTask(hub: Hub, id: number, instruction: string, design
   if (!t) return "missing";
   if (instruction.trim().length < 3) return { error: "Écris la retouche" };
   if (!store.dev.transition(id, ["review", "failed"], "working")) return "already";
-  store.dev.update(id, { blocked_on: null, error: null });
+  store.dev.update(id, { blocked_on: null, error: null, arbiter: null });
   // Binôme : une retouche de l'utilisateur ouvre un nouveau cycle de relecture croisée.
   if (t.reviewer) store.dev.update(id, { review_rounds: 0, review_state: null });
   // Une nouvelle consigne : de nouveau droit aux relances et corrections automatiques.

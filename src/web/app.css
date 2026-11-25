@@ -6335,6 +6335,32 @@ ui-menu-separator {
   overflow-wrap: anywhere;
 }
 
+.dev-arbiter {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  font-size: var(--fs-small);
+}
+
+.dev-arbiter > p {
+  margin: 0 0 6px;
+  overflow-wrap: anywhere;
+}
+
+.dev-arbiter-retouch {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.dev-arbiter-retouch textarea {
+  width: 100%;
+  min-height: 90px;
+  resize: vertical;
+  font: inherit;
+}
+
 .review-issues {
   display: grid;
   gap: 10px;
