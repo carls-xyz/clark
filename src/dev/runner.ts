@@ -483,7 +483,7 @@ export async function collect(hub: Hub, id: number) {
     const why = run?.status === "needs_check" ? "le tour a été coupé en pleine écriture" : `l'agent n'a pas fini${run?.result ? ` : ${short(run.result, 200)}` : ""}`;
     store.dev.update(id, { status: "failed", error: why, diff_stat: stat, summary: run?.result ?? null });
     if (t.compare_with) await compareNotice(hub, id);
-    else await hub.post(OWNER_CHAT, `Tâche dev #${id} (${p.name}) arrêtée : ${why}. Tu peux demander une retouche ou la jeter, dans Dev.`, "system", "dev");
+    else await hub.post(OWNER_CHAT, `Tâche dev #${id} (${p.name}) arrêtée : ${why}. Dans Dev, « Reprendre » la relance où elle en était ; sinon retouche ou jette-la.`, "system", "dev");
   }
 }
 
@@ -578,6 +578,21 @@ export function unblockDevTask(hub: Hub, id: number): DevOutcome {
     hub,
     id,
     `Charles donne son accord pour : ${blockedNeed(t.blocked_on)}. C'est autorisé, même hors des fichiers prévus au départ : fais-le maintenant, sans refaire ce qui est déjà fait, puis termine la consigne (tests compris) et finis par la ligne « BILAN : … ».`,
+  );
+}
+
+/**
+ * « Reprendre » une tâche arrêtée (par toi, une coupure, une limite) : l'agent repart de sa copie, avec son
+ * contexte, et termine la consigne. Une tâche bloquée passe par « Autoriser et reprendre ».
+ */
+export function resumeDevTask(hub: Hub, id: number): DevOutcome {
+  const t = hub.deps.store.dev.get(id);
+  if (!t) return "missing";
+  if (t.status !== "failed" || t.blocked_on) return "already";
+  return retouchDevTask(
+    hub,
+    id,
+    "Reprends où tu en étais : ton tour s'est arrêté avant la fin. Relis d'abord ce que tu as déjà changé dans la copie, ne refais pas ce qui est fait, termine la consigne (tests compris) et finis par la ligne « BILAN : … ».",
   );
 }
 

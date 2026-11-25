@@ -28,6 +28,7 @@ import { canStop, stopRunning } from "./stops.ts";
 import { notifyAllowed, type NotifyKind } from "./notify.ts";
 import { AUTOMATION_CHAT_BASE, isAutomationChat } from "../scheduler/automations.ts";
 import { DECLINE_LABEL, SNOOZE_DAYS, type DeclineKind } from "./initiatives.ts";
+import { createSleepWatch, type SleepWatch } from "./sleep.ts";
 
 /** Clark n'a qu'un interlocuteur : l'utilisateur. Une seule conversation, quel que soit le canal. */
 export const OWNER_CHAT = 1;
@@ -118,6 +119,8 @@ export function createHub(
     refreshEngines?: () => Promise<void>;
     /** Juge rapide sans outils (vérification de fin de tâche). Absent : seule la règle « annonce la suite » joue. */
     judge?: (prompt: string) => Promise<string>;
+    /** Veille de la machine (tests : une fausse horloge). Absent : relevée sur l'horloge réelle. */
+    sleepWatch?: SleepWatch;
     /** Modèle rapide sans outils pour titrer une conversation. Absent : le titre reste le début de ton premier message. */
     titler?: (prompt: string) => Promise<string>;
   } = {},
@@ -223,8 +226,11 @@ export function createHub(
    */
   const stallMs = () => Math.max(1, Number(process.env.CLARK_STALL_MINUTES) || 10) * 60_000;
   const stalled = new Map<number, number>(); // tâche → depuis quand (ms)
+  // Le temps où la machine dormait ne compte pas comme du silence : l'agent reprend à son réveil.
+  const sleep = opts.sleepWatch ?? createSleepWatch();
   const checkStalls = () => {
     if (!store.db.isOpen) return clearInterval(stallTimer);
+    sleep.tick();
     const waitingOnCharles = new Set([...pending.values()].map((a) => a.taskId).concat(store.questions.pending().map((q) => q.task_id)));
     const now = Date.now();
     let changedAny = false;
@@ -232,7 +238,7 @@ export function createHub(
     for (const id of [...stalled.keys()]) if (!running.some((t) => t.id === id)) (stalled.delete(id), (changedAny = true));
     for (const t of running) {
       const last = journal.lastActivity(t.id);
-      const quiet = now - last >= stallMs() && !waitingOnCharles.has(t.id);
+      const quiet = now - last - sleep.sleptBetween(last, now) >= stallMs() && !waitingOnCharles.has(t.id);
       if (quiet && !stalled.has(t.id)) {
         stalled.set(t.id, last);
         changedAny = true;
@@ -851,6 +857,13 @@ export function createHub(
       return [...stalled.entries()].map(([taskId, since]) => ({ taskId, since, stoppable: canStop(taskId) }));
     },
     checkStalls,
+
+    /** Temps (ms) où la machine a dormi depuis la dernière activité de la tâche : « le Mac était en veille ». */
+    sleptSinceActivity(taskId: number): number {
+      sleep.tick();
+      const last = journal.lastActivity(taskId);
+      return sleep.sleptBetween(last, Date.now());
+    },
 
     /** Arrêter un agent en plein tour (clic de l'utilisateur). */
     stopTask(taskId: number): "stopped" | "not_running" {

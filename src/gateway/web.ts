@@ -47,7 +47,7 @@ import { hasVar, type McpInput } from "../mcp/servers.ts";
 import { sandboxEnabled } from "../engines/sandbox.ts";
 import { compareDevTask, keepComparedTask, startDevCompare, type CompareSide } from "../dev/compare.ts";
 import { designDir, type PreviewService } from "../dev/preview.ts";
-import { acceptDevTask, addProject, cancelWaitingTurn, dependsOn, devPatch, discardDevTask, isWaitingSlot, maxParallel, readDesignPick, retouchDevTask, unblockDevTask, blockedNeed, retryDevTask, restoreDevRound, runDevTests, sendReviewComments, startDevTask, type DevOutcome, prewarmCopy } from "../dev/runner.ts";
+import { acceptDevTask, addProject, cancelWaitingTurn, dependsOn, devPatch, discardDevTask, isWaitingSlot, maxParallel, readDesignPick, retouchDevTask, resumeDevTask, unblockDevTask, blockedNeed, retryDevTask, restoreDevRound, runDevTests, sendReviewComments, startDevTask, type DevOutcome, prewarmCopy } from "../dev/runner.ts";
 import { discardGroup, integrateGroup, openPullRequest, prDraft, resolveGate, startDevGroup } from "../dev/groups.ts";
 import { canStop } from "../core/stops.ts";
 import { fixPr, markPrSeen, refreshPr, type PrStatus } from "../dev/pr.ts";
@@ -304,6 +304,8 @@ export function snapshot(hub: Hub, opts: { remote?: unknown; health?: () => Heal
       effort: t.effort,
       // Silencieux depuis (ms), si l'agent ne donne plus signe de vie ; et s'il peut être arrêté.
       stalledSince: t.status === "working" && run ? (hub.stalled().find((x) => x.taskId === run.id)?.since ?? null) : null,
+      // La machine a dormi depuis la dernière activité de l'agent (minutes) : il reprend à son réveil.
+      sleptMinutes: t.status === "working" && run && run.status === "running" ? Math.floor(hub.sleptSinceActivity(run.id) / 60_000) || null : null,
       stoppable: t.status === "working" && (isWaitingSlot(t.id) || (run ? canStop(run.id) : false)),
     };
   };
@@ -1653,6 +1655,7 @@ export function startWeb(hub: Hub, opts: { health?: (fresh?: boolean) => HealthR
       if (body.action === "accept") return devReply(await acceptDevTask(hub, id));
       if (body.action === "discard") return devReply(await discardDevTask(hub, id));
       if (body.action === "unblock") return devReply(unblockDevTask(hub, id));
+      if (body.action === "resume") return devReply(resumeDevTask(hub, id));
       if (body.action === "retouch") {
         const design = readDesignPick(id, body.design);
         if (design && "error" in design) throw new HttpError(400, design.error);
