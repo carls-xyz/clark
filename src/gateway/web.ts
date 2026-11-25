@@ -268,6 +268,8 @@ export function snapshot(hub: Hub, opts: { remote?: unknown; health?: () => Heal
       status: t.status,
       error: t.error,
       blockedOn: t.status === "failed" && t.blocked_on ? blockedNeed(t.blocked_on) : null,
+      // Copie jamais préparée : « Reprendre » relance depuis le début.
+      prepared: Boolean(t.base_commit),
       summary: t.summary,
       diff: t.diff_stat ? JSON.parse(t.diff_stat) : null,
       commit: t.commit,
@@ -1658,7 +1660,7 @@ export function startWeb(hub: Hub, opts: { health?: (fresh?: boolean) => HealthR
       if (body.action === "accept") return devReply(await acceptDevTask(hub, id));
       if (body.action === "discard") return devReply(await discardDevTask(hub, id));
       if (body.action === "unblock") return devReply(unblockDevTask(hub, id));
-      if (body.action === "resume") return devReply(resumeDevTask(hub, id));
+      if (body.action === "resume") return devReply(await resumeDevTask(hub, id));
       if (body.action === "arbitrate") {
         if (!hub.judge) throw new HttpError(409, "Pas de modèle rapide (moteur Claude non connecté) : pas d'avis possible.");
         if (!(await arbitrate(hub, id))) throw new HttpError(409, "Avis impossible : la tâche n'est plus en désaccord, ou la réponse était illisible. Réessaie.");
