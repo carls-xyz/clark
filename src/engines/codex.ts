@@ -104,6 +104,11 @@ export function writeCodexConfig(codexHome: string, db: string) {
   writeFileSync(
     join(codexHome, "config.toml"),
     `# Géré par Clark : réécrit à chaque démarrage. Ta config perso (~/.codex) n'est pas utilisée ici.
+# La racine d'un projet est le dossier de travail lui-même : Codex ne remonte pas chercher un
+# AGENTS.md dans les dossiers parents (le dépôt de Clark), fermés par le bac à sable. Sans ça,
+# chaque conversation partant de workspace/ échoue (« failed to load AGENTS.md »). Les copies de
+# travail des tâches dev ont leur AGENTS.md à leur racine : il reste chargé.
+project_root_markers = []
 ${permissionProfilesToml(homedir(), projectSharedDirs(db))}
 [features]
 memories = false
