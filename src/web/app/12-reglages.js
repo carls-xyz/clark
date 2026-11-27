@@ -34,6 +34,8 @@ function renderSettingsPage() {
     ...engineKeep(root),
     ...(mcpFormOpen ? ["#mcp-form"] : []),
     ...(autoFormOpen ? ["#auto-form"] : []),
+    // Une automatisation dont le menu « … » est ouvert : sa carte reste, sinon le menu se ferme sous le doigt.
+    ...[...root.querySelectorAll("[data-automation]:has([data-auto-more] [data-open])")].map((c) => `[data-automation="${c.dataset.automation}"]`),
     ...(commandFormOpen ? ["#command-form"] : []),
     ...(projectFormOpen ? ["#project-form"] : []),
     ...(personalityDirty ? ["#personality-form"] : []),
