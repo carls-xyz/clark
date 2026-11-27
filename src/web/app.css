@@ -195,7 +195,9 @@ kbd {
   background: var(--surface-2);
 }
 
+/* Discret, mais reconnaissable comme un bouton : un contour fin, pas de fond. */
 .btn.ghost {
+  border-color: var(--line-strong);
   background: transparent;
   color: var(--text-2);
   height: 32px;
