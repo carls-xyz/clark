@@ -4206,6 +4206,13 @@ ui-alert-dialog-close[value="confirm"] > button[data-slot="alert-dialog-close"]:
   padding: 12px 24px 0;
 }
 
+/* Grand écran : le champ s'aligne sur le contenu, à droite de la colonne des rubriques (200 px + marge). */
+@media (min-width: 901px) {
+  .settings-search {
+    padding-left: 232px;
+  }
+}
+
 .settings-search input {
   width: min(100%, 420px);
   padding: 8px 10px;
@@ -4996,6 +5003,17 @@ ui-dialog-content.palette:not([hidden]) {
 /* Conversation vide : le champ au milieu, la date au-dessus, trois raccourcis dessous. */
 .view-chat[data-empty] {
   justify-content: center;
+}
+
+/* L'en-tête reste en haut ; seuls la date, le champ et les raccourcis se centrent dans la place qui reste
+   (deux marges automatiques se partagent le vide : sous l'en-tête, et après le dernier élément). */
+.view-chat[data-empty] .view-head {
+  margin-bottom: auto;
+}
+
+.view-chat[data-empty]::after {
+  content: "";
+  margin-top: auto;
 }
 
 .view-chat[data-empty] .thread {

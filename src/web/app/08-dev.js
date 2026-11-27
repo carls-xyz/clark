@@ -590,7 +590,8 @@ function renderDevTask(t, nested = false) {
         ? `<div class="card-actions">
             ${t.status === "failed" && t.error && !t.blockedOn ? `<button type="button" class="btn primary" data-dev-action="resume">${t.prepared ? "Reprendre" : "Relancer depuis le début"}</button>` : ""}
             ${t.status === "review" ? (t.compareWith ? `<button type="button" class="btn primary" data-dev-keep="${t.id}">Garder celle-ci</button>` : `<button type="button" class="btn primary" data-dev-action="accept"${openPointsAttrs(t)}>${t.prOf ? "Accepter et mettre à jour la PR" : "Accepter"}</button>`) : ""}
-            ${state.dev?.preview?.taskId === t.id ? "" : `<button type="button" class="btn secondary" data-design-open>Aperçu</button>`}
+            ${/* Sans fichier changé, l'aperçu ne montrerait que le projet tel qu'il est déjà. */ ""}
+            ${state.dev?.preview?.taskId === t.id || !files.length ? "" : `<button type="button" class="btn secondary" data-design-open>Aperçu</button>`}
             ${renderDevMore(t, project, nested)}
           </div>
           ${designPick?.taskId === t.id ? renderDesignPick(designPick) : ""}
