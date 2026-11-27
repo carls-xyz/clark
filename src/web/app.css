@@ -3547,9 +3547,22 @@ ui-alert-dialog-close[value="confirm"] > button[data-slot="alert-dialog-close"]:
   min-width: 0;
 }
 
+/* Les rubriques des autres onglets sont masquées : l'écart ne vaut qu'entre deux rubriques visibles,
+   sinon la première affichée garde une marge en trop au-dessus. */
+#settings > .block {
+  margin-top: 0;
+}
+
+#settings > .block:not([hidden]) ~ .block:not([hidden]) {
+  margin-top: 32px;
+}
+
 @media (max-width: 900px) {
   .settings-layout {
     grid-template-columns: minmax(0, 1fr);
+    /* Les onglets gardent leur hauteur : sans ça, la place libre se partage entre les deux rangées
+       et un grand vide s'ouvre sous les onglets. */
+    grid-template-rows: auto 1fr;
   }
 
   .settings-tabs {
