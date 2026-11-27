@@ -583,13 +583,18 @@ export function startDailyJournal(hub: Hub, think: (prompt: string) => Promise<s
   const db = hub.deps.store.db;
   // Les réponses inutilisables, par jour (une journée vide n'en est pas une).
   const failures = new Map<string, JournalFailure>();
+  // Les erreurs (modèle injoignable, Mac endormi en pleine réponse…), par jour : nouvel essai 30 min après.
+  const errors = new Map<string, number>();
   /** Le journal d'un jour : à écrire, ou à réécrire s'il a été écrit avant 23 h (dans le verrou déjà pris). */
   const journal = async (day: string) => {
     const existing = journalOf(db).get(day);
     if (existing && !needsRewrite(existing.created_at, day)) return;
     if (!mayTryJournal(failures.get(day), now().getTime())) return;
+    const erroredAt = errors.get(day);
+    if (erroredAt !== undefined && now().getTime() - erroredAt < RETRY_DELAY_MS) return;
     try {
       const r = await composeJournal(hub, day, think, vault());
+      errors.delete(day);
       if ("day" in r) {
         failures.delete(day);
         console.log(`[clark] journal du ${day} écrit`);
@@ -600,7 +605,8 @@ export function startDailyJournal(hub: Hub, think: (prompt: string) => Promise<s
         console.warn(`[clark] journal du ${day} : réponse inutilisable${count < 2 ? ", réessai dans 30 min" : ", abandon pour aujourd'hui"}`);
       }
     } catch (err) {
-      console.warn(`[clark] journal du ${day} impossible :`, err instanceof Error ? err.message : err);
+      errors.set(day, now().getTime());
+      console.warn(`[clark] journal du ${day} impossible, nouvel essai dans 30 min :`, err instanceof Error ? err.message : err);
     }
   };
   // Un seul travail à la fois, avec le verrou partagé avec le bouton « Écrire le journal du jour » :
@@ -616,9 +622,13 @@ export function startDailyJournal(hub: Hub, think: (prompt: string) => Promise<s
   };
   const tick = () => {
     const p = parisParts(now());
-    if (p.hour < JOURNAL_HOUR) return;
     const sunday = p.weekday === 7 && (p.hour > WEEK_HOUR || (p.hour === WEEK_HOUR && p.minute >= WEEK_MINUTE));
     void locked(async () => {
+      // La veille d'abord, à toute heure : le journal de 23 h a pu échouer (Mac endormi en pleine réponse)
+      // et la journée a changé depuis. Sans ça, il n'était rattrapé qu'au prochain redémarrage de Clark.
+      // Déjà écrit : une simple lecture en base.
+      await journal(addDays(p.date, -1));
+      if (p.hour < JOURNAL_HOUR) return;
       await journal(p.date);
       // L'hebdo est isolé : même s'il rejette (ex. une lecture en base qui lève), le mensuel doit être tenté.
       if (sunday) {
