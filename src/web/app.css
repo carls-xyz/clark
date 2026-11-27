@@ -4206,6 +4206,13 @@ ui-alert-dialog-close[value="confirm"] > button[data-slot="alert-dialog-close"]:
   padding: 12px 24px 0;
 }
 
+/* Grand écran : le champ s'aligne sur le contenu, à droite de la colonne des rubriques (200 px + marge). */
+@media (min-width: 901px) {
+  .settings-search {
+    padding-left: 232px;
+  }
+}
+
 .settings-search input {
   width: min(100%, 420px);
   padding: 8px 10px;
