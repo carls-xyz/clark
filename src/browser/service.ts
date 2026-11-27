@@ -216,6 +216,8 @@ export class BrowserService {
 
   state(): BrowserState {
     const d = this.deps.driver;
+    // D'abord : une vue distante expirée se ferme ici, et ce qui suit (capture, heure) doit déjà en tenir compte.
+    const remote = this.remoteActive();
     const hit = this.sensitiveTab();
     return {
       available: d.available(),
@@ -226,7 +228,7 @@ export class BrowserService {
       taskId: this.owner,
       lastAction: this.lastAction,
       shotAt: this.shotAt,
-      remoteUntil: this.remoteActive() ? this.remoteUntil : null,
+      remoteUntil: remote ? this.remoteUntil : null,
       remoteWidth: this.remoteSize.width,
       vision: {
         shotId: this.visionShot?.shotId ?? null,
@@ -380,7 +382,8 @@ export class BrowserService {
       if (this.remoteActive() || d.visible()) this.userSensitive = true;
       this.last = { url: redactUrl(url ?? view?.url ?? ""), title: "", text: "", elements: [] };
       this.shot = this.remoteActive() ? await d.screenshot().catch(() => null) : null;
-      this.shotAt = Date.now();
+      // Pas de capture, pas d'heure de capture : l'interface n'essaie pas de charger une image qui n'existe pas.
+      this.shotAt = this.shot ? Date.now() : null;
       return;
     }
     this.last = view;
@@ -775,6 +778,13 @@ export class BrowserService {
 
   private endRemote() {
     if (this.remoteUntil !== null) this.event("rendu");
+    // La capture d'une page sensible ne sert qu'à la vue distante, pendant que l'utilisateur la regarde. « Terminer »
+    // en reprend une (vide sur un site sensible) ; une vue fermée toute seule après dix minutes n'en reprend pas :
+    // sans ça, la dernière capture du site sensible resterait servie tant que le navigateur tourne.
+    if (this.sensitiveTab()) {
+      this.shot = null;
+      this.shotAt = null;
+    }
     // Retour à la taille habituelle pour l'agent.
     if (this.remoteSize.width !== VIEWPORT.width && this.deps.driver.running()) void this.deps.driver.resize?.(VIEWPORT.width, VIEWPORT.height).catch(() => {});
     this.remoteSize = { ...VIEWPORT };
