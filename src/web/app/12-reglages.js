@@ -189,7 +189,7 @@ function buildGeneral() {
     ]
       .map(([k, l]) => `<label class="radio"><input type="radio" name="theme" value="${k}" data-theme-choice${theme === k ? " checked" : ""} /> <span>${l}</span></label>`)
       .join("")}</fieldset>
-      <label class="radio"><input type="checkbox" data-mascot-show${mascotHidden() ? "" : " checked"} /> <span>Afficher Clark, la mascotte (en bas à droite)</span></label>
+      <label class="radio"><input type="checkbox" data-mascot-show${mascotHidden() ? "" : " checked"} /> <span>Afficher Clark, la mascotte (en haut à droite)</span></label>
       <p class="quiet field-hint">Gardé sur cet appareil seulement.</p></div>`,
   );
   const list = (state.settings ?? []).filter((x) => x.section !== "Autonomie");

@@ -120,7 +120,7 @@ function renderMascotPop() {
 $("#mascot-pop").addEventListener("toggle", (e) => {
   if (e.newState !== "open") return;
   renderMascotPop();
-  // La fenêtre s'ouvre au-dessus de la mascotte (en bas à droite), ou sous elle (en haut, sur petit écran).
+  // La fenêtre s'ouvre sous la mascotte (en haut à droite), ou au-dessus si elle se trouvait en bas.
   const r = $("#mascot-btn").getBoundingClientRect();
   const pop = $("#mascot-pop");
   pop.style.right = `${Math.max(8, innerWidth - r.right)}px`;
