@@ -4,7 +4,7 @@ import { Bot } from "grammy";
 import type { BrowserDriver, PageView } from "../src/browser/driver.ts";
 import { browserJournal, browserStepInput, browserStepOutput } from "../src/browser/journal.ts";
 import { blockedRule, blockRules, hostMatches, normalizeHost, redactText, redactUrl, rulesView, TRUST_LIST_ENABLED } from "../src/browser/sensitive.ts";
-import { BrowserService, type ApprovalOutcome } from "../src/browser/service.ts";
+import { BrowserService, REMOTE_IDLE_MS, type ApprovalOutcome } from "../src/browser/service.ts";
 import type { Config } from "../src/config.ts";
 import { Conversation } from "../src/core/conversation.ts";
 import { createHub } from "../src/core/hub.ts";
@@ -188,6 +188,7 @@ test("navigateur : après ta visite d'un site sensible (vue distante), l'agent r
   assert.equal(st.url, "https://clients.boursobank.com/espace");
   assert.equal(st.title, null);
   assert.equal(svc.screenshot(), null);
+  assert.equal(st.shotAt, null, "pas d'heure de capture sans capture");
   for (const action of ["read", "scroll", "back", "click", "type", "select"] as const) {
     assert.match(await svc.act(1, action, { ref: "e3", text: "x", value: "y" }), /site sensible .*ouvert par Charles/, action);
   }
@@ -202,6 +203,49 @@ test("navigateur : après ta visite d'un site sensible (vue distante), l'agent r
     svc.controlEvents().map((e) => e.kind),
     ["repris", "rendu"],
   );
+});
+
+test("navigateur : vue distante expirée sur un site sensible → sa capture n'est plus servie, l'agent reste bloqué", async () => {
+  const { driver, svc } = browser();
+  await svc.remote({ action: "start" });
+  await svc.remote({ action: "goto", url: BANK });
+  assert.ok(svc.screenshot(), "pendant la vue distante, la capture sert à l'utilisateur");
+
+  // Dix minutes sans action : la vue se ferme toute seule, sans passer par « Terminer ».
+  const realNow = Date.now;
+  Date.now = () => realNow() + REMOTE_IDLE_MS + 1000;
+  try {
+    const st = svc.state();
+    assert.equal(st.remoteUntil, null);
+    // Comme après « Terminer » : plus de capture de la page sensible, ni d'heure de capture qui la ferait recharger.
+    assert.equal(svc.screenshot(), null);
+    assert.equal(st.shotAt, null);
+    assert.equal(svc.visionImage(), null);
+    // Le verrou tient : le site est toujours ouvert, l'agent n'a pas la main et rien n'est lu.
+    assert.equal(st.locked, "boursobank.com (Banque et paiement, défaut Clark)");
+    assert.match(await svc.act(1, "read", {}), /site sensible .*ouvert par Charles/);
+    assert.ok(!driver.views.some((u) => u.includes("boursobank")));
+  } finally {
+    Date.now = realNow;
+  }
+  assert.deepEqual(
+    svc.controlEvents().map((e) => e.kind),
+    ["repris", "rendu"],
+  );
+});
+
+test("navigateur : vue distante expirée sur une page ordinaire → la dernière capture reste", async () => {
+  const { svc } = browser();
+  await svc.remote({ action: "start", url: "https://ok.example/" });
+  const realNow = Date.now;
+  Date.now = () => realNow() + REMOTE_IDLE_MS + 1000;
+  try {
+    assert.equal(svc.state().remoteUntil, null);
+    assert.ok(svc.screenshot());
+    assert.ok(svc.state().shotAt);
+  } finally {
+    Date.now = realNow;
+  }
 });
 
 test("navigateur : accord refusé, expiré ou agent arrêté → rien n'est envoyé, et la raison est dite", async () => {
