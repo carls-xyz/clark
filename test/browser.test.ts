@@ -578,3 +578,11 @@ test("config Codex : l'adresse et le jeton du navigateur, dans un fichier lisibl
   assert.ok(toml.includes(`CLARK_INTERNAL_TOKEN = "${internalToken()}"`));
   assert.equal(statSync(file).mode & 0o777, 0o600);
 });
+
+test("config Codex : la racine d'un projet est le dossier de travail, pas le dépôt de Clark", () => {
+  const dir = mkdtempSync(join(tmpdir(), "clark-codex-"));
+  writeCodexConfig(dir, join(dir, "clark.db"));
+  const toml = readFileSync(join(dir, "config.toml"), "utf8");
+  const top = toml.slice(0, toml.indexOf("\n["));
+  assert.match(top, /^project_root_markers = \[\]$/m, "clé de premier niveau, avant toute table");
+});
