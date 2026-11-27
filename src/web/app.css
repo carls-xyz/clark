@@ -1422,7 +1422,7 @@ kbd {
 }
 
 .auto-new {
-  width: 100%;
+  margin-top: 12px;
 }
 
 .auto-form {
@@ -5876,6 +5876,13 @@ ui-menu-separator {
   outline-offset: 1px;
 }
 
+/* Grand écran : la mascotte est en bas à droite, le champ s'arrête avant elle. */
+@media (min-width: 1101px) {
+  body:has(.mascot:not([hidden])) .term-form {
+    padding-right: 104px;
+  }
+}
+
 .term-error {
   flex-basis: 100%;
   margin: 0;
@@ -7268,10 +7275,8 @@ ui-menu-separator {
 .computer-log-title {
   margin: 16px 0 8px;
   font-size: var(--fs-small);
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text-2);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .computer-log {
