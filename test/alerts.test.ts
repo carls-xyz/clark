@@ -194,6 +194,66 @@ test("surveillance locale : deux absences de réponse de suite relancent ; pas p
   assert.equal(restarted(), 1, "le compte est reparti de zéro");
 });
 
+test("surveillance locale : un déploiement jamais confirmé est annulé (retour au commit de secours)", { timeout: 60_000 }, async () => {
+  const dir = join(root, "wd-deploy");
+  mkdirSync(join(dir, "scripts"), { recursive: true });
+  mkdirSync(join(dir, "data"), { recursive: true });
+  const g = (...a: string[]) => spawnSync("git", ["-C", dir, ...a], { encoding: "utf8" }).stdout.trim();
+  g("init", "-q", "-b", "main");
+  g("config", "user.email", "t@t");
+  g("config", "user.name", "t");
+  writeFileSync(join(dir, ".gitignore"), "data/\nscripts/\n");
+  writeFileSync(join(dir, "a.txt"), "v1");
+  g("add", ".");
+  g("commit", "-qm", "v1");
+  const v1 = g("rev-parse", "HEAD");
+  writeFileSync(join(dir, "a.txt"), "v2");
+  g("commit", "-qam", "v2");
+  const v2 = g("rev-parse", "HEAD");
+  copyFileSync(resolve(import.meta.dirname, "../scripts/watchdog.sh"), join(dir, "scripts/watchdog.sh"));
+  const restarts = join(root, "restarts-deploy");
+  const fake = join(root, "fake-svc-deploy.sh");
+  writeFileSync(fake, `#!/bin/bash\necho "$1" >> "${restarts}"\n`);
+  chmodSync(fake, 0o755);
+  const port = await freePort();
+  const run = () => spawnSync("bash", [join(dir, "scripts/watchdog.sh")], { cwd: dir, encoding: "utf8", env: { ...process.env, CLARK_SERVICE_FAKE: fake, CLARK_WEB_PORT: String(port) } });
+  const restarted = () => (existsSync(restarts) ? readFileSync(restarts, "utf8").trim().split("\n").length : 0);
+  const pending = join(dir, "data/deploy-pending");
+  const now = Math.floor(Date.now() / 1000);
+  // Une version qui plante en boucle réécrit started-at à chaque essai : toujours « en grâce ».
+  writeFileSync(join(dir, "data/started-at"), String(now - 5));
+
+  // Déploiement récent (2 min) : on laisse à la nouvelle version le temps de confirmer.
+  writeFileSync(pending, `${v1}\n${v2}\n${now - 120}\n`);
+  run();
+  assert.equal(g("rev-parse", "HEAD"), v2);
+  assert.ok(existsSync(pending));
+  assert.equal(restarted(), 0);
+
+  // Modifications non commitées : on ne touche pas au dépôt.
+  writeFileSync(pending, `${v1}\n${v2}\n${now - 900}\n`);
+  writeFileSync(join(dir, "a.txt"), "en cours");
+  run();
+  assert.equal(g("rev-parse", "HEAD"), v2, "jamais de retour arrière sur des modifications non commitées");
+  assert.equal(restarted(), 0);
+  g("checkout", "-q", "a.txt");
+
+  // Jamais confirmé après 15 min, malgré la grâce de started-at : retour à v1, noté bon, annoncé, relancé.
+  run();
+  assert.equal(g("rev-parse", "HEAD"), v1, "retour au commit de secours");
+  assert.equal(readFileSync(join(dir, "data/last-good-commit"), "utf8").trim(), v1);
+  assert.equal(readFileSync(join(dir, "data/rollback.txt"), "utf8"), `${v2}\nmain\n${v1}\n`);
+  assert.ok(!existsSync(pending), "marqueur retiré");
+  assert.equal(restarted(), 1);
+
+  // Marqueur périmé (le dépôt n'est plus sur la cible) : retiré, rien d'autre.
+  writeFileSync(pending, `${v1}\n${v2}\n${now - 900}\n`);
+  run();
+  assert.equal(g("rev-parse", "HEAD"), v1);
+  assert.ok(!existsSync(pending));
+  assert.equal(restarted(), 1);
+});
+
 test("/api/health : toujours 200 tant que Clark répond, avec le niveau et les points", async () => {
   const store = new Store(":memory:");
   const hub = createHub({ config: { telegram: null, hasApiKey: true, engine: "claude", codexModel: null, engineAuto: false, heartbeatMinutes: 0, roleEngines: {}, webPort: 0, model: "m", maxUsdPerTask: 1, maxUsdPerDay: 5, briefHour: null }, store, journal: new TaskJournal(store.db), conversation: new Conversation(store.db) }, { execute: (async () => ({ text: "", costUsd: 0, status: "done" })) as unknown as typeof executeTask });

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, rmSync, writeFileSync } from "node:fs";
 import { promisify } from "node:util";
 import { OWNER_CHAT } from "./conversation.ts";
 import type { Hub } from "./hub.ts";
@@ -174,6 +174,17 @@ export type ImproveDeployOptions = {
    * on ne veut pas lancer `restart --rollback` via un service.sh de secours peut-être antérieur à `--rollback`.
    */
   rollbackScriptReady?: () => boolean;
+  /**
+   * Marqueur de déploiement en cours (data/deploy-pending), lu par la surveillance locale (scripts/watchdog.sh).
+   * Un redémarrage lancé PAR Clark tue aussi le service.sh qu'il a lancé (launchd et systemd arrêtent tout le
+   * groupe du service) : le contrôle de santé de service.sh ne tourne donc jamais. Si la nouvelle version ne
+   * démarre pas, plante en boucle ou gèle, AUCUN code de Clark ne tourne pour revenir en arrière. La
+   * surveillance, elle, est un job à part : tant que ce marqueur existe et que le disque est sur la cible, elle
+   * remet le commit de secours une fois le délai passé. markPending renvoie false si l'écriture échoue : on ne
+   * redémarre alors PAS (pas de déploiement sans filet). clearPending est appelé dès que l'issue est tranchée.
+   */
+  markPending?: (recovery: string, target: string) => boolean;
+  clearPending?: () => void;
   now?: () => Date;
   watchMinutes?: number;
   everyMs?: number;
@@ -247,6 +258,26 @@ function defaultPinRollbackScript(root: string): () => boolean {
     }
   };
 }
+/** Écrit `data/deploy-pending` : commit de secours, cible, heure (secondes). Renvoie false en cas d'échec. */
+function defaultMarkPending(root: string): (recovery: string, target: string) => boolean {
+  return (recovery, target) => {
+    try {
+      writeFileSync(`${root}/data/deploy-pending`, `${recovery}\n${target}\n${Math.floor(Date.now() / 1000)}\n`);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+}
+function defaultClearPending(root: string): () => void {
+  return () => {
+    try {
+      rmSync(`${root}/data/deploy-pending`, { force: true });
+    } catch {
+      // Un marqueur resté en place est sans danger : la surveillance l'ignore dès que le disque n'est plus sur la cible.
+    }
+  };
+}
 /** Le script figé de retour arrière existe-t-il déjà dans `data/` ? */
 function defaultRollbackScriptReady(root: string): () => boolean {
   return () => {
@@ -280,6 +311,8 @@ function resolve(hub: Hub, opts: ImproveDeployOptions): Resolved {
     recordGood: opts.recordGood ?? defaultRecordGood(opts.root),
     pinRollbackScript: opts.pinRollbackScript ?? defaultPinRollbackScript(opts.root),
     rollbackScriptReady: opts.rollbackScriptReady ?? defaultRollbackScriptReady(opts.root),
+    markPending: opts.markPending ?? defaultMarkPending(opts.root),
+    clearPending: opts.clearPending ?? defaultClearPending(opts.root),
     now: opts.now ?? (() => new Date()),
     watchMinutes: opts.watchMinutes ?? (Number(process.env.CLARK_IMPROVE_WATCH_MINUTES) || WATCH_MINUTES_DEFAULT),
     everyMs: opts.everyMs ?? 5 * 60_000,
@@ -437,6 +470,14 @@ export async function deployImprovement(hub: Hub, id: number, opts: ImproveDeplo
       }
     }
     improve.setDeployTarget(id, targetCommit, r.now());
+    // Filet de la surveillance locale, posé AVANT le redémarrage : sans lui, une version qui ne démarre pas
+    // resterait en place. Faute de pouvoir le poser, on ne déploie pas.
+    if (!r.markPending(commit, targetCommit)) {
+      const restored = await restoreToRecovery();
+      abortPrep(restored);
+      void hub.post(OWNER_CHAT, `Auto-amélioration : « ${fiche.title} » non déployée — je n'ai pas pu poser le filet de la surveillance locale (data/deploy-pending).${restored ? " Dépôt remis sur la version d'avant." : " Remise NON confirmée — interviens."}`, "system", "alert");
+      return { error: "filet de déploiement impossible" };
+    }
     improve.setDeployPhase(id, "restarting", r.now()); // phase persistée AVANT la commande de redémarrage
     // service.sh restart garde son propre contrôle de santé et revient à data/last-good-commit si Clark ne
     // répond pas. Ce redémarrage REMPLACE normalement le processus courant : dans ce cas, le code ci-dessous
@@ -479,6 +520,7 @@ async function finalizeDeploy(hub: Hub, r: Resolved, id: number, restartResult?:
       }
     }
     if (restored) {
+      r.clearPending();
       improve.failAfterRestart(id, r.now());
       void hub.post(OWNER_CHAT, `Auto-amélioration : le déploiement de « ${fiche.title} » a été interrompu avant d'avoir changé de version. Rien n'a changé, le bouton « Déployer » reste.`, "system", "alert");
       return "interrompu avant la cible";
@@ -513,6 +555,7 @@ async function finalizeDeploy(hub: Hub, r: Resolved, id: number, restartResult?:
           ? "le service est resté sur l'ancienne version"
           : "l'instance en cours ne tourne pas sur la version visée";
     if (restored) {
+      r.clearPending();
       improve.failAfterRestart(id, r.now()); // revenu à 'merged', phase 'failed', références de récupération gardées
       void hub.post(OWNER_CHAT, `Auto-amélioration : « ${fiche.title} » n'a pas démarré sur la nouvelle version (${why}). Dépôt remis sur la version qui tourne, le bouton « Déployer » reste.`, "system", "alert");
       return "déploiement sans effet";
@@ -523,6 +566,7 @@ async function finalizeDeploy(hub: Hub, r: Resolved, id: number, restartResult?:
   }
   // La nouvelle version tourne. Santé au rouge juste après : régression immédiate → retour arrière (persisté).
   if (r.snapshot(r.now()).healthBad) {
+    r.clearPending(); // le retour arrière est pris en main ici : la surveillance n'a pas à s'en mêler
     await toRollback(hub, r, id, [{ code: "sante-degradee", detail: "la santé était au rouge juste après le déploiement" }]);
     return "retour arrière immédiat (santé)";
   }
@@ -530,6 +574,7 @@ async function finalizeDeploy(hub: Hub, r: Resolved, id: number, restartResult?:
   const startedAt = r.now();
   const deadline = new Date(startedAt.getTime() + r.watchMinutes * 60_000);
   if (!improve.setWatching(id, startedAt, deadline)) return "pending";
+  r.clearPending(); // démarrage confirmé : la surveillance n'a plus à revenir en arrière
   void hub.post(OWNER_CHAT, `Auto-amélioration : « ${fiche.title} » déployée (${running.slice(0, 7)}). J'observe ${r.watchMinutes} min ; retour arrière automatique en cas de régression, bilan dans ${BILAN_DELAY_DAYS} jours.`, "system", "health");
   return "ok";
 }
@@ -562,6 +607,7 @@ async function rollback(hub: Hub, r: Resolved, fiche: Improvement, signs: Regres
     return false;
   }
   const close = (): void => {
+    r.clearPending();
     improve.finishImprovement(fiche.id, "rate", `Régression après déploiement : ${signs.map((s) => s.code).join(", ")}.`, r.now());
     improve.setDeployPhase(fiche.id, "rollback_done", r.now());
   };

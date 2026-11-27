@@ -68,6 +68,8 @@ function fakeRepo(init: { head: string; mainTip: string; running?: string; branc
     watchdogMarker: null as string | null,
     // Le script de secours a-t-il été figé dans data/ ? Persiste d'un passage de rollback à l'autre (reprise).
     rollbackScriptPinned: false,
+    markOk: true,
+    pending: null as { recovery: string; target: string } | null,
   };
   const gitCalls: string[][] = [];
   const serviceCalls: string[] = [];
@@ -109,12 +111,21 @@ function fakeRepo(init: { head: string; mainTip: string; running?: string; branc
   };
   // Le script figé est présent s'il a été figé (ou pré-positionné via state.rollbackScriptPinned).
   const rollbackScriptReady = () => state.rollbackScriptPinned;
-  return { git, service, snapshot, runningCommit, recordGood, pinRollbackScript, rollbackScriptReady, gitCalls, serviceCalls, goodCalls, get pinned() { return pinned; }, state };
+  // Filet de la surveillance locale (data/deploy-pending), simulé : null = aucun marqueur.
+  const markPending = (recovery: string, target: string) => {
+    if (!state.markOk) return false;
+    state.pending = { recovery, target };
+    return true;
+  };
+  const clearPending = () => {
+    state.pending = null;
+  };
+  return { git, service, snapshot, runningCommit, recordGood, pinRollbackScript, rollbackScriptReady, markPending, clearPending, gitCalls, serviceCalls, goodCalls, get pinned() { return pinned; }, state };
 }
 
 /** Options de déploiement branchées sur un faux dépôt (avec runningCommit injecté). */
 function optsFor(repo: ReturnType<typeof fakeRepo>, over: Partial<ImproveDeployOptions> = {}): ImproveDeployOptions {
-  return { root: "/clark", git: repo.git, service: repo.service, snapshot: repo.snapshot, runningCommit: repo.runningCommit, recordGood: repo.recordGood, pinRollbackScript: repo.pinRollbackScript, rollbackScriptReady: repo.rollbackScriptReady, now: () => DEPLOY, watchMinutes: 120, ...over };
+  return { root: "/clark", git: repo.git, service: repo.service, snapshot: repo.snapshot, runningCommit: repo.runningCommit, recordGood: repo.recordGood, pinRollbackScript: repo.pinRollbackScript, rollbackScriptReady: repo.rollbackScriptReady, markPending: repo.markPending, clearPending: repo.clearPending, now: () => DEPLOY, watchMinutes: 120, ...over };
 }
 
 /** Amène une fiche jusqu'à 'merged' (PR fusionnée), prête à être déployée. Renvoie son id. */
@@ -211,6 +222,41 @@ test("déploiement : se replace sur main, récupère la version, puis observe", 
   assert.ok(repo.gitCalls.some((a) => a[0] === "switch" && a[1] === "main"), "se replace sur main avant de tirer");
   assert.ok(repo.gitCalls.some((a) => a[0] === "pull" && a[1] === "--ff-only"));
   assert.deepEqual(repo.serviceCalls, ["restart"]);
+});
+
+test("filet de la surveillance : posé avant le redémarrage (secours + cible), retiré une fois le démarrage confirmé", async () => {
+  const { hub, store } = setup();
+  const fid = mergedFiche(hub, "filet");
+  const repo = fakeRepo({ head: "old000", mainTip: "new111" });
+  let atRestart: { recovery: string; target: string } | null = null;
+  const service: RunService = async (cmd) => {
+    atRestart = repo.state.pending ? { ...repo.state.pending } : null;
+    return repo.service(cmd);
+  };
+  assert.equal(await deployImprovement(hub, fid, optsFor(repo, { service })), "done");
+  assert.deepEqual(atRestart, { recovery: "old000", target: "new111" }, "le marqueur existe au moment du redémarrage");
+  assert.equal(store.improve.get(fid)!.status, "watching");
+  assert.equal(repo.state.pending, null, "démarrage confirmé : marqueur retiré");
+});
+
+test("filet impossible à poser : aucun redémarrage, dépôt remis sur la version d'avant", async () => {
+  const { hub, store } = setup();
+  const fid = mergedFiche(hub, "filet-ko");
+  const repo = fakeRepo({ head: "old000", mainTip: "new111" });
+  repo.state.markOk = false;
+  assert.deepEqual(await deployImprovement(hub, fid, optsFor(repo)), { error: "filet de déploiement impossible" });
+  assert.deepEqual(repo.serviceCalls, [], "pas de déploiement sans filet");
+  assert.equal(repo.state.head, "old000");
+  assert.equal(store.improve.get(fid)!.status, "merged");
+});
+
+test("redémarrage sans effet : le marqueur est retiré avec la remise du dépôt", async () => {
+  const { hub } = setup();
+  const fid = mergedFiche(hub, "filet-sans-effet");
+  const repo = fakeRepo({ head: "old000", mainTip: "new111", running: "old000" });
+  repo.state.restartOk = false;
+  await deployImprovement(hub, fid, optsFor(repo));
+  assert.equal(repo.state.pending, null);
 });
 
 test("redémarrage refusé : l'ancien processus tourne encore → retour à 'merged', pas d'observation", async () => {
@@ -831,7 +877,7 @@ test("sur un vrai dépôt git temporaire : déploiement par pull, retour arrièr
     // un no-op qui n'échange pas le code). runningCommit lit donc le HEAD réel du dépôt de travail.
     const runningCommit = () => g(work, "rev-parse", "HEAD");
     // recordGood/pinRollbackScript injectés en no-op : le dépôt de test n'a ni data/ ni scripts/service.sh.
-    const opts: ImproveDeployOptions = { root: work, git: realGit(work), service, snapshot, runningCommit, recordGood: () => true, pinRollbackScript: () => true, rollbackScriptReady: () => true, now: () => DEPLOY, watchMinutes: 120 };
+    const opts: ImproveDeployOptions = { root: work, git: realGit(work), service, snapshot, runningCommit, recordGood: () => true, pinRollbackScript: () => true, rollbackScriptReady: () => true, markPending: () => true, clearPending: () => {}, now: () => DEPLOY, watchMinutes: 120 };
 
     // Déploiement : switch main + pull --ff-only fait réellement passer le poste de v1 à v2.
     const fid = mergedFiche(hub, "reelle", 7, v2);
