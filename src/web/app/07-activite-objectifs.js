@@ -493,7 +493,7 @@ function renderGoal(g) {
   const last = reports.at(-1);
   const live = g.status === "active" || g.status === "waiting" || g.status === "paused";
   const journal = g.events.length
-    ? `<details class="goal-log"><summary>Journal des tours</summary><ol>${g.events
+    ? `<details class="goal-log goal-journal"><summary>Journal des tours</summary><ol>${g.events
         .map(
           (e) =>
             `<li data-kind="${e.kind}"><span class="goal-turn">${e.kind === "note" ? "toi" : e.kind === "system" ? "·" : `tour ${e.turn}`}</span><span>${esc(e.text)}${e.next ? `<br><span class="quiet">Ensuite : ${esc(e.next)}</span>` : ""}</span></li>`,

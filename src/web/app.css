@@ -2801,7 +2801,10 @@ details[open] .hist-title {
   color: var(--text-2);
 }
 
-.goal-log ol {
+/* La grille « tour · texte » ne vaut que pour le journal d'un objectif : .goal-log sert aussi de style
+   commun à tous les dépliants (diff, tests, relectures, réglages de projet…), dont les listes restent
+   des listes. */
+.goal-journal > ol {
   display: grid;
   gap: 6px;
   margin: 8px 0 0;
@@ -2810,7 +2813,7 @@ details[open] .hist-title {
   font-size: var(--fs-small);
 }
 
-.goal-log li {
+.goal-journal > ol > li {
   display: grid;
   grid-template-columns: 52px minmax(0, 1fr);
   gap: 8px;
@@ -2821,21 +2824,7 @@ details[open] .hist-title {
   color: var(--text-3);
 }
 
-/* Du Markdown rendu dans un dépliant (critique du plan par Codex…) : ses listes restent des listes, pas la
-   grille du journal des objectifs ci-dessus (sinon chaque morceau de texte et de code devient une colonne). */
-.goal-log .prose ol,
-.goal-log .prose ul {
-  display: block;
-  margin: 0 0 10px;
-  padding-left: 22px;
-  list-style: revert;
-}
-
-.goal-log .prose li {
-  display: list-item;
-}
-
-.goal-log li[data-kind="system"] {
+.goal-journal li[data-kind="system"] {
   color: var(--text-3);
 }
 
@@ -6337,11 +6326,6 @@ ui-menu-separator {
   margin: 6px 0 0;
   padding-left: 18px;
   font-size: var(--fs-small);
-}
-
-/* Pas la grille du journal des objectifs (.goal-log li) : un tour, puis ses points, en blocs. */
-.goal-log .dev-review-notes li {
-  display: block;
 }
 
 .dev-review-notes p {
