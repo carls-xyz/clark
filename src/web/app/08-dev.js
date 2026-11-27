@@ -575,7 +575,7 @@ function renderDevTask(t, nested = false) {
           ? `<p class="quiet" role="status">Le Mac était en veille (${t.sleptMinutes} min) : l'agent reprend à son réveil, rien à faire.</p>`
           : ""
     }
-    ${t.status === "working" && t.stoppable ? `<div class="card-actions"><button type="button" class="btn ghost" data-dev-action="stop"${t.waiting ? " data-waiting" : ""}>${t.waiting ? "Annuler" : "Arrêter l'agent"}</button></div>` : ""}
+    ${t.status === "working" && t.stoppable ? `<div class="card-actions"><button type="button" class="btn secondary" data-dev-action="stop"${t.waiting ? " data-waiting" : ""}>${t.waiting ? "Annuler" : "Arrêter l'agent"}</button></div>` : ""}
     ${t.status === "working" ? (t.waiting ? `<p class="quiet">En attente d'un agent libre (${state.dev?.parallel ?? 2} en même temps au plus).</p>` : `${t.checkpoint ? `<p class="checkpoint solo">${esc(t.checkpoint)}</p>` : ""}${t.steps.length ? renderSteps(t.steps) : `<p class="quiet">L'agent lit le projet.</p>`}`) : ""}
     ${
       t.blockedOn
