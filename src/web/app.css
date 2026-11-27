@@ -5005,6 +5005,17 @@ ui-dialog-content.palette:not([hidden]) {
   justify-content: center;
 }
 
+/* L'en-tête reste en haut ; seuls la date, le champ et les raccourcis se centrent dans la place qui reste
+   (deux marges automatiques se partagent le vide : sous l'en-tête, et après le dernier élément). */
+.view-chat[data-empty] .view-head {
+  margin-bottom: auto;
+}
+
+.view-chat[data-empty]::after {
+  content: "";
+  margin-top: auto;
+}
+
 .view-chat[data-empty] .thread {
   display: flex;
   flex: none;
