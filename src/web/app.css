@@ -2821,6 +2821,20 @@ details[open] .hist-title {
   color: var(--text-3);
 }
 
+/* Du Markdown rendu dans un dépliant (critique du plan par Codex…) : ses listes restent des listes, pas la
+   grille du journal des objectifs ci-dessus (sinon chaque morceau de texte et de code devient une colonne). */
+.goal-log .prose ol,
+.goal-log .prose ul {
+  display: block;
+  margin: 0 0 10px;
+  padding-left: 22px;
+  list-style: revert;
+}
+
+.goal-log .prose li {
+  display: list-item;
+}
+
 .goal-log li[data-kind="system"] {
   color: var(--text-3);
 }
