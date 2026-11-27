@@ -5,7 +5,24 @@
  * listés (formulaire ouvert, correction en cours, menu de moteur) sont gardés tels quels,
  * le focus et le curseur reviennent où ils étaient.
  */
+// Un menu « … » ouvert (tâche dev, automatisation) : la zone n'est pas redessinée tant qu'il l'est. Détacher
+// le menu de la page le ferme sous le doigt, et le garder de côté ne suffit pas : il se referme quand même.
+// On redessine dès qu'il est refermé.
+const OPEN_MENU = "ui-menu [data-slot='menu-trigger'][data-open]";
+let menuWait = null;
+function menuOpenIn(root) {
+  if (!root.querySelector(OPEN_MENU)) return false;
+  menuWait ??= setInterval(() => {
+    if (document.querySelector(OPEN_MENU)) return;
+    clearInterval(menuWait);
+    menuWait = null;
+    renderView();
+  }, 300);
+  return true;
+}
+
 function swap(root, html, keep = []) {
+  if (menuOpenIn(root)) return;
   const active = root.contains(document.activeElement) ? document.activeElement : null;
   const caret = hasCaret(active) ? [active.selectionStart, active.selectionEnd] : null;
   const key = focusKey(root);
