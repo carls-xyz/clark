@@ -330,7 +330,7 @@ function renderDevMore(t, project, nested) {
     `<ui-menu-item value="discard" class="danger">Jeter</ui-menu-item>`,
   ];
   return `<ui-menu data-dev-more="${t.id}">
-    <ui-menu-trigger><button type="button" class="btn ghost more-btn" aria-label="Plus d'actions pour la tâche #${t.id}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="3.5" cy="8" r="1.3" fill="currentColor" /><circle cx="8" cy="8" r="1.3" fill="currentColor" /><circle cx="12.5" cy="8" r="1.3" fill="currentColor" /></svg></button></ui-menu-trigger>
+    <ui-menu-trigger><button type="button" class="btn secondary more-btn" aria-label="Plus d'actions pour la tâche #${t.id}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="3.5" cy="8" r="1.3" fill="currentColor" /><circle cx="8" cy="8" r="1.3" fill="currentColor" /><circle cx="12.5" cy="8" r="1.3" fill="currentColor" /></svg></button></ui-menu-trigger>
     <ui-menu-content class="menu-more" align="start">${items.join("")}</ui-menu-content>
   </ui-menu>`;
 }
@@ -581,13 +581,14 @@ function renderDevTask(t, nested = false) {
       t.blockedOn
         ? `<div class="dev-blocked" role="status"><p><strong>L'agent attend ton accord</strong> : ${esc(t.blockedOn)}</p><div class="card-actions"><button type="button" class="btn primary" data-dev-action="unblock">Autoriser et reprendre</button><button type="button" class="btn ghost" data-dev-action="discard">Jeter</button></div><p class="quiet">Ou écris une autre consigne dans le champ Retouche.</p></div>`
         : t.error
-          ? `<p class="goal-reason">${esc(t.error)}</p>${t.status === "failed" ? `<div class="card-actions"><button type="button" class="btn primary" data-dev-action="resume">${t.prepared ? "Reprendre" : "Relancer depuis le début"}</button></div>` : ""}`
+          ? `<p class="goal-reason">${esc(t.error)}</p>`
           : ""
     }
     ${/* Les actions en haut, sous l'état : sur une longue tâche, elles ne se perdent plus sous le résumé et le diff. */ ""}
     ${
       open
         ? `<div class="card-actions">
+            ${t.status === "failed" && t.error && !t.blockedOn ? `<button type="button" class="btn primary" data-dev-action="resume">${t.prepared ? "Reprendre" : "Relancer depuis le début"}</button>` : ""}
             ${t.status === "review" ? (t.compareWith ? `<button type="button" class="btn primary" data-dev-keep="${t.id}">Garder celle-ci</button>` : `<button type="button" class="btn primary" data-dev-action="accept"${openPointsAttrs(t)}>${t.prOf ? "Accepter et mettre à jour la PR" : "Accepter"}</button>`) : ""}
             ${state.dev?.preview?.taskId === t.id ? "" : `<button type="button" class="btn secondary" data-design-open>Aperçu</button>`}
             ${renderDevMore(t, project, nested)}
@@ -604,7 +605,8 @@ function renderDevTask(t, nested = false) {
           : ""
     }
 
-    ${open && t.summary ? `<div class="prose dev-summary">${md(t.summary)}</div>` : ""}
+    ${/* Un agent arrêté sur une erreur n'a souvent que cette erreur pour résumé : elle est déjà affichée au-dessus. */ ""}
+    ${open && t.summary && !(t.error && t.error.includes(t.summary.trim())) ? `<div class="prose dev-summary">${md(t.summary)}</div>` : ""}
     ${
       open && files.length
         ? `<ul class="dev-files">${files
