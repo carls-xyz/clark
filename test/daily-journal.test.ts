@@ -7,7 +7,7 @@ import type { Config } from "../src/config.ts";
 import type { executeTask } from "../src/core/agent.ts";
 import { Conversation } from "../src/core/conversation.ts";
 import { createHub, OWNER_CHAT } from "../src/core/hub.ts";
-import { catchUpMonth, catchUpWeek, cleanJournal, dayBounds, isoMonth, isoWeek, journalOf, JOURNAL_BUSY, JOURNAL_DIR, JOURNAL_UNUSABLE, lastMonthForPrompt, lastWeekForPrompt, mayTryJournal, MONTH_HOUR, MONTH_MINUTE, monthlyDue, needsRewrite, quietDay, recentJournalForPrompt, RETRY_DELAY_MS, startDailyJournal, writeJournal, writeJournalNow, writeMonthSummary, writeWeekSummary } from "../src/core/daily-journal.ts";
+import { addDays, catchUpMonth, catchUpWeek, cleanJournal, dayBounds, isoMonth, isoWeek, journalOf, JOURNAL_BUSY, JOURNAL_DIR, JOURNAL_UNUSABLE, lastMonthForPrompt, lastWeekForPrompt, mayTryJournal, MONTH_HOUR, MONTH_MINUTE, monthlyDue, needsRewrite, quietDay, recentJournalForPrompt, RETRY_DELAY_MS, startDailyJournal, writeJournal, writeJournalNow, writeMonthSummary, writeWeekSummary } from "../src/core/daily-journal.ts";
 import { buildSystemPrompt } from "../src/core/prompt.ts";
 import { Store } from "../src/memory/store.ts";
 import { TaskJournal } from "../src/tasks/journal.ts";
@@ -364,4 +364,42 @@ test("mois : nomme le mois réel (non trompeur) et apparaît dans le prompt syst
   assert.equal(lastMonthForPrompt(store.db), `En octobre 2026 : ${brief}`);
   const sys = buildSystemPrompt(store, join(tmpdir(), "rien"));
   assert.ok(sys.includes(`En octobre 2026 : ${brief}`));
+});
+
+test("journal : Mac endormi pendant le journal de 23 h → rattrapé le lendemain matin, sans redémarrage", async (t) => {
+  const { store, hub } = busyDay();
+  const day = parisToday();
+  const flush = async () => {
+    for (let i = 0; i < 40; i++) await new Promise((r) => setImmediate(r));
+  };
+  t.mock.timers.enable({ apis: ["setInterval", "setTimeout"] });
+  // Le jour même, 23 h 30 à Paris (hiver : UTC+1).
+  let clock = new Date(`${day}T22:30:00Z`);
+  let asleep = true;
+  const calls: string[] = [];
+  const think = async (prompt: string) => {
+    calls.push(prompt);
+    if (asleep) throw new Error("API Error: Your computer went to sleep mid-response.");
+    return journalText("Rattrapé au réveil.");
+  };
+  const stop = startDailyJournal(hub, think, () => null, () => clock);
+  // Le rattrapage du démarrage (60 s) vise la veille, vide : il passe et rend le verrou.
+  t.mock.timers.tick(60_000);
+  await flush();
+  t.mock.timers.tick(4 * 60_000);
+  await flush();
+  assert.ok(calls.length >= 1, "le journal de 23 h a été tenté");
+  assert.equal(journalOf(store.db).get(day), undefined, "échec : rien d'écrit");
+  // Pas de nouvel essai avant 30 min.
+  const tried = calls.length;
+  t.mock.timers.tick(5 * 60_000);
+  await flush();
+  assert.equal(calls.length, tried, "pas de nouvel essai dans les 30 min");
+  // Le lendemain, 8 h à Paris : le Mac se réveille, la journée a changé.
+  asleep = false;
+  clock = new Date(`${addDays(day, 1)}T07:00:00Z`);
+  t.mock.timers.tick(5 * 60_000);
+  await flush();
+  stop();
+  assert.equal(journalOf(store.db).get(day)?.brief, "Rattrapé au réveil.", "la veille est rattrapée par le tick, sans redémarrage");
 });
