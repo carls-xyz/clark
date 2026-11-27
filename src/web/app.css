@@ -7115,6 +7115,39 @@ ui-menu-separator {
 .remote-type input[type="text"] {
   flex: 1;
   min-width: 0;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-small);
+}
+
+.remote-url input:focus-visible,
+.remote-type input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.remote-url .btn,
+.remote-type .btn {
+  height: 36px;
+}
+
+.browser-guard {
+  margin-top: 32px;
+}
+
+.browser-guard h3.block-title {
+  margin-top: 20px;
+}
+
+/* Une adresse longue passe à la ligne au lieu de pousser la page en largeur. */
+.health-list li > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .remote-mask {
