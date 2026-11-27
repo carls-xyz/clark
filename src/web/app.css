@@ -195,7 +195,9 @@ kbd {
   background: var(--surface-2);
 }
 
+/* Discret, mais reconnaissable comme un bouton : un contour fin, pas de fond. */
 .btn.ghost {
+  border-color: var(--line-strong);
   background: transparent;
   color: var(--text-2);
   height: 32px;
@@ -1422,7 +1424,7 @@ kbd {
 }
 
 .auto-new {
-  width: 100%;
+  margin-top: 12px;
 }
 
 .auto-form {
@@ -2801,7 +2803,10 @@ details[open] .hist-title {
   color: var(--text-2);
 }
 
-.goal-log ol {
+/* La grille « tour · texte » ne vaut que pour le journal d'un objectif : .goal-log sert aussi de style
+   commun à tous les dépliants (diff, tests, relectures, réglages de projet…), dont les listes restent
+   des listes. */
+.goal-journal > ol {
   display: grid;
   gap: 6px;
   margin: 8px 0 0;
@@ -2810,7 +2815,7 @@ details[open] .hist-title {
   font-size: var(--fs-small);
 }
 
-.goal-log li {
+.goal-journal > ol > li {
   display: grid;
   grid-template-columns: 52px minmax(0, 1fr);
   gap: 8px;
@@ -2821,21 +2826,7 @@ details[open] .hist-title {
   color: var(--text-3);
 }
 
-/* Du Markdown rendu dans un dépliant (critique du plan par Codex…) : ses listes restent des listes, pas la
-   grille du journal des objectifs ci-dessus (sinon chaque morceau de texte et de code devient une colonne). */
-.goal-log .prose ol,
-.goal-log .prose ul {
-  display: block;
-  margin: 0 0 10px;
-  padding-left: 22px;
-  list-style: revert;
-}
-
-.goal-log .prose li {
-  display: list-item;
-}
-
-.goal-log li[data-kind="system"] {
+.goal-journal li[data-kind="system"] {
   color: var(--text-3);
 }
 
@@ -3558,9 +3549,22 @@ ui-alert-dialog-close[value="confirm"] > button[data-slot="alert-dialog-close"]:
   min-width: 0;
 }
 
+/* Les rubriques des autres onglets sont masquées : l'écart ne vaut qu'entre deux rubriques visibles,
+   sinon la première affichée garde une marge en trop au-dessus. */
+#settings > .block {
+  margin-top: 0;
+}
+
+#settings > .block:not([hidden]) ~ .block:not([hidden]) {
+  margin-top: 32px;
+}
+
 @media (max-width: 900px) {
   .settings-layout {
     grid-template-columns: minmax(0, 1fr);
+    /* Les onglets gardent leur hauteur : sans ça, la place libre se partage entre les deux rangées
+       et un grand vide s'ouvre sous les onglets. */
+    grid-template-rows: auto 1fr;
   }
 
   .settings-tabs {
@@ -4755,13 +4759,15 @@ ui-dialog-content.palette:not([hidden]) {
 
 /* ── Clark, la mascotte ──────────────────────────────────────────────── */
 
+/* En haut à droite, dans le bandeau du titre, à toutes les tailles : en bas, elle recouvrait le
+   contenu (texte, cases à cocher, champ du terminal). */
 .mascot {
   position: fixed;
-  right: 24px;
-  bottom: 24px;
+  top: 6px;
+  right: 12px;
   z-index: 15;
   display: flex;
-  flex-direction: column;
+  flex-direction: column-reverse;
   align-items: flex-end;
   gap: 6px;
   pointer-events: none;
@@ -4774,12 +4780,12 @@ ui-dialog-content.palette:not([hidden]) {
 .mascot-btn {
   display: grid;
   place-items: center;
-  width: 60px;
-  height: 56px;
+  width: 44px;
+  height: 40px;
   padding: 0;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: 14px;
-  background: var(--surface);
+  background: transparent;
   cursor: pointer;
   pointer-events: auto;
   transition:
@@ -4805,6 +4811,11 @@ ui-dialog-content.palette:not([hidden]) {
 .mascot .sprite,
 .mascot-pop .sprite {
   margin: 0;
+}
+
+.mascot-btn .sprite {
+  width: 34px;
+  height: 30px;
 }
 
 /* Le « ! » suit la couleur d'alerte quand quelque chose t'attend. */
@@ -4907,27 +4918,6 @@ ui-dialog-content.palette:not([hidden]) {
   color: var(--text-3);
 }
 
-/* Petit écran : il passe en haut à droite, dans la barre du titre, pour ne pas couvrir le champ. */
-@media (max-width: 1100px) {
-  .mascot {
-    top: 6px;
-    right: 12px;
-    bottom: auto;
-    flex-direction: column-reverse;
-  }
-
-  .mascot-btn {
-    width: 44px;
-    height: 40px;
-    border-color: transparent;
-    background: transparent;
-  }
-
-  .mascot-btn .sprite {
-    width: 34px;
-    height: 30px;
-  }
-}
 
 /* ── Version simple : une barre légère, le fil au centre, le reste rangé ── */
 
@@ -5284,17 +5274,15 @@ ui-menu-separator {
 }
 
 /* La mascotte occupe le coin droit du bandeau : le titre s'arrête avant, sur une ligne. */
-@media (max-width: 1100px) {
-  .view-head {
-    padding-right: 72px;
-  }
+.view-head {
+  padding-right: 72px;
+}
 
-  .view-title {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
+.view-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @media (max-width: 720px) {
@@ -6339,11 +6327,6 @@ ui-menu-separator {
   font-size: var(--fs-small);
 }
 
-/* Pas la grille du journal des objectifs (.goal-log li) : un tour, puis ses points, en blocs. */
-.goal-log .dev-review-notes li {
-  display: block;
-}
-
 .dev-review-notes p {
   margin: 0;
   overflow-wrap: anywhere;
@@ -6753,7 +6736,7 @@ ui-menu-separator {
   cursor: default;
 }
 
-.cal-cell:hover {
+.cal-cell:not(.cal-pad):hover {
   background: var(--surface-2);
 }
 
@@ -7131,6 +7114,39 @@ ui-menu-separator {
 .remote-type input[type="text"] {
   flex: 1;
   min-width: 0;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-small);
+}
+
+.remote-url input:focus-visible,
+.remote-type input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.remote-url .btn,
+.remote-type .btn {
+  height: 36px;
+}
+
+.browser-guard {
+  margin-top: 32px;
+}
+
+.browser-guard h3.block-title {
+  margin-top: 20px;
+}
+
+/* Une adresse longue passe à la ligne au lieu de pousser la page en largeur. */
+.health-list li > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .remote-mask {
@@ -7238,10 +7254,8 @@ ui-menu-separator {
 .computer-log-title {
   margin: 16px 0 8px;
   font-size: var(--fs-small);
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text-2);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .computer-log {

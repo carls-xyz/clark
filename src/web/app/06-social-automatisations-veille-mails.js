@@ -121,9 +121,15 @@ function renderAutomations(list) {
         }
         <div class="card-actions">
           <button type="button" class="btn secondary" data-auto="run">Lancer maintenant</button>
-          ${a.kind === "dev" ? "" : a.thread === "calendar" ? `<a class="btn ghost" href="#calendrier">Voir le calendrier</a><button type="button" class="btn ghost" data-auto="thread" data-thread="main">Remettre dans la conversation</button>` : `<button type="button" class="btn ghost" data-auto="thread" data-thread="calendar">Mettre dans le calendrier</button>`}
-          <button type="button" class="btn ghost" data-auto="${a.enabled ? "disable" : "enable"}">${a.enabled ? "Couper" : "Réactiver"}</button>
-          <button type="button" class="btn ghost" data-auto="delete">Supprimer</button>
+          <ui-menu data-auto-more>
+            <ui-menu-trigger><button type="button" class="btn secondary more-btn" aria-label="Plus d'actions pour « ${esc(a.name)} »"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="3.5" cy="8" r="1.3" fill="currentColor" /><circle cx="8" cy="8" r="1.3" fill="currentColor" /><circle cx="12.5" cy="8" r="1.3" fill="currentColor" /></svg></button></ui-menu-trigger>
+            <ui-menu-content class="menu-more" align="start">
+              ${a.kind === "dev" ? "" : a.thread === "calendar" ? `<ui-menu-item value="calendar">Voir le calendrier</ui-menu-item><ui-menu-item value="thread:main">Remettre dans la conversation</ui-menu-item>` : `<ui-menu-item value="thread:calendar">Mettre dans le calendrier</ui-menu-item>`}
+              <ui-menu-item value="${a.enabled ? "disable" : "enable"}">${a.enabled ? "Couper" : "Réactiver"}</ui-menu-item>
+              <ui-menu-separator></ui-menu-separator>
+              <ui-menu-item value="delete" class="danger">Supprimer</ui-menu-item>
+            </ui-menu-content>
+          </ui-menu>
         </div>
       </div>`,
     )
@@ -142,6 +148,25 @@ side.addEventListener("change", (e) => {
     side.querySelector(".af-thread").hidden = e.target.value === "dev";
   }
 });
+
+// Le menu « … » d'une automatisation : ses choix passent par le même chemin que les boutons.
+document.addEventListener("action", (e) => {
+  const menu = e.target.closest?.("[data-auto-more]");
+  if (!menu) return;
+  const [action, thread] = String(e.detail.value).split(":");
+  if (action === "calendar") {
+    location.hash = "#calendrier";
+    return;
+  }
+  const proxy = document.createElement("button");
+  proxy.type = "button";
+  proxy.hidden = true;
+  proxy.dataset.auto = action;
+  if (thread) proxy.dataset.thread = thread;
+  menu.closest("[data-automation]").querySelector(".card-actions").append(proxy);
+  proxy.click();
+  proxy.remove();
+}, true);
 
 side.addEventListener("click", async (e) => {
   const button = e.target.closest("[data-auto]");

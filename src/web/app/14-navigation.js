@@ -307,11 +307,9 @@ function showView() {
   route();
   $("#app").dataset.view = view;
   for (const v of ["chat", "detail", "inbox", "settings", "terminal", "ideas", "calendar", "health", "browser", "computer"]) $(`#view-${v}`).hidden = v !== view;
-  // Colonne d'icônes : la section ouverte (Automatisations et Projets sont des rubriques des réglages).
-  const railTab = view === "settings" && ["automatisations", "projets"].includes(settingsTab) ? settingsTab : null;
-  for (const a of document.querySelectorAll(".rail-btn[data-view], .rail-btn[data-rail]")) {
-    const on = a.dataset.rail ? a.dataset.rail === railTab : a.dataset.view === view && !railTab;
-    if (on) a.setAttribute("aria-current", "page");
+  // Colonne d'icônes : la section ouverte.
+  for (const a of document.querySelectorAll(".rail-btn[data-view]")) {
+    if (a.dataset.view === view) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   }
   $("#app").removeAttribute("data-drawer");

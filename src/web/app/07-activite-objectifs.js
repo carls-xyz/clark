@@ -441,13 +441,15 @@ function renderInbox() {
   html += `<h2 class="activity-group" id="h-history">Historique</h2>${renderHistory()}`;
   // Sommaire en tête : où en est chaque partie, d'un coup d'œil (et un clic pour y aller).
   const todayDecisions = (state.decisions ?? []).filter((d) => sameDay(parseDate(d.created_at), new Date())).length;
-  html = `<nav class="activity-summary" aria-label="Parties de l'activité">
-    <a href="#h-waiting" data-jump class="${shown ? "is-hot" : ""}"><strong>${shown}</strong> à traiter</a>
-    <a href="#h-live" data-jump><strong>${live.length}</strong> en cours</a>
-    <a href="#h-notes" data-jump class="${newNotesCount() ? "is-hot" : ""}"><strong>${newNotesCount()}</strong> nouvelle${newNotesCount() > 1 ? "s" : ""} note${newNotesCount() > 1 ? "s" : ""}</a>
-    <a href="#h-decisions" data-jump><strong>${todayDecisions}</strong> décision${todayDecisions > 1 ? "s" : ""} aujourd'hui</a>
-    <a href="#h-history" data-jump>Historique</a>
-  </nav>${html}`;
+  // Une pastille à zéro n'apprend rien : seules celles qui ont du contenu s'affichent, puis l'historique.
+  const notesNew = newNotesCount();
+  const pills = [
+    shown ? `<a href="#h-waiting" data-jump class="is-hot"><strong>${shown}</strong> à traiter</a>` : "",
+    live.length ? `<a href="#h-live" data-jump><strong>${live.length}</strong> en cours</a>` : "",
+    notesNew ? `<a href="#h-notes" data-jump class="is-hot"><strong>${notesNew}</strong> nouvelle${notesNew > 1 ? "s" : ""} note${notesNew > 1 ? "s" : ""}</a>` : "",
+    todayDecisions ? `<a href="#h-decisions" data-jump><strong>${todayDecisions}</strong> décision${todayDecisions > 1 ? "s" : ""} aujourd'hui</a>` : "",
+  ].filter(Boolean);
+  if (pills.length) html = `<nav class="activity-summary" aria-label="Parties de l'activité">${pills.join("")}<a href="#h-history" data-jump>Historique</a></nav>${html}`;
   const root = $("#inbox");
   const keepQuestions = [...root.querySelectorAll("[data-question]")].filter((c) => {
     const i = c.querySelector("input");
@@ -493,7 +495,7 @@ function renderGoal(g) {
   const last = reports.at(-1);
   const live = g.status === "active" || g.status === "waiting" || g.status === "paused";
   const journal = g.events.length
-    ? `<details class="goal-log"><summary>Journal des tours</summary><ol>${g.events
+    ? `<details class="goal-log goal-journal"><summary>Journal des tours</summary><ol>${g.events
         .map(
           (e) =>
             `<li data-kind="${e.kind}"><span class="goal-turn">${e.kind === "note" ? "toi" : e.kind === "system" ? "·" : `tour ${e.turn}`}</span><span>${esc(e.text)}${e.next ? `<br><span class="quiet">Ensuite : ${esc(e.next)}</span>` : ""}</span></li>`,
