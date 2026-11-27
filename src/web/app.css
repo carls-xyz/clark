@@ -6737,7 +6737,7 @@ ui-menu-separator {
   cursor: default;
 }
 
-.cal-cell:hover {
+.cal-cell:not(.cal-pad):hover {
   background: var(--surface-2);
 }
 

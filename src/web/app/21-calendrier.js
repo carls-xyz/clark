@@ -140,6 +140,9 @@ function renderCalendar() {
     </button>`);
   }
 
+  // La dernière semaine se termine par des cases vides, comme la première commence : sans elles, le fond de la grille reste à nu.
+  while (cells.length % 7) cells.push(`<div class="cal-cell cal-pad" aria-hidden="true"></div>`);
+
   const dayRuns = (byDay.get(calDay) ?? []).slice().reverse();
   const [dy, dm, dd] = calDay.split("-").map(Number);
   const dayTitle = new Date(Date.UTC(dy, dm - 1, dd)).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
