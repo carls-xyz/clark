@@ -6,7 +6,7 @@ import { after, test } from "node:test";
 import type { Config } from "../src/config.ts";
 import type { executeTask } from "../src/core/agent.ts";
 import { Conversation } from "../src/core/conversation.ts";
-import { healthReport, repeatedErrors } from "../src/core/health.ts";
+import { failureStreaks, healthReport, repeatedErrors, userStopped } from "../src/core/health.ts";
 import { createHub, OWNER_CHAT } from "../src/core/hub.ts";
 import { redactSecrets } from "../src/core/redact.ts";
 import { Store } from "../src/memory/store.ts";
@@ -81,4 +81,61 @@ test("rapport : tout va bien, puis chaque point à regarder", () => {
   assert.match(texts, /3 tâches en échec/);
   assert.match(texts, /Peu de place sur le disque : 1 Go/);
   assert.equal(bad.failures.length, 3);
+});
+
+test("échecs en série : un moteur dont les tâches échouent toutes pareil part en alerte ; une réussite ou un arrêt voulu, non", () => {
+  const { store, journal, hub } = setup();
+  const backups = join(root, "backups-serie");
+  mkdirSync(backups);
+  writeFileSync(join(backups, "clark-2026-11-22.db"), "x");
+  const base = { root, logFile: join(root, "absent.log"), backupDir: backups, now: new Date(), git: (a: string[]) => (a[0] === "rev-parse" ? "abcdef1234567" : "main"), freeBytes: () => 50e9 };
+  hub.setConnection("claude", { ready: true, account: "abonnement", problem: null });
+  hub.setConnection("codex", { ready: true, account: "ChatGPT", problem: null });
+  const end = (engine: string, label: string, status: "done" | "failed", result: string) => {
+    const id = journal.create(OWNER_CHAT, label, "travail de fond");
+    journal.setEngine(id, engine);
+    journal.finish(id, status, result, 0);
+  };
+  const AGENTS = "Codex n'a pas pu ouvrir de conversation : error creating thread: failed to load AGENTS.md instructions";
+  const serie = () => healthReport(hub, base).problems.filter((p) => p.id.startsWith("echecs-suite"));
+
+  // Deux échecs identiques : pas encore une série. Les réussites de l'autre moteur, entre-temps, ne la masquent pas.
+  end("codex", "heartbeat", "failed", AGENTS);
+  end("claude", "chat", "done", "ok");
+  end("codex", "idees", "failed", AGENTS);
+  assert.deepEqual(serie(), []);
+
+  // Le troisième : une panne. Elle part en alerte, avec sa cause ; le moteur est pourtant « connecté ».
+  end("codex", "brief", "failed", AGENTS);
+  const [p] = serie();
+  assert.equal(p.id, "echecs-suite:codex");
+  assert.equal(p.alert, "normal");
+  assert.match(p.text, /Codex : les 3 dernières tâches ont échoué de la même façon — Codex n'a pas pu ouvrir de conversation/);
+  assert.ok(!healthReport(hub, base).problems.some((x) => x.id === "moteur:codex"));
+
+  // Un arrêt voulu ne coupe pas la série et ne compte pas dedans ; il ne compte pas non plus comme un échec.
+  end("codex", "chat", "failed", "Arrêté à ta demande avant la fin.");
+  assert.match(serie()[0].text, /les 3 dernières/);
+  assert.ok(userStopped("Je me suis arrêté sur une erreur (arrêté par Charles). Aucune écriture n'était en cours."));
+  assert.ok(!userStopped(AGENTS));
+  assert.equal(healthReport(hub, base).failures.length, 3);
+
+  // Une réussite : la série est finie, l'alerte tombera d'elle-même.
+  end("codex", "heartbeat", "done", "rien de neuf");
+  assert.deepEqual(serie(), []);
+
+  // Des échecs différents (quota, puis réseau, puis sommeil) ne font pas une série ; un secret dans la cause est masqué.
+  const at = "2026-11-27 10:00:00";
+  const rows = [
+    { id: 3, engine: "claude", status: "failed", result: "limite de 5 heures atteinte", updated_at: at },
+    { id: 2, engine: "claude", status: "failed", result: "réseau injoignable", updated_at: at },
+    { id: 1, engine: "claude", status: "failed", result: "le Mac s'est endormi", updated_at: at },
+  ];
+  assert.deepEqual(failureStreaks(rows, 0), []);
+  const same = [3, 2, 1].map((id) => ({ id, engine: "codex", status: "failed", result: `refusé avec ${TOKEN} après ${id} s`, updated_at: at }));
+  const [s] = failureStreaks(same, 0);
+  assert.equal(s.count, 3, "les nombres qui varient n'empêchent pas de reconnaître la même cause");
+  assert.ok(!s.cause.includes(TOKEN));
+  // Une série ancienne (plus rien depuis 24 h) n'est plus signalée.
+  assert.deepEqual(failureStreaks(same, Date.parse("2026-11-28T12:00:00Z")), []);
 });

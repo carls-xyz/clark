@@ -51,9 +51,37 @@ export function watchdogInstalled(home = homedir()): boolean {
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 /** Seuils : au-delà, un problème. */
-export const LIMITS = { queuedMinutes: 15, failures24h: 3, backupHours: 36, repeatedError: 5, alertError: 20, quotaPercent: 90, freeGBWarn: 2, freeGBBad: 0.5 } as const;
+export const LIMITS = { queuedMinutes: 15, failures24h: 3, failureStreak: 3, backupHours: 36, repeatedError: 5, alertError: 20, quotaPercent: 90, freeGBWarn: 2, freeGBBad: 0.5 } as const;
 
 const parseAt = (at: string) => Date.parse(`${at.replace(" ", "T")}Z`);
+
+/** Un arrêt voulu par l'utilisateur (bouton « Arrêter ») n'est pas un échec à compter ni à signaler. */
+export const userStopped = (result: string | null | undefined) => /Arrêté à ta demande|arrêté par Charles/.test(result ?? "");
+
+type Finished = { id: number; engine: string; status: string; result: string | null; updated_at: string };
+
+/**
+ * Échecs en série : par moteur, les dernières tâches terminées qui ont toutes échoué de la même façon, sans
+ * réussite depuis. C'est le signe d'une panne (et non d'un raté isolé) : un moteur « connecté » dont chaque
+ * conversation échoue à l'ouverture ne se voit ni dans son état ni dans son quota. Les arrêts voulus sont ignorés.
+ */
+export function failureStreaks(rows: Finished[], sinceMs: number): { engine: string; count: number; cause: string }[] {
+  // Les nombres changent d'un échec à l'autre (durées, identifiants) : la cause se compare sans eux.
+  const key = (r: string | null) => (r ?? "").replace(/\d+/g, "#").replace(/\s+/g, " ").trim().slice(0, 160);
+  const out: { engine: string; count: number; cause: string }[] = [];
+  for (const engine of new Set(rows.map((r) => r.engine))) {
+    const mine = rows.filter((r) => r.engine === engine && !userStopped(r.result)).sort((a, b) => b.id - a.id);
+    const first = mine[0];
+    if (!first || first.status !== "failed" || parseAt(first.updated_at) < sinceMs) continue;
+    let count = 0;
+    for (const r of mine) {
+      if (r.status !== "failed" || key(r.result) !== key(first.result)) break;
+      count++;
+    }
+    if (count >= LIMITS.failureStreak) out.push({ engine, count, cause: redactSecrets((first.result ?? "").replace(/\s+/g, " ").trim()).slice(0, 140) });
+  }
+  return out;
+}
 
 function gitRunner(root: string) {
   return (args: string[]) => {
@@ -177,10 +205,23 @@ export function healthReport(hub: Hub, src: HealthSources) {
 
   // Échecs des dernières 24 h (tes demandes et le travail de fond, pas les sous-étapes).
   const since = new Date(now.getTime() - 24 * HOUR).toISOString().slice(0, 19).replace("T", " ");
-  const failures = store.db
-    .prepare("SELECT id, label, prompt, status, updated_at FROM tasks WHERE parent_id IS NULL AND status IN ('failed', 'needs_check', 'abandoned') AND updated_at >= ? ORDER BY id DESC LIMIT 20")
-    .all(since) as { id: number; label: string; prompt: string; status: string; updated_at: string }[];
+  const failures = (
+    store.db
+      .prepare("SELECT id, label, prompt, status, result, updated_at FROM tasks WHERE parent_id IS NULL AND status IN ('failed', 'needs_check', 'abandoned') AND updated_at >= ? ORDER BY id DESC LIMIT 40")
+      .all(since) as { id: number; label: string; prompt: string; status: string; result: string | null; updated_at: string }[]
+  )
+    .filter((f) => !userStopped(f.result))
+    .slice(0, 20);
   if (failures.length >= LIMITS.failures24h) problems.push({ id: "echecs", level: "warn", text: `${failures.length} tâches en échec ces dernières 24 h.`, href: "#activite" });
+
+  // Échecs en série d'un moteur : une panne, pas un raté isolé. Celle-là part en alerte.
+  const finished = store.db
+    .prepare("SELECT id, engine, status, result, updated_at FROM tasks WHERE parent_id IS NULL AND engine IS NOT NULL AND status IN ('done', 'failed', 'needs_check', 'abandoned') ORDER BY id DESC LIMIT 60")
+    .all() as Finished[];
+  for (const s of failureStreaks(finished, now.getTime() - 24 * HOUR)) {
+    const label = s.engine === "claude" ? "Claude" : s.engine === "codex" ? "Codex" : s.engine;
+    problems.push({ id: `echecs-suite:${s.engine}`, level: "warn", text: `${label} : les ${s.count} dernières tâches ont échoué de la même façon — ${s.cause}`, href: "#sante", alert: "normal" });
+  }
 
   // Erreurs répétées depuis le démarrage.
   const errors = repeatedErrors(logTail(src.logFile));
